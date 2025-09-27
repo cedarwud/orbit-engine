@@ -323,7 +323,7 @@ class Stage5AcademicStandardsValidator:
             
             # 檢查Volume存儲路徑
             volume_paths = [
-                "/orbit-engine/data/outputs/stage4",
+                "data/outputs/stage4",
                 "/app/data/layered_phase0_enhanced", 
                 "/app/data/handover_scenarios",
                 "/app/data/signal_quality_analysis",

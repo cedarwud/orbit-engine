@@ -23,22 +23,22 @@ class TestRefactoredPipelineDataFlow:
         """創建所有階段處理器"""
         processors = {}
 
-        from stages.stage1_orbital_calculation.stage1_data_loading_processor import create_stage1_processor
+        from stages.stage1_orbital_calculation.stage1_main_processor import create_stage1_processor
         processors['stage1'] = create_stage1_processor()
 
-        from stages.stage2_visibility_filter.stage2_orbital_computing_processor import create_stage2_processor
+        from stages.stage2_orbital_computing.stage2_orbital_computing_processor import create_stage2_processor
         processors['stage2'] = create_stage2_processor()
 
         from stages.stage3_signal_analysis.stage3_signal_analysis_processor import create_stage3_processor
         processors['stage3'] = create_stage3_processor()
 
-        from stages.stage4_timeseries_preprocessing.timeseries_preprocessing_processor import create_stage4_processor
-        processors['stage4'] = create_stage4_processor()
+        from stages.stage4_optimization.stage4_optimization_processor import Stage4OptimizationProcessor
+        processors['stage4'] = Stage4OptimizationProcessor()
 
         from stages.stage5_data_integration.data_integration_processor import create_stage5_processor
         processors['stage5'] = create_stage5_processor()
 
-        from stages.stage6_dynamic_pool_planning.stage6_main_processor import create_stage6_processor
+        from stages.stage6_persistence_api.stage6_main_processor import create_stage6_processor
         processors['stage6'] = create_stage6_processor()
 
         return processors

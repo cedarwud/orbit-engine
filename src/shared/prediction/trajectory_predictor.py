@@ -2,7 +2,7 @@
 軌跡預測器
 
 整合來源：
-- stage6_dynamic_pool_planning/trajectory_prediction_engine.py (軌跡預測核心)
+- stage6_persistence_api/trajectory_prediction_engine.py (軌跡預測核心)
 - stage1_orbital_calculation/ (軌道計算基礎)
 """
 

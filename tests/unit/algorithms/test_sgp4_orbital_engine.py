@@ -9,7 +9,10 @@ import math
 
 # 導入待測試的模組
 import sys
-sys.path.append('/home/sat/ntn-stack/orbit-engine-system/src')
+from pathlib import Path
+
+# 添加src路徑到模組搜索路徑
+sys.path.append(str(Path(__file__).parent.parent.parent.parent / "src"))
 
 from shared.engines.sgp4_orbital_engine import SGP4OrbitalEngine
 from tests.fixtures.tle_data_loader import load_test_tle_data, get_tle_epoch_time

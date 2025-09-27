@@ -1,0 +1,150 @@
+{
+  "timestamp": "2025-09-27T07:06:55.299561+00:00",
+  "stage": "stage5_data_integration",
+  "compliance_score": 0.0,
+  "grade_level": "Grade F - 嚴重違規",
+  "violations": [
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/grade_a_compliance_validator.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "mock_data_usage",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/grade_a_compliance_validator.py",
+      "description": "發現模擬數據使用"
+    },
+    {
+      "type": "hardcoded_assumption",
+      "severity": "major",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/grade_a_compliance_validator.py",
+      "description": "發現硬編碼假設"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/animation_builder.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "mock_data_usage",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/intelligent_data_fusion_engine.py",
+      "description": "發現模擬數據使用"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/timeseries_converter.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/stage5_academic_standards_validator.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "mock_data_usage",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/stage5_academic_standards_validator.py",
+      "description": "發現模擬數據使用"
+    },
+    {
+      "type": "hardcoded_assumption",
+      "severity": "major",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/stage5_academic_standards_validator.py",
+      "description": "發現硬編碼假設"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/layered_data_generator.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "hardcoded_assumption",
+      "severity": "major",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/real_quality_calculator.py",
+      "description": "發現硬編碼假設"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/handover_scenario_engine.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "hardcoded_assumption",
+      "severity": "major",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/handover_scenario_engine.py",
+      "description": "發現硬編碼假設"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/format_converter_hub.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage5_data_integration/data_integration_processor.py",
+      "description": "發現簡化算法實現"
+    }
+  ],
+  "academic_requirements": [
+    {
+      "requirement": "real_tle_data_source",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "complete_sgp4_implementation",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "physics_based_calculations",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "itu_r_compliant_formulas",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "3gpp_standard_parameters",
+      "status": "satisfied",
+      "critical": true
+    }
+  ],
+  "file_checksums": {
+    "src/stages/stage5_data_integration/stage_data_loader.py": "d934730f863e2e3ab29f470731c54933",
+    "src/stages/stage5_data_integration/grade_a_compliance_validator.py": "1b62ffbae0e973ac1f44700294be6d36",
+    "src/stages/stage5_data_integration/animation_builder.py": "37004c37a08d814d5957d4d3e1ca7d16",
+    "src/stages/stage5_data_integration/intelligent_data_fusion_engine.py": "0e2db4a69a3b24ccff1037c75e99a02b",
+    "src/stages/stage5_data_integration/stage5_data_flow_processor.py": "a5b947e75ff928f59a780ea37ea5ef02",
+    "src/stages/stage5_data_integration/__init__.py": "414a972027b0efd7a7ed22324b13f2fd",
+    "src/stages/stage5_data_integration/timeseries_converter.py": "bd9fc2988687d55ac08f7852cd89a7ad",
+    "src/stages/stage5_data_integration/stage5_academic_standards_validator.py": "6de842dda2a7ab1e864370881fbd27b4",
+    "src/stages/stage5_data_integration/signal_data_processor.py": "760915456221bf62cdecc2634c37ab87",
+    "src/stages/stage5_data_integration/stage5_shared_utilities.py": "e9c680d3123eec7f08501be3aeeaa317",
+    "src/stages/stage5_data_integration/layered_data_generator.py": "70d6f03266f46c640c61da2916f2dd7a",
+    "src/stages/stage5_data_integration/real_quality_calculator.py": "964daf0b2dde85b1fb79a739258069d1",
+    "src/stages/stage5_data_integration/handover_event_manager.py": "f78aab7fe498e6d56d15a988753d4143",
+    "src/stages/stage5_data_integration/handover_scenario_engine.py": "cb7a3f3a06d1c354554e8666ea29916e",
+    "src/stages/stage5_data_integration/format_converter_hub.py": "6a32cf4f66202e45362b45b42fa93cf4",
+    "src/stages/stage5_data_integration/cross_stage_validator.py": "398dde5b17c1dd4bfc48ca37a1cff326",
+    "src/stages/stage5_data_integration/data_integration_processor.py": "ebf12e9eb72980c49e873c5c5a27e891"
+  },
+  "performance_metrics": {
+    "total_files": 17,
+    "total_lines": 10269,
+    "avg_file_size_kb": 25.108455882352942,
+    "complexity_score": 39.88235294117647
+  }
+}

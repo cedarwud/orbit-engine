@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-Stage5 數據整合處理器 - TDD測試套件
+Stage5 數據整合處理器 - TDD測試套件 (v2.0模組化架構)
 
 🚨 核心測試目標：
-- 驗證數據整合邏輯的準確性和學術級標準合規性
-- 確保3GPP換手場景引擎正常工作
-- 檢查RSRP計算和物理約束驗證
+- 驗證v2.0模組化數據整合架構的準確性
+- 確保TimeseriesConverter、AnimationBuilder、LayeredDataGenerator、FormatConverterHub正常工作
+- 檢查時間序列轉換、動畫建構、分層數據生成、多格式輸出功能
 - 驗證JSON序列化和數據完整性
-- 測試PostgreSQL數據庫集成
+- 測試空數據模式處理能力
 
 測試覆蓋：
-✅ Stage5處理器初始化和組件載入
-✅ 學術標準配置載入
-✅ Stage4數據載入和驗證
-✅ 換手場景引擎
-✅ 分層數據生成器
-✅ 數據庫集成
+✅ Stage5處理器初始化和v2.0模組化組件載入
+✅ 時間序列轉換功能
+✅ 動畫數據建構功能
+✅ 分層數據生成功能
+✅ 多格式輸出轉換功能
+✅ 空數據模式處理
 ✅ JSON序列化處理
-✅ 結果輸出和格式驗證
+✅ 結果輸出和驗證快照功能
 """
 
 import pytest
@@ -33,119 +33,107 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 
 @pytest.fixture
 def stage5_processor():
-    """創建Stage5數據整合處理器實例"""
+    """創建Stage5數據整合處理器實例 (v2.0架構)"""
     import sys
-    sys.path.append('/orbit-engine/src')
+    sys.path.append('/home/sat/orbit-engine/src')
 
-    from stages.stage5_data_integration.data_integration_processor import create_stage5_processor
+    from stages.stage5_data_integration.data_integration_processor import DataIntegrationProcessor
 
-    return create_stage5_processor()
+    # 使用直接實例化，匹配實際實現
+    config = {
+        'timeseries': {
+            'sampling_frequency': '10S',
+            'interpolation_method': 'cubic_spline',
+            'compression_enabled': True
+        },
+        'animation': {
+            'frame_rate': 30,
+            'duration_seconds': 300
+        },
+        'layers': {
+            'spatial_resolution_levels': 5,
+            'enable_spatial_indexing': True
+        },
+        'formats': {
+            'output_formats': ['json', 'geojson', 'csv', 'api_package']
+        }
+    }
+    return DataIntegrationProcessor(config)
 
 @pytest.fixture
-def mock_stage4_data():
-    """模擬Stage4輸出數據結構"""
+def real_stage4_data():
+    """Real Stage4 data using authentic TLE orbital calculations"""
+    import sys
+    sys.path.append('/home/sat/orbit-engine/tests')
+    from fixtures.real_tle_data_loader import create_real_stage4_data
+
+    return create_real_stage4_data(satellite_count=3, constellations=['starlink', 'oneweb'])
+
+@pytest.fixture
+def empty_stage4_data():
+    """模擬空的Stage4輸出數據（用於測試空數據模式）"""
     return {
-        "enhanced_timeseries_data": [
-            {
-                "satellite_id": "STARLINK-1001",
-                "constellation": "starlink",
-                "orbital_period_analysis": {
-                    "period_minutes": 96.2,
-                    "altitude_km": 550.0,
-                    "inclination_deg": 53.0
-                },
-                "enhanced_position_timeseries": [
-                    {
-                        "timestamp": "2025-09-16T13:20:00+00:00",
-                        "position": {
-                            "distance_km": 550.5,
-                            "elevation_deg": 35.2,
-                            "azimuth_deg": 180.0,
-                            "is_visible": True
-                        },
-                        "signal_quality": {
-                            "rsrp_dbm": -85.2,
-                            "rsrq_db": -12.5,
-                            "sinr_db": 18.3
-                        },
-                        "doppler_data": {
-                            "frequency_shift_hz": 1250.0,
-                            "velocity_component_ms": 3500.0
-                        }
-                    }
-                ]
-            },
-            {
-                "satellite_id": "ONEWEB-0123",
-                "constellation": "oneweb",
-                "orbital_period_analysis": {
-                    "period_minutes": 109.8,
-                    "altitude_km": 1200.0,
-                    "inclination_deg": 87.4
-                },
-                "enhanced_position_timeseries": [
-                    {
-                        "timestamp": "2025-09-16T13:20:00+00:00",
-                        "position": {
-                            "distance_km": 1200.3,
-                            "elevation_deg": 15.8,
-                            "azimuth_deg": 90.0,
-                            "is_visible": True
-                        },
-                        "signal_quality": {
-                            "rsrp_dbm": -95.8,
-                            "rsrq_db": -15.2,
-                            "sinr_db": 12.1
-                        },
-                        "doppler_data": {
-                            "frequency_shift_hz": 800.0,
-                            "velocity_component_ms": 2800.0
-                        }
-                    }
-                ]
-            }
-        ],
+        "optimal_pool": {
+            "satellites": []
+        },
+        "optimization_results": {
+            "total_satellites_optimized": 0,
+            "optimization_algorithm": "none",
+            "performance_score": 0.0
+        },
         "metadata": {
-            "stage": "stage4_timeseries_preprocessing",
-            "total_satellites": 2,
-            "execution_time_seconds": 2.1,
+            "stage": "stage4_optimization",
+            "total_satellites": 0,
+            "execution_time_seconds": 0.1,
             "timestamp": "2025-09-16T13:20:00+00:00"
         }
     }
 
 class TestStage5ProcessorInitialization:
-    """Stage5處理器初始化測試"""
+    """Stage5處理器初始化測試 (v2.0架構)"""
 
     @pytest.mark.stage5
     @pytest.mark.critical
     def test_processor_initialization_success(self, stage5_processor):
-        """🚨 核心測試：Stage5處理器成功初始化"""
+        """🚨 核心測試：Stage5處理器成功初始化 (v2.0)"""
         assert stage5_processor is not None
-        assert hasattr(stage5_processor, 'output_dir')
-        assert hasattr(stage5_processor, 'processing_config')
-        assert hasattr(stage5_processor, 'academic_config')
-        assert stage5_processor.processing_config['academic_mode'] is True
-        assert stage5_processor.processing_config['enable_3gpp_compliance'] is True
+        assert hasattr(stage5_processor, 'config')
+        assert hasattr(stage5_processor, 'stage_number')
+        assert hasattr(stage5_processor, 'stage_name')
+        assert stage5_processor.stage_number == 5
+        assert stage5_processor.stage_name == 'data_integration'
 
     @pytest.mark.stage5
     @pytest.mark.critical
-    def test_academic_standards_config_loaded(self, stage5_processor):
-        """🚨 核心測試：學術標準配置成功載入"""
-        assert hasattr(stage5_processor, 'academic_config')
-        assert stage5_processor.academic_config is not None
+    def test_v2_modular_components_initialized(self, stage5_processor):
+        """🚨 核心測試：v2.0模組化組件成功初始化"""
+        # 檢查v2.0核心組件是否存在
+        assert hasattr(stage5_processor, 'timeseries_converter')
+        assert hasattr(stage5_processor, 'animation_builder')
+        assert hasattr(stage5_processor, 'layer_generator')
+        assert hasattr(stage5_processor, 'format_converter')
 
-        # 檢查學術配置是否有必要的方法
-        assert hasattr(stage5_processor.academic_config, 'get_3gpp_parameters')
-        assert hasattr(stage5_processor.academic_config, 'get_rsrp_threshold')
+        # 檢查組件是否可用
+        assert stage5_processor.timeseries_converter is not None
+        assert stage5_processor.animation_builder is not None
+        assert stage5_processor.layer_generator is not None
+        assert stage5_processor.format_converter is not None
 
     @pytest.mark.stage5
-    @pytest.mark.academic
-    def test_core_components_initialized(self, stage5_processor):
-        """🚨 學術級測試：核心組件正確初始化"""
-        # 檢查核心組件是否存在
-        assert hasattr(stage5_processor, 'handover_scenario_engine')
-        assert hasattr(stage5_processor, 'layered_data_generator')
-        assert hasattr(stage5_processor, 'signal_quality_calculator')
+    @pytest.mark.configuration
+    def test_configuration_structure(self, stage5_processor):
+        """🚨 配置測試：v2.0配置結構正確"""
+        # 檢查配置結構
+        assert hasattr(stage5_processor, 'timeseries_config')
+        assert hasattr(stage5_processor, 'animation_config')
+        assert hasattr(stage5_processor, 'layer_config')
+        assert hasattr(stage5_processor, 'format_config')
+
+        # 檢查配置內容
+        assert 'sampling_frequency' in stage5_processor.timeseries_config
+        assert 'frame_rate' in stage5_processor.animation_config
+        assert 'spatial_resolution_levels' in stage5_processor.layer_config
+        assert 'output_formats' in stage5_processor.format_config
 
 class TestStage5DataProcessing:
     """Stage5數據處理測試"""
@@ -155,7 +143,7 @@ class TestStage5DataProcessing:
     def test_load_stage4_data_file_exists(self, stage5_processor):
         """🚨 整合測試：從檔案載入Stage4數據 (檔案存在時)"""
         # 檢查Stage4輸出是否存在
-        stage4_output_path = Path("/orbit-engine/data/outputs/stage4/enhanced_timeseries_output.json")
+        stage4_output_path = Path("/home/sat/orbit-engine/data/outputs/stage4/enhanced_timeseries_output.json")
 
         if stage4_output_path.exists():
             # 測試載入Stage4數據
@@ -339,7 +327,7 @@ class TestStage5FullExecution:
     def test_full_stage5_execution_with_real_data(self, stage5_processor):
         """🚨 整合測試：完整Stage5執行 (使用真實數據)"""
         # 檢查Stage4輸出是否存在
-        stage4_output_path = Path("/orbit-engine/data/outputs/stage4/enhanced_timeseries_output.json")
+        stage4_output_path = Path("/home/sat/orbit-engine/data/outputs/stage4/enhanced_timeseries_output.json")
 
         if not stage4_output_path.exists():
             pytest.skip("Stage4輸出文件不存在，跳過完整執行測試")
@@ -368,7 +356,7 @@ class TestStage5FullExecution:
     @pytest.mark.performance
     def test_stage5_execution_performance(self, stage5_processor):
         """🚨 性能測試：Stage5執行時間在合理範圍"""
-        stage4_output_path = Path("/orbit-engine/data/outputs/stage4/enhanced_timeseries_output.json")
+        stage4_output_path = Path("/home/sat/orbit-engine/data/outputs/stage4/enhanced_timeseries_output.json")
 
         if not stage4_output_path.exists():
             pytest.skip("Stage4輸出文件不存在，跳過性能測試")
@@ -389,7 +377,7 @@ class TestStage5OutputValidation:
     @pytest.mark.output
     def test_output_files_created(self, stage5_processor):
         """🚨 輸出測試：檢查輸出文件是否正確創建"""
-        stage4_output_path = Path("/orbit-engine/data/outputs/stage4/enhanced_timeseries_output.json")
+        stage4_output_path = Path("/home/sat/orbit-engine/data/outputs/stage4/enhanced_timeseries_output.json")
 
         if not stage4_output_path.exists():
             pytest.skip("Stage4輸出文件不存在，跳過輸出文件測試")
@@ -398,7 +386,7 @@ class TestStage5OutputValidation:
         results = stage5_processor.execute()
 
         # 檢查主要輸出文件存在
-        output_dir = Path("/orbit-engine/data/outputs/stage5")
+        output_dir = Path("/home/sat/orbit-engine/data/outputs/stage5")
         main_output = output_dir / "data_integration_output.json"
         assert main_output.exists(), "Stage5主要輸出文件未創建"
 
@@ -410,7 +398,7 @@ class TestStage5OutputValidation:
     @pytest.mark.format
     def test_output_json_format_valid(self, stage5_processor):
         """🚨 格式測試：輸出JSON格式正確"""
-        stage4_output_path = Path("/orbit-engine/data/outputs/stage4/enhanced_timeseries_output.json")
+        stage4_output_path = Path("/home/sat/orbit-engine/data/outputs/stage4/enhanced_timeseries_output.json")
 
         if not stage4_output_path.exists():
             pytest.skip("Stage4輸出文件不存在，跳過JSON格式測試")
@@ -419,7 +407,7 @@ class TestStage5OutputValidation:
         results = stage5_processor.execute()
 
         # 檢查主要輸出文件JSON有效性
-        output_file = Path("/orbit-engine/data/outputs/stage5/data_integration_output.json")
+        output_file = Path("/home/sat/orbit-engine/data/outputs/stage5/data_integration_output.json")
 
         try:
             with open(output_file, 'r', encoding='utf-8') as f:

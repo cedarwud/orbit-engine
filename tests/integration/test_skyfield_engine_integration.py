@@ -7,7 +7,7 @@
 import sys
 import json
 import os
-sys.path.append('/home/sat/ntn-stack/orbit-engine-system/src')
+sys.path.append('/home/sat/ntn-stack/home/sat/orbit-engine-system/src')
 
 def test_skyfield_engine_integration():
     """測試Skyfield引擎集成效果"""

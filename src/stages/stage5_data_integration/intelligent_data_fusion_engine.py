@@ -53,7 +53,7 @@ class IntelligentDataFusionEngine:
                 'purpose': '提供科學計算所需的精確數據'
             },
             'stage4_data': {
-                'source': '/orbit-engine/data/outputs/stage4/',
+                'source': 'data/outputs/stage4/',
                 'provides': [
                     'track_points',            # 優化的軌跡動畫點
                     'signal_timeline',         # 前端信號可視化
@@ -217,7 +217,7 @@ class IntelligentDataFusionEngine:
             # 如果統一載入器失敗，使用原有的直接文件載入作為回退
             possible_paths = [
                 "/app/data/signal_quality_analysis_output.json",
-                "/orbit-engine/data/outputs/stage3/signal_event_analysis_output.json",
+                "data/outputs/stage3/signal_event_analysis_output.json",
                 "data/signal_analysis_outputs/signal_event_analysis_output.json"
             ]
             
@@ -273,7 +273,7 @@ class IntelligentDataFusionEngine:
             
             # 如果統一載入器失敗，使用原有的直接文件載入作為回退
             possible_directories = [
-                "/orbit-engine/data/outputs/stage4/",
+                "data/outputs/stage4/",
                 "data/timeseries_preprocessing_outputs/"
             ]
             

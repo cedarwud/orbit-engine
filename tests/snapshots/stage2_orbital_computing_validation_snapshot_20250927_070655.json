@@ -1,0 +1,106 @@
+{
+  "timestamp": "2025-09-27T07:06:55.276757+00:00",
+  "stage": "stage2_orbital_computing",
+  "compliance_score": 0.0,
+  "grade_level": "Grade F - 嚴重違規",
+  "violations": [
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage2_orbital_computing/optimized_stage2_processor.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage2_orbital_computing/__init__.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage2_orbital_computing/sgp4_calculator.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage2_orbital_computing/stage2_orbital_computing_processor.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage2_orbital_computing/gpu_coordinate_converter.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "hardcoded_assumption",
+      "severity": "major",
+      "file": "/home/sat/orbit-engine/src/stages/stage2_orbital_computing/gpu_coordinate_converter.py",
+      "description": "發現硬編碼假設"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage2_orbital_computing/visibility_filter.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "hardcoded_assumption",
+      "severity": "major",
+      "file": "/home/sat/orbit-engine/src/stages/stage2_orbital_computing/visibility_filter.py",
+      "description": "發現硬編碼假設"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage2_orbital_computing/coordinate_converter.py",
+      "description": "發現簡化算法實現"
+    }
+  ],
+  "academic_requirements": [
+    {
+      "requirement": "real_tle_data_source",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "complete_sgp4_implementation",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "physics_based_calculations",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "itu_r_compliant_formulas",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "3gpp_standard_parameters",
+      "status": "satisfied",
+      "critical": true
+    }
+  ],
+  "file_checksums": {
+    "src/stages/stage2_orbital_computing/optimized_stage2_processor.py": "ab22be3fc6f64e76f80a449aae968c49",
+    "src/stages/stage2_orbital_computing/__init__.py": "21b55c11c9cdd7c17f4fab7bf6b2edbd",
+    "src/stages/stage2_orbital_computing/link_feasibility_filter.py": "221b90bee59fbddc11a850af830f09e6",
+    "src/stages/stage2_orbital_computing/sgp4_calculator.py": "86212d666269e529a5c3051f4cef9745",
+    "src/stages/stage2_orbital_computing/stage2_orbital_computing_processor.py": "7f4db45616c479d1067ff784f606b8cb",
+    "src/stages/stage2_orbital_computing/gpu_coordinate_converter.py": "82747f2f2ca32313b5a2123511ef75dd",
+    "src/stages/stage2_orbital_computing/parallel_sgp4_calculator.py": "dfe2077e81e7bf2a576073c32b8f44cd",
+    "src/stages/stage2_orbital_computing/visibility_filter.py": "07d58d1442480450eb2e66cc76a48c54",
+    "src/stages/stage2_orbital_computing/coordinate_converter.py": "ab0a0fc5c44119c58f5120f19feb0cac"
+  },
+  "performance_metrics": {
+    "total_files": 9,
+    "total_lines": 6490,
+    "avg_file_size_kb": 30.271375868055557,
+    "complexity_score": 42.666666666666664
+  }
+}

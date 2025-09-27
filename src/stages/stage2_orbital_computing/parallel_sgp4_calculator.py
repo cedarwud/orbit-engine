@@ -33,7 +33,7 @@ import time
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from shared.engines.sgp4_orbital_engine import SGP4OrbitalEngine
+from ...shared.engines.sgp4_orbital_engine import SGP4OrbitalEngine
 
 # 導入SGP4Position類和其他必要組件
 try:
@@ -92,11 +92,19 @@ class ParallelSGP4Calculator:
             return False
 
         try:
-            cp.cuda.Device(0).compute_capability
-            logger.info("✅ GPU (CUDA) 可用")
-            return True
+            import warnings
+            # 暫時抑制 CuPy 警告避免干擾日誌
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                # 檢查 CUDA 是否真正可用
+                if not cp.cuda.is_available():
+                    logger.info("ℹ️ CUDA 運行時不可用，使用 CPU 並行模式")
+                    return False
+                cp.cuda.Device(0).compute_capability
+                logger.info("✅ GPU (CUDA) 可用")
+                return True
         except Exception as e:
-            logger.warning(f"⚠️ GPU不可用，將使用CPU並行: {e}")
+            logger.info(f"ℹ️ GPU 不可用，使用 CPU 並行模式: {type(e).__name__}")
             return False
 
     def batch_calculate_parallel(self, satellites: List[Dict],
@@ -540,6 +548,75 @@ class ParallelSGP4Calculator:
         ]
 
         return self._process_cpu_chunk(satellites, time_series)
+
+    def distribute_workload(self, tle_data: List[Dict], worker_count: int) -> List[List[Dict]]:
+        """
+        分配工作負載到多個處理器
+
+        Args:
+            tle_data: TLE數據列表
+            worker_count: 工作者數量
+
+        Returns:
+            分配後的工作負載列表
+        """
+        total_satellites = len(tle_data)
+        chunk_size = max(1, total_satellites // worker_count)
+
+        distributed_workload = []
+        for i in range(worker_count):
+            start_idx = i * chunk_size
+            if i == worker_count - 1:
+                # 最後一個工作者處理剩餘的所有數據
+                end_idx = total_satellites
+            else:
+                end_idx = start_idx + chunk_size
+
+            chunk = tle_data[start_idx:end_idx]
+            distributed_workload.append(chunk)
+
+        # 移除空的工作負載
+        distributed_workload = [chunk for chunk in distributed_workload if chunk]
+
+        logger.info(f"📊 工作負載分配完成:")
+        logger.info(f"  - 總衛星數: {total_satellites}")
+        logger.info(f"  - 工作者數: {len(distributed_workload)}")
+        logger.info(f"  - 分配情況: {[len(chunk) for chunk in distributed_workload]}")
+
+        return distributed_workload
+
+    def aggregate_parallel_results(self, worker_results: List[Dict]) -> Dict[str, Any]:
+        """
+        聚合並行處理結果
+
+        Args:
+            worker_results: 工作者結果列表
+
+        Returns:
+            聚合後的結果
+        """
+        aggregated_results = {}
+        total_processing_time = 0
+        total_calculations = 0
+
+        for worker_result in worker_results:
+            if worker_result and 'results' in worker_result:
+                aggregated_results.update(worker_result['results'])
+                total_processing_time = max(total_processing_time,
+                                          worker_result.get('processing_time', 0))
+                total_calculations += len(worker_result['results'])
+
+        logger.info(f"🔗 結果聚合完成:")
+        logger.info(f"  - 聚合結果數: {len(aggregated_results)}")
+        logger.info(f"  - 總處理時間: {total_processing_time:.2f}秒")
+        logger.info(f"  - 總計算量: {total_calculations}")
+
+        return {
+            'results': aggregated_results,
+            'processing_time': total_processing_time,
+            'method': 'parallel_aggregated',
+            'total_calculations': total_calculations
+        }
 
 def create_parallel_sgp4_calculator(enable_gpu: bool = True,
                                    cpu_workers: int = None) -> ParallelSGP4Calculator:

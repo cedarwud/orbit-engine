@@ -442,11 +442,8 @@ class AnimationBuilder:
                 from shared.academic_standards_config import AcademicStandardsConfig
                 standards_config = AcademicStandardsConfig()
                 
-                # 獲取ITU-R P.618標準仰角門檻
-                itu_standards = standards_config.get_itu_standards()
-                from shared.constants.system_constants import get_system_constants
-                elevation_standards = get_system_constants().get_elevation_standards()
-                elevation_threshold = itu_standards.get('minimum_elevation_threshold_deg', elevation_standards.STANDARD_ELEVATION_DEG)
+                # 使用標準仰角門檻 (ITU-R P.618標準: 10度最小仰角)
+                elevation_threshold = 10.0  # ITU-R P.618 standard minimum elevation
 
             except ImportError:
                 # 備用：使用標準常數
@@ -509,7 +506,7 @@ class AnimationBuilder:
             }
             
         except Exception as e:
-            self.logger.error(f"精確覆蓋範圍計算失敗 {sat_id}: {e}")
+            logger.error(f"精確覆蓋範圍計算失敗 {sat_id}: {e}")
             # Grade A要求：失敗時拋出異常，絕不使用簡化近似
             raise ValueError(f"無法計算精確衛星覆蓋範圍: {e}")
 
@@ -544,12 +541,12 @@ class AnimationBuilder:
                             precise_area = 2 * math.pi * earth_radius * spherical_cap_height
                             total_area += precise_area
                         else:
-                            self.logger.warning(f"衛星覆蓋半角超出有效範圍: {half_angle}")
-            
+                            logger.warning(f"衛星覆蓋半角超出有效範圍: {half_angle}")
+
             return total_area
-            
+
         except Exception as e:
-            self.logger.error(f"精確覆蓋面積計算失敗: {e}")
+            logger.error(f"精確覆蓋面積計算失敗: {e}")
             # Grade A要求：失敗時拋出異常，絕不使用簡化近似
             raise ValueError(f"無法計算精確總覆蓋面積: {e}")
 

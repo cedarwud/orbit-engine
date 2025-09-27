@@ -14,8 +14,8 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 
-from shared.engines.sgp4_orbital_engine import SGP4OrbitalEngine
-from shared.utils.time_utils import TimeUtils
+from ...shared.engines.sgp4_orbital_engine import SGP4OrbitalEngine
+from ...shared.utils.time_utils import TimeUtils
 
 logger = logging.getLogger(__name__)
 

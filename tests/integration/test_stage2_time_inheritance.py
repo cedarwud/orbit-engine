@@ -7,7 +7,7 @@
 import sys
 import json
 from datetime import datetime, timezone
-sys.path.append('/home/sat/ntn-stack/orbit-engine-system/src')
+sys.path.append('/home/sat/ntn-stack/home/sat/orbit-engine-system/src')
 
 def test_stage2_time_inheritance():
     """測試Stage 2的時間基準繼承機制"""

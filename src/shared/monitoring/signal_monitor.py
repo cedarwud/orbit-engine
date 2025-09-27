@@ -3,7 +3,7 @@
 
 整合來源：
 - stage3_signal_analysis/real_time_monitoring.py (文檔提到但未實作)
-- stage6_dynamic_pool_planning/backup_monitoring_service.py (部分信號監控)
+- stage6_persistence_api/backup_monitoring_service.py (部分信號監控)
 """
 
 from typing import Dict, List, Optional, Any

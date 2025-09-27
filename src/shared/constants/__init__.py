@@ -3,7 +3,7 @@
 
 整合來源：
 - stage3_signal_analysis/stage3_physics_constants.py (物理常數)
-- stage6_dynamic_pool_planning/physics_calculation_engine.py (計算常數)
+- stage6_persistence_api/physics_calculation_engine.py (計算常數)
 - 各Stage的配置常數
 
 提供統一的常數訪問接口

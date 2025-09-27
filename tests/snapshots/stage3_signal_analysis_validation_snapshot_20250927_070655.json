@@ -1,0 +1,66 @@
+{
+  "timestamp": "2025-09-27T07:06:55.280017+00:00",
+  "stage": "stage3_signal_analysis",
+  "compliance_score": 0.0,
+  "grade_level": "Grade F - 嚴重違規",
+  "violations": [
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage3_signal_analysis/physics_calculator.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage3_signal_analysis/signal_quality_calculator.py",
+      "description": "發現簡化算法實現"
+    },
+    {
+      "type": "simplified_algorithm",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage3_signal_analysis/stage3_signal_analysis_processor.py",
+      "description": "發現簡化算法實現"
+    }
+  ],
+  "academic_requirements": [
+    {
+      "requirement": "real_tle_data_source",
+      "status": "not_satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "complete_sgp4_implementation",
+      "status": "not_satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "physics_based_calculations",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "itu_r_compliant_formulas",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "3gpp_standard_parameters",
+      "status": "satisfied",
+      "critical": true
+    }
+  ],
+  "file_checksums": {
+    "src/stages/stage3_signal_analysis/physics_calculator.py": "afee24300ff152d098f840ae36ce8431",
+    "src/stages/stage3_signal_analysis/__init__.py": "5010d5e442dee51405ccb78f6f58573a",
+    "src/stages/stage3_signal_analysis/signal_quality_calculator.py": "34e42c4fdb8e9f2a8af3f1ead522f85c",
+    "src/stages/stage3_signal_analysis/gpp_event_detector.py": "3be685444dac330ee988f9d860113153",
+    "src/stages/stage3_signal_analysis/stage3_signal_analysis_processor.py": "c7d58417e543b92f93dfcb6ad34c113c"
+  },
+  "performance_metrics": {
+    "total_files": 5,
+    "total_lines": 2335,
+    "avg_file_size_kb": 19.9599609375,
+    "complexity_score": 26.0
+  }
+}

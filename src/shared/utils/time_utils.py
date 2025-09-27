@@ -23,7 +23,13 @@ class TimeUtils:
     @staticmethod
     def parse_tle_epoch(tle_epoch_year: int, tle_epoch_day: float) -> datetime:
         """
-        解析TLE時間格式為標準datetime
+        解析TLE時間格式為標準datetime (符合官方TLE規範)
+
+        基於官方 NORAD/NASA TLE 格式規範:
+        - 57-99: 1957-1999
+        - 00-56: 2000-2056
+
+        參考: https://celestrak.org/NORAD/documentation/tle-fmt.php
 
         Args:
             tle_epoch_year: TLE年份 (2位數或4位數)
@@ -31,15 +37,23 @@ class TimeUtils:
 
         Returns:
             標準UTC時間
+
+        Raises:
+            ValueError: 如果年份或天數超出有效範圍
         """
         try:
-            # 處理2位數年份
-            if tle_epoch_year < 50:
-                full_year = 2000 + tle_epoch_year
-            elif tle_epoch_year < 100:
-                full_year = 1900 + tle_epoch_year
+            # 導入TLE常數
+            from shared.constants.tle_constants import convert_tle_year_to_full_year, validate_tle_epoch_day
+
+            # 處理年份轉換 (使用官方標準)
+            if tle_epoch_year < 100:
+                full_year = convert_tle_year_to_full_year(tle_epoch_year)
             else:
                 full_year = tle_epoch_year
+
+            # 驗證epoch天數
+            if not validate_tle_epoch_day(tle_epoch_day):
+                raise ValueError(f"TLE epoch天數超出範圍 (1.0-366.999999): {tle_epoch_day}")
 
             # 計算年初時間
             year_start = datetime(full_year, 1, 1, tzinfo=timezone.utc)

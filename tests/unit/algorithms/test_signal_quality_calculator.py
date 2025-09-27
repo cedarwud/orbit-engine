@@ -8,13 +8,13 @@ from typing import List, Dict, Any
 
 # 導入待測試的模組
 import sys
-sys.path.append('/orbit-engine/src')
+sys.path.append('/home/sat/orbit-engine/src')
 
 # 直接導入信號計算器，避免複雜的依賴鏈
 import importlib.util
 spec = importlib.util.spec_from_file_location(
     "signal_quality_calculator",
-    "/orbit-engine/src/stages/stage3_signal_analysis/signal_quality_calculator.py"
+    "/home/sat/orbit-engine/src/stages/stage3_signal_analysis/signal_quality_calculator.py"
 )
 signal_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(signal_module)
@@ -36,7 +36,7 @@ class TestSignalQualityCalculator:
     def signal_calculator(self):
         """信號品質計算器 fixture"""
         # 使用 Starlink 星座配置
-        return SignalQualityCalculator(constellation="starlink")
+        return SignalQualityCalculator()
     
     @pytest.fixture
     def mock_position_data(self):

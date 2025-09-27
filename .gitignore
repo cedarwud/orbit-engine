@@ -42,9 +42,9 @@ coverage.xml
 .hypothesis/
 
 # 📊 數據文件 (大型數據不提交)
-data/outputs/**                  # 整個輸出目錄內容 (>1GB 單檔)
+data/outputs/
 !data/outputs/.gitkeep           # 但保留目錄結構
-data/validation_snapshots/**     # 驗證快照目錄內容
+data/validation_snapshots/
 !data/validation_snapshots/.gitkeep  # 但保留目錄結構
 data/tle_data/**                 # TLE數據文件 (每日更新)
 !data/tle_data/.gitkeep          # 但保留目錄結構

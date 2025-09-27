@@ -13,7 +13,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 # 添加專案路徑
-sys.path.append('/home/sat/ntn-stack/orbit-engine-system/src')
+sys.path.append('/home/sat/ntn-stack/home/sat/orbit-engine-system/src')
 
 class AcademicStandardsValidator:
     """學術標準驗證器"""
@@ -151,7 +151,7 @@ class AcademicStandardsValidator:
 
         violations_checks = [
             {
-                'violation': '任意假設RSRP值',
+                'violation': '硬編碼RSRP計算值',
                 'check': self._check_rsrp_violations
             },
             {
@@ -196,7 +196,7 @@ class AcademicStandardsValidator:
     def _check_tle_data_source(self):
         """檢查TLE數據來源"""
         # 檢查TLE數據目錄和文件命名格式
-        tle_data_path = Path('/home/sat/ntn-stack/orbit-engine-system/data/tle_data')
+        tle_data_path = Path('/home/sat/ntn-stack/home/sat/orbit-engine-system/data/tle_data')
         if not tle_data_path.exists():
             return False
 
@@ -218,7 +218,14 @@ class AcademicStandardsValidator:
         """檢查是否使用TLE epoch時間"""
         # 這需要檢查軌道計算代碼是否正確使用epoch時間
         # 簡化檢查：查看是否有相關警告或配置
-        return True  # 假設通過，實際需要深度代碼檢查
+        # 真實檢查：驗證是否正確使用TLE epoch時間
+        try:
+            from stages.stage1_orbital_calculation.tle_data_loader import TLEDataLoader
+            loader = TLEDataLoader()
+            # 檢查是否有epoch時間處理方法
+            return hasattr(loader, 'parse_tle_epoch') or hasattr(loader, 'epoch_time')
+        except ImportError:
+            return False
 
     def _check_physics_calculations(self):
         """檢查物理計算實現"""
@@ -226,7 +233,7 @@ class AcademicStandardsValidator:
             # 在容器環境檢查Stage6的物理計算引擎
             import sys
             import os
-            sys.path.insert(0, '/orbit-engine/src')
+            sys.path.insert(0, '/home/sat/orbit-engine/src')
             from stages.stage6_dynamic_planning.physics_calculation_engine import PhysicsCalculationEngine
 
             # 檢查是否有物理計算相關方法
@@ -248,46 +255,172 @@ class AcademicStandardsValidator:
 
     def _check_doppler_calculations(self):
         """檢查都卜勒計算"""
-        # 檢查是否有都卜勒效應計算相關代碼
-        return True  # 假設通過
+        # 真實檢查：驗證都卜勒效應計算實現
+        try:
+            from stages.stage3_signal_analysis.physics_calculator import PhysicsCalculator
+            calculator = PhysicsCalculator()
+            # 檢查是否有都卜勒計算方法
+            return hasattr(calculator, 'calculate_doppler_shift') or hasattr(calculator, 'doppler_frequency')
+        except ImportError:
+            return False
 
     # Grade B檢查方法實現
     def _check_atmospheric_models(self):
         """檢查大氣模型"""
-        return True  # 假設通過
+        # 真實檢查：驗證大氣模型實現
+        try:
+            from shared.constants.physics_constants import ATMOSPHERIC_MODEL_PARAMETERS
+            # 檢查是否有大氣模型參數
+            return 'tropospheric_scintillation' in ATMOSPHERIC_MODEL_PARAMETERS
+        except ImportError:
+            return False
 
     def _check_rain_attenuation_models(self):
         """檢查降雨衰減模型"""
-        return True  # 假設通過
+        # 真實檢查：驗證ITU-R降雨衰減模型
+        try:
+            from shared.constants.physics_constants import ITU_R_RAIN_PARAMETERS
+            # 檢查是否有ITU-R P.618降雨衰減參數
+            return 'rain_attenuation_coefficients' in ITU_R_RAIN_PARAMETERS
+        except ImportError:
+            return False
 
     def _check_3gpp_compliance(self):
         """檢查3GPP合規性"""
-        return True  # 假設通過
+        # 真實檢查：驗證3GPP標準合規性
+        try:
+            from shared.constants.system_constants import NTN_3GPP_PARAMETERS
+            # 檢查是否有3GPP NTN參數
+            return '3gpp_rel17_ntn' in NTN_3GPP_PARAMETERS
+        except ImportError:
+            return False
 
     def _check_satellite_eirp_sources(self):
         """檢查衛星EIRP來源"""
-        return True  # 假設通過
+        # 真實檢查：驗證衛星EIRP數據來源
+        try:
+            from shared.constants.system_constants import SATELLITE_EIRP_DATABASE
+            # 檢查是否有真實的衛星EIRP數據庫
+            return 'starlink_eirp_dbw' in SATELLITE_EIRP_DATABASE and 'oneweb_eirp_dbw' in SATELLITE_EIRP_DATABASE
+        except ImportError:
+            return False
 
     # Grade C違規檢查方法實現
     def _check_rsrp_violations(self):
         """檢查RSRP值違規"""
-        return False  # 假設無違規
+        # 真實檢查：搜尋代碼中是否有任意假設RSRP值
+        try:
+            import re
+            # 檢查是否有硬編碼的RSRP值
+            from pathlib import Path
+            project_root = Path('/home/sat/orbit-engine/src')
+            for py_file in project_root.rglob('*.py'):
+                try:
+                    content = py_file.read_text(encoding='utf-8')
+                    # 搜尋硬編碼的RSRP值模式
+                    if re.search(r'rsrp.*=.*-?[0-9]+\.[0-9]+', content, re.IGNORECASE):
+                        return True  # 發現違規
+                except:
+                    continue
+            return False  # 無違規
+        except:
+            return False
 
     def _check_random_positions(self):
         """檢查隨機位置違規"""
-        return False  # 假設無違規
+        # 真實檢查：搜尋代碼中是否使用random生成位置
+        try:
+            import re
+            from pathlib import Path
+            project_root = Path('/home/sat/orbit-engine/src')
+            for py_file in project_root.rglob('*.py'):
+                try:
+                    content = py_file.read_text(encoding='utf-8')
+                    # 搜尋隨機位置生成模式
+                    if re.search(r'random\.(uniform|normal|choice).*lat|lon', content, re.IGNORECASE):
+                        return True  # 發現違規
+                    if re.search(r'np\.random\.(uniform|normal|choice).*lat|lon', content, re.IGNORECASE):
+                        return True  # 發現違規
+                except:
+                    continue
+            return False  # 無違規
+        except:
+            return False
 
     def _check_simplified_formulas(self):
         """檢查簡化公式違規"""
-        return False  # 假設無違規
+        # 真實檢查：搜尋代碼中是否有簡化公式標籤
+        try:
+            import re
+            from pathlib import Path
+            project_root = Path('/home/sat/orbit-engine/src')
+            simplified_patterns = [
+                r'簡化算法',
+                r'simplified.*algorithm',
+                r'basic.*model',
+                r'approximate.*calculation'
+            ]
+            for py_file in project_root.rglob('*.py'):
+                try:
+                    content = py_file.read_text(encoding='utf-8')
+                    for pattern in simplified_patterns:
+                        if re.search(pattern, content, re.IGNORECASE):
+                            return True  # 發現違規
+                except:
+                    continue
+            return False  # 無違規
+        except:
+            return False
 
     def _check_default_fallbacks(self):
         """檢查預設值回退違規"""
-        return False  # 假設無違規
+        # 真實檢查：搜尋代碼中是否有非學術等級的預設值回退
+        try:
+            import re
+            from pathlib import Path
+            project_root = Path('/home/sat/orbit-engine/src')
+            fallback_patterns = [
+                r'default.*fallback',
+                r'simulation.*mode',
+                r'mock.*data',
+                r'dummy.*value'
+            ]
+            for py_file in project_root.rglob('*.py'):
+                try:
+                    content = py_file.read_text(encoding='utf-8')
+                    for pattern in fallback_patterns:
+                        if re.search(pattern, content, re.IGNORECASE):
+                            return True  # 發現違規
+                except:
+                    continue
+            return False  # 無違規
+        except:
+            return False
 
     def _check_unphysical_parameters(self):
         """檢查非物理參數違規"""
-        return False  # 假設無違規
+        # 真實檢查：搜尋代碼中是否有非物理參數
+        try:
+            import re
+            from pathlib import Path
+            project_root = Path('/home/sat/orbit-engine/src')
+            unphysical_patterns = [
+                r'elevation.*=.*-[0-9]+',  # 負仰角
+                r'distance.*=.*0',  # 零距離
+                r'frequency.*=.*0',  # 零頻率
+                r'speed.*>.*300000000'  # 超光速
+            ]
+            for py_file in project_root.rglob('*.py'):
+                try:
+                    content = py_file.read_text(encoding='utf-8')
+                    for pattern in unphysical_patterns:
+                        if re.search(pattern, content, re.IGNORECASE):
+                            return True  # 發現違規
+                except:
+                    continue
+            return False  # 無違規
+        except:
+            return False
 
     def generate_compliance_report(self):
         """生成合規性報告"""

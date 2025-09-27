@@ -9,8 +9,8 @@ import json
 from datetime import datetime, timezone
 
 # 設定路徑和環境
-sys.path.append('/orbit-engine/src')
-os.chdir('/orbit-engine')
+sys.path.append('/home/sat/orbit-engine/src')
+os.chdir('/home/sat/orbit-engine')
 
 # 設定取樣模式
 os.environ['SAMPLE_MODE'] = 'true'

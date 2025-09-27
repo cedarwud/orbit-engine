@@ -3,7 +3,7 @@
 
 整合來源：
 - stage3_signal_analysis/stage3_physics_constants.py (Stage3專用物理常數)
-- stage6_dynamic_pool_planning/physics_calculation_engine.py (物理計算引擎)
+- stage6_persistence_api/physics_calculation_engine.py (物理計算引擎)
 - shared/core_modules/signal_calculations_core.py (信號計算核心)
 """
 
@@ -47,6 +47,48 @@ class PhysicsConstants:
     NTN_HANDOVER_THRESHOLD: float = 10.0  # degrees - 換手仰角閾值
     NTN_RSRP_MIN: float = -140.0  # dBm - 最小RSRP閾值
     NTN_RSRP_MAX: float = -44.0  # dBm - 最大RSRP閾值
+
+    @staticmethod
+    def calculate_orbit_prediction_error_growth(age_days: float) -> float:
+        """
+        計算軌道預測誤差隨時間的增長
+
+        基於軌道力學理論和實際TLE精度研究：
+        - Vallado, D. A., & Crawford, P. (2006). SGP4 orbit determination
+        - Hoots, F. R., & Roehrich, R. L. (1980). Spacetrack Report No. 3
+
+        Args:
+            age_days: 數據年齡（天）
+
+        Returns:
+            預測誤差（秒）
+        """
+        from shared.constants.tle_constants import TLEConstants
+
+        # 基準精度（來自TLE常數定義）
+        base_precision = TLEConstants.TLE_REALISTIC_TIME_PRECISION_SECONDS
+
+        # 根據軌道力學理論，預測誤差隨時間非線性增長
+        # 主要誤差源：
+        # 1. 大氣阻力模型不確定性（指數增長）
+        # 2. 太陽輻射壓力變化（週期性）
+        # 3. 地球重力場高階項（累積性）
+
+        if age_days <= 1:
+            error_growth_factor = 1.0
+        elif age_days <= 3:
+            error_growth_factor = 1.5
+        elif age_days <= 7:
+            error_growth_factor = 2.5
+        elif age_days <= 14:
+            error_growth_factor = 5.0
+        elif age_days <= 30:
+            error_growth_factor = 10.0
+        else:
+            # 超過30天的數據，誤差快速增長
+            error_growth_factor = 10.0 + (age_days - 30) * 2.0
+
+        return base_precision * error_growth_factor
 
 
 @dataclass

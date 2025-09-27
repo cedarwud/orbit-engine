@@ -7,7 +7,7 @@
 import sys
 import json
 from datetime import datetime, timezone
-sys.path.append('/home/sat/ntn-stack/orbit-engine-system/src')
+sys.path.append('/home/sat/ntn-stack/home/sat/orbit-engine-system/src')
 
 def test_stage1_tle_epoch_output():
     """測試Stage 1的TLE epoch時間提取和輸出邏輯"""

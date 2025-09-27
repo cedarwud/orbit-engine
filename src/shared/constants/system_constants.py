@@ -26,25 +26,25 @@ class OrbitEngineSystemPaths:
 
     # 🐳 容器路徑配置
     CONTAINER_ROOT: str = get_env('CONTAINER_ROOT', '/orbit-engine')
-    CONTAINER_DATA_ROOT: str = get_env('CONTAINER_DATA_ROOT', '/orbit-engine/data')
+    CONTAINER_DATA_ROOT: str = get_env('CONTAINER_DATA_ROOT', 'data')
     CONTAINER_SRC_ROOT: str = get_env('CONTAINER_SRC_ROOT', '/orbit-engine/src')
     CONTAINER_CONFIG_ROOT: str = get_env('CONTAINER_CONFIG_ROOT', '/orbit-engine/config')
     CONTAINER_SCRIPTS_ROOT: str = get_env('CONTAINER_SCRIPTS_ROOT', '/orbit-engine/scripts')
     CONTAINER_TESTS_ROOT: str = get_env('CONTAINER_TESTS_ROOT', '/orbit-engine/tests')
 
     # 📊 階段輸出路徑（容器內）
-    CONTAINER_OUTPUTS_ROOT: str = get_env('CONTAINER_OUTPUTS_ROOT', '/orbit-engine/data/outputs')
-    CONTAINER_STAGE1_OUTPUT: str = get_env('CONTAINER_STAGE1_OUTPUT', '/orbit-engine/data/outputs/stage1')
-    CONTAINER_STAGE2_OUTPUT: str = get_env('CONTAINER_STAGE2_OUTPUT', '/orbit-engine/data/outputs/stage2')
-    CONTAINER_STAGE3_OUTPUT: str = get_env('CONTAINER_STAGE3_OUTPUT', '/orbit-engine/data/outputs/stage3')
-    CONTAINER_STAGE4_OUTPUT: str = get_env('CONTAINER_STAGE4_OUTPUT', '/orbit-engine/data/outputs/stage4')
-    CONTAINER_STAGE5_OUTPUT: str = get_env('CONTAINER_STAGE5_OUTPUT', '/orbit-engine/data/outputs/stage5')
-    CONTAINER_STAGE6_OUTPUT: str = get_env('CONTAINER_STAGE6_OUTPUT', '/orbit-engine/data/outputs/stage6')
+    CONTAINER_OUTPUTS_ROOT: str = get_env('CONTAINER_OUTPUTS_ROOT', 'data/outputs')
+    CONTAINER_STAGE1_OUTPUT: str = get_env('CONTAINER_STAGE1_OUTPUT', 'data/outputs/stage1')
+    CONTAINER_STAGE2_OUTPUT: str = get_env('CONTAINER_STAGE2_OUTPUT', 'data/outputs/stage2')
+    CONTAINER_STAGE3_OUTPUT: str = get_env('CONTAINER_STAGE3_OUTPUT', 'data/outputs/stage3')
+    CONTAINER_STAGE4_OUTPUT: str = get_env('CONTAINER_STAGE4_OUTPUT', 'data/outputs/stage4')
+    CONTAINER_STAGE5_OUTPUT: str = get_env('CONTAINER_STAGE5_OUTPUT', 'data/outputs/stage5')
+    CONTAINER_STAGE6_OUTPUT: str = get_env('CONTAINER_STAGE6_OUTPUT', 'data/outputs/stage6')
 
     # 🗂️ 其他數據路徑（容器內）
-    CONTAINER_TLE_DATA: str = get_env('CONTAINER_TLE_DATA', '/orbit-engine/data/tle_data')
-    CONTAINER_VALIDATION_SNAPSHOTS: str = get_env('CONTAINER_VALIDATION_SNAPSHOTS', '/orbit-engine/data/validation_snapshots')
-    CONTAINER_LOGS: str = get_env('CONTAINER_LOGS', '/orbit-engine/data/logs')
+    CONTAINER_TLE_DATA: str = get_env('CONTAINER_TLE_DATA', 'data/tle_data')
+    CONTAINER_VALIDATION_SNAPSHOTS: str = get_env('CONTAINER_VALIDATION_SNAPSHOTS', 'data/validation_snapshots')
+    CONTAINER_LOGS: str = get_env('CONTAINER_LOGS', 'data/logs')
 
     # 📂 主機路徑配置
     HOST_ROOT: str = get_env('HOST_ROOT', './')

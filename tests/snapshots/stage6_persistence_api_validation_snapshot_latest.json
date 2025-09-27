@@ -1,0 +1,63 @@
+{
+  "timestamp": "2025-09-27T07:06:55.307030+00:00",
+  "stage": "stage6_persistence_api",
+  "compliance_score": 65.0,
+  "grade_level": "Grade F - 嚴重違規",
+  "violations": [
+    {
+      "type": "hardcoded_assumption",
+      "severity": "major",
+      "file": "/home/sat/orbit-engine/src/stages/stage6_persistence_api/cache_manager.py",
+      "description": "發現硬編碼假設"
+    },
+    {
+      "type": "mock_data_usage",
+      "severity": "critical",
+      "file": "/home/sat/orbit-engine/src/stages/stage6_persistence_api/scientific_validation_engine.py",
+      "description": "發現模擬數據使用"
+    }
+  ],
+  "academic_requirements": [
+    {
+      "requirement": "real_tle_data_source",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "complete_sgp4_implementation",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "physics_based_calculations",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "itu_r_compliant_formulas",
+      "status": "satisfied",
+      "critical": true
+    },
+    {
+      "requirement": "3gpp_standard_parameters",
+      "status": "satisfied",
+      "critical": true
+    }
+  ],
+  "file_checksums": {
+    "src/stages/stage6_persistence_api/cache_manager.py": "fa3a2140e2ebb1f67e85c07f4824d491",
+    "src/stages/stage6_persistence_api/stage6_main_processor.py": "770550829efd0b0e11ec5fc646d83d56",
+    "src/stages/stage6_persistence_api/storage_manager.py": "3f0e3247aed8023695ea9a3d51000ae7",
+    "src/stages/stage6_persistence_api/__init__.py": "728fbd97462e911263a4246941062b6f",
+    "src/stages/stage6_persistence_api/scientific_validation_engine.py": "5dc047c3a5fac8a6df2e6903f629ec97",
+    "src/stages/stage6_persistence_api/websocket_service.py": "4f471a6e91808ee63b5ef3188a85c70b",
+    "src/stages/stage6_persistence_api/coverage_validation_engine.py": "06d8e2f35bc1f9f879753aa5bb84c091",
+    "src/stages/stage6_persistence_api/api_service.py": "2f00fe328fcd89602368167874e7f70f"
+  },
+  "performance_metrics": {
+    "total_files": 8,
+    "total_lines": 5250,
+    "avg_file_size_kb": 25.7744140625,
+    "complexity_score": 56.875
+  }
+}

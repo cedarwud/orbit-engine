@@ -11,6 +11,7 @@
 v2.0 模組化架構組件：
 - SGP4Calculator: 標準軌道傳播計算
 - CoordinateConverter: 精確座標系統轉換
+- GPUCoordinateConverter: GPU加速座標轉換
 - VisibilityFilter: 可見性分析和篩選
 - Stage2OrbitalComputingProcessor: 流程協調和品質驗證
 
@@ -23,6 +24,7 @@ v2.0 模組化架構組件：
 
 from .sgp4_calculator import SGP4Calculator, SGP4Position, SGP4OrbitResult
 from .coordinate_converter import CoordinateConverter, Position3D, GeodeticPosition, LookAngles
+from .gpu_coordinate_converter import GPUCoordinateConverter, check_gpu_availability
 from .visibility_filter import VisibilityFilter, VisibilityResult, VisibilityWindow
 from .stage2_orbital_computing_processor import Stage2OrbitalComputingProcessor, create_stage2_processor
 
@@ -31,6 +33,7 @@ __all__ = [
     # 模組化組件
     'SGP4Calculator',
     'CoordinateConverter',
+    'GPUCoordinateConverter',
     'VisibilityFilter',
 
     # 主處理器
@@ -44,7 +47,10 @@ __all__ = [
     'GeodeticPosition',
     'LookAngles',
     'VisibilityResult',
-    'VisibilityWindow'
+    'VisibilityWindow',
+
+    # GPU功能
+    'check_gpu_availability'
 ]
 
 # 版本信息

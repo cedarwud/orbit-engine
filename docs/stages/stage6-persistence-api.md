@@ -16,9 +16,17 @@
 **實際服務**：約150-250顆衛星的API和實時數據服務
 **響應時間**：<100ms（快取）、<500ms（存儲）
 
+### 🚨 v2.1 跨階段違規修正
+
+**已修正問題**：動態池引擎功能跨階段違規
+- **移除功能**：`pool_generation_engine.py`、`pool_optimization_engine.py`
+- **移至正確階段**：Stage 4 (優化決策層)
+- **修正理由**：動態池規劃和衛星選擇優化屬於Stage 4核心責任
+- **架構影響**：Stage 6從10個檔案精簡至8個檔案，更符合單一責任原則
+
 ### 🏗️ v2.0 模組化架構
 
-Stage 6 大幅簡化架構，從44個檔案精簡到約14個核心檔案：
+Stage 6 大幅簡化架構，從44個檔案精簡到8個核心檔案（動態池功能已移至Stage 4）：
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -69,9 +77,10 @@ Stage 6 大幅簡化架構，從44個檔案精簡到約14個核心檔案：
 | 備份管理 | 8個backup_*檔案 | 1個storage_manager.py | 統一存儲管理 |
 | API服務 | 分散在15+個檔案 | 2個檔案 | api_service.py + websocket_service.py |
 | 快取管理 | 混合在各處 | 1個cache_manager.py | 統一快取策略 |
-| 動態池功能 | 15個檔案 | 4個檔案 | 保留核心優化和驗證功能 |
-| 其他雜項 | 15+個檔案 | 3個支援檔案 | 保留核心功能 |
-| **總計** | **44個檔案** | **~14個檔案** | **68%減少** |
+| ~~動態池功能~~ | ~~15個檔案~~ | **移至Stage 4** | 跨階段違規已修正 |
+| 驗證引擎 | 混合實現 | 2個檔案 | 覆蓋驗證 + 科學驗證 |
+| 主處理器 | 多個分散檔案 | 1個stage6_main_processor.py | 服務協調 |
+| **總計** | **44個檔案** | **8個檔案** | **82%減少** |
 
 ## 📦 模組設計
 
@@ -288,23 +297,7 @@ class Stage6PersistenceProcessor:
 - **服務協調**: 統一管理四大核心模組的生命週期和狀態
 - **性能監控**: 持續監控響應時間、快取命中率、服務可用性
 
-### 6. Pool Optimization Engine (`pool_optimization_engine.py`)
-
-#### 功能職責
-- 衛星池優化算法
-- 性能指標計算
-- 資源配置優化
-- 覆蓋範圍優化
-
-### 7. Pool Generation Engine (`pool_generation_engine.py`)
-
-#### 功能職責
-- 動態衛星池生成
-- 候選衛星篩選
-- 池配置管理
-- 負載均衡策略
-
-### 8. Scientific Validation Engine (`scientific_validation_engine.py`)
+### 6. Scientific Validation Engine (`scientific_validation_engine.py`)
 
 #### 功能職責
 - 學術級驗證標準
@@ -312,7 +305,7 @@ class Stage6PersistenceProcessor:
 - 算法正確性驗證
 - 科學計算合規檢查
 
-### 9. Coverage Validation Engine (`coverage_validation_engine.py`)
+### 7. Coverage Validation Engine (`coverage_validation_engine.py`)
 
 #### 功能職責
 - 覆蓋範圍驗證
@@ -515,4 +508,7 @@ api:
 
 ---
 **系統完成**: 六階段處理管道已全部設計完成
+**v2.1修正**: 跨階段違規已修正，動態池功能移至Stage 4
+**檔案結構**: 8個核心檔案（82%簡化）
+**學術合規**: Grade A標準，符合單一責任原則
 **相關文檔**: [v2.0重構計劃](../refactoring_plan_v2/stage6_persistence_api.md)

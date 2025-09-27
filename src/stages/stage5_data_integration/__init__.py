@@ -48,8 +48,8 @@ Based on stage5-data-integration.md specifications.
 - Compression Ratio: >70%
 """
 
-# Import main processor
-from .data_integration_processor import DataIntegrationProcessor
+# Import main processor (v2.0)
+from .data_integration_processor import DataIntegrationProcessor, create_stage5_processor
 
 # Import v2.0 modular components
 from .timeseries_converter import TimeseriesConverter, create_timeseries_converter
@@ -72,6 +72,7 @@ __all__ = [
     'FormatConverterHub',
 
     # Factory functions
+    'create_stage5_processor',  # 向後兼容工廠函數
     'create_timeseries_converter',
     'create_animation_builder',
     'create_format_converter_hub'

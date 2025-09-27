@@ -17,7 +17,7 @@ from typing import Dict, Any
 # 添加src路徑到模組搜索路徑
 sys.path.append(str(Path(__file__).parent.parent.parent.parent / "src"))
 
-from stages.stage1_orbital_calculation.stage1_data_loading_processor import create_stage1_processor
+from stages.stage1_orbital_calculation.stage1_main_processor import Stage1RefactoredProcessor, create_stage1_refactored_processor
 from shared.interfaces.processor_interface import ProcessingStatus, ProcessingResult
 
 
@@ -27,7 +27,7 @@ class TestStage1NewArchitecture:
     @pytest.fixture
     def processor(self):
         """創建Stage 1處理器實例"""
-        return create_stage1_processor()
+        return create_stage1_refactored_processor()
 
     @pytest.mark.unit
     @pytest.mark.stage1
@@ -96,9 +96,9 @@ class TestStage1NewArchitecture:
         assert result.status == ProcessingStatus.SUCCESS
 
         # 檢查數據結構
-        assert 'tle_data' in result.data
-        assert isinstance(result.data['tle_data'], list)
-        assert len(result.data['tle_data']) > 1000  # 應該有大量衛星數據
+        assert 'satellites' in result.data
+        assert isinstance(result.data['satellites'], list)
+        assert len(result.data['satellites']) > 1000  # 應該有大量衛星數據
 
     @pytest.mark.unit
     @pytest.mark.stage1
@@ -106,8 +106,8 @@ class TestStage1NewArchitecture:
         """測試TLE數據結構"""
         result = processor.process(None)
 
-        if result.status == ProcessingStatus.SUCCESS and result.data['tle_data']:
-            sample_tle = result.data['tle_data'][0]
+        if result.status == ProcessingStatus.SUCCESS and result.data['satellites']:
+            sample_tle = result.data['satellites'][0]
 
             # 檢查必要字段
             required_fields = ['satellite_id', 'line1', 'line2']
@@ -144,11 +144,17 @@ class TestStage1NewArchitecture:
             if 'processing_stats' in result.data:
                 stats = result.data['processing_stats']
                 # 使用實際存在的統計字段
-                expected_fields = ['total_satellites_loaded', 'total_files_scanned']
+                expected_fields = ['processing_duration', 'stage', 'stage_name']
                 assert any(field in stats for field in expected_fields)
 
-                if 'total_satellites_loaded' in stats:
-                    assert stats['total_satellites_loaded'] > 0
+                if 'processing_duration' in stats:
+                    assert stats['processing_duration'] > 0
+
+            # 檢查元數據中的性能指標
+            if 'metadata' in result.data and 'performance_metrics' in result.data['metadata']:
+                perf_metrics = result.data['metadata']['performance_metrics']
+                if 'satellites_loaded' in perf_metrics:
+                    assert perf_metrics['satellites_loaded'] > 0
 
     @pytest.mark.unit
     @pytest.mark.stage1
@@ -186,8 +192,8 @@ class TestStage1NewArchitecture:
             result2.status == ProcessingStatus.SUCCESS):
 
             # 檢查衛星數量一致性
-            count1 = len(result1.data['tle_data'])
-            count2 = len(result2.data['tle_data'])
+            count1 = len(result1.data['satellites'])
+            count2 = len(result2.data['satellites'])
             assert count1 == count2, "多次調用應返回相同數量的衛星數據"
 
     @pytest.mark.unit
@@ -198,9 +204,21 @@ class TestStage1NewArchitecture:
 
         if result.status == ProcessingStatus.SUCCESS:
             # 檢查輸出格式適合Stage 2消費
-            assert 'tle_data' in result.data
-            assert 'next_stage_ready' in result.data
-            assert result.data['next_stage_ready'] is True
+            assert 'satellites' in result.data
+            assert 'metadata' in result.data
+
+            # 檢查時間基準準備情況
+            metadata = result.data['metadata']
+            assert 'calculation_base_time' in metadata
+            assert 'tle_epoch_compliance' in metadata
+
+            # Stage 2 所需的基本字段
+            assert len(result.data['satellites']) > 0
+
+            # 檢查是否有 stage1_time_inheritance 準備資訊
+            if 'stage1_time_inheritance' in metadata:
+                inheritance = metadata['stage1_time_inheritance']
+                assert 'inheritance_ready' in inheritance
 
 
 if __name__ == "__main__":

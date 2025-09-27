@@ -25,10 +25,10 @@ sys.path.append(str(Path(__file__).parent.parent.parent / "src"))
 
 from stages.stage1_orbital_calculation.stage1_main_processor import Stage1MainProcessor
 from stages.stage2_visibility_filter.simple_stage2_processor import SimpleStage2Processor
-from stages.stage3_signal_analysis.stage3_main_processor import Stage3MainProcessor
-from stages.stage4_timeseries_preprocessing.stage4_main_processor import Stage4MainProcessor
+from stages.stage3_signal_analysis.stage3_signal_analysis_processor import Stage3SignalAnalysisProcessor as Stage3MainProcessor
+from stages.stage4_optimization.stage4_optimization_processor import Stage4OptimizationProcessor as Stage4MainProcessor
 from stages.stage5_data_integration.data_integration_processor import DataIntegrationProcessor
-from stages.stage6_dynamic_pool_planning.stage6_main_processor import Stage6MainProcessor
+from stages.stage6_persistence_api.stage6_main_processor import Stage6MainProcessor
 
 
 class TestEndToEndValidation:

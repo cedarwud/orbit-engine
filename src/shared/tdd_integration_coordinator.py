@@ -702,9 +702,9 @@ class TestExecutionEngine:
 
             # 🔧 修復：檢查所有可能的輸出路徑並記錄
             possible_paths = [
-                Path(f"/orbit-engine/data/outputs/stage{stage_num}"),
-                Path(f"/orbit-engine/data/stage{stage_num}_outputs"),
-                Path(f"/orbit-engine/data/{stage}_outputs"),
+                Path(f"data/outputs/stage{stage_num}"),
+                Path(f"data/stage{stage_num}_outputs"),
+                Path(f"data/{stage}_outputs"),
                 Path(f"/app/data/outputs/stage{stage_num}"),  # 容器內替代路徑
                 Path(f"/app/data/stage{stage_num}_outputs")
             ]
@@ -1927,7 +1927,7 @@ class TestExecutionEngine:
             from pathlib import Path
             
             stage_num = stage.replace("stage", "")
-            output_dir = Path(f"/orbit-engine/data/outputs/stage{stage_num}")
+            output_dir = Path(f"data/outputs/stage{stage_num}")
             
             if not output_dir.exists():
                 return False
@@ -2014,7 +2014,7 @@ class TestExecutionEngine:
             
             # 檢查前置階段的輸出
             for i in range(1, stage_num):
-                prev_stage_dir = Path(f"/orbit-engine/data/outputs/stage{i}")
+                prev_stage_dir = Path(f"data/outputs/stage{i}")
                 if not prev_stage_dir.exists():
                     return False
                     

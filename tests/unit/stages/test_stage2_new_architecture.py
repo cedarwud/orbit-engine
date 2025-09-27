@@ -20,7 +20,7 @@ from typing import Dict, Any
 sys.path.append(str(Path(__file__).parent.parent.parent.parent / "src"))
 
 from stages.stage2_orbital_computing.stage2_orbital_computing_processor import Stage2OrbitalComputingProcessor, create_stage2_processor
-from stages.stage1_orbital_calculation.stage1_data_loading_processor import create_stage1_processor
+from stages.stage1_orbital_calculation.stage1_main_processor import Stage1RefactoredProcessor
 from shared.interfaces.processor_interface import ProcessingStatus, ProcessingResult
 
 

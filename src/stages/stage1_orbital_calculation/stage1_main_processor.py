@@ -100,6 +100,14 @@ class Stage1MainProcessor(BaseStageProcessor):
             result = self._integrate_results(satellites_data, validation_result, time_metadata, start_time)
             logger.info("✅ Phase 4 完成: 結果整合成功")
 
+            # === Phase 5: 保存處理結果 ===
+            try:
+                output_path = self.save_results(result)
+                logger.info(f"📄 Stage 1 重構結果已保存至: {output_path}")
+            except Exception as save_error:
+                logger.warning(f"⚠️ 結果保存失敗: {save_error}")
+                # 不影響主要處理流程
+
             end_time = datetime.now(timezone.utc)
             duration = (end_time - start_time).total_seconds()
             logger.info(f"✅ Stage 1 Main Processor 處理完成 ({duration:.2f}s)")
@@ -149,6 +157,17 @@ class Stage1MainProcessor(BaseStageProcessor):
         if 'primary_epoch_time' in metadata:
             metadata['calculation_base_time'] = metadata['primary_epoch_time']
             metadata['tle_epoch_time'] = metadata['primary_epoch_time']
+
+            # 🎯 文檔要求：添加時間基準來源和繼承信息
+            metadata['time_base_source'] = 'tle_epoch_derived'
+            metadata['tle_epoch_compliance'] = True
+
+            # v6.0 要求：Stage 1 時間繼承信息
+            metadata['stage1_time_inheritance'] = {
+                'exported_time_base': metadata['primary_epoch_time'],
+                'inheritance_ready': True,
+                'calculation_reference': 'tle_epoch_based'
+            }
 
         # 整合驗證結果
         metadata['validation_summary'] = validation_result
@@ -250,6 +269,16 @@ class Stage1RefactoredProcessor(BaseStageProcessor):
                 'interface_compliance': 'BaseStageProcessor_v2.0'
             })
 
+            # 保存驗證快照 (檔案保存由底層 Stage1MainProcessor 處理)
+            try:
+                snapshot_saved = self.save_validation_snapshot(processing_result.data)
+                if snapshot_saved:
+                    self.logger.info("📷 重構版驗證快照已保存")
+
+            except Exception as save_error:
+                self.logger.error(f"⚠️ 快照保存失敗: {save_error}")
+                # 不影響主要處理流程，只記錄警告
+
             self.logger.info(f"✅ Stage 1 重構處理完成，耗時: {duration:.3f}秒")
             return processing_result
 
@@ -281,9 +310,11 @@ class Stage1RefactoredProcessor(BaseStageProcessor):
         else:
             validation_details['tle_format_validation'] = {'passed': False, 'error': '無衛星數據'}
 
-        # 2. checksum驗證 (簡化)
-        checks_passed += 1
-        validation_details['tle_checksum_verification'] = {'passed': True, 'pass_rate': 1.0}
+        # 2. checksum驗證 (完整實作)
+        checksum_results = self._verify_tle_checksums(satellites)
+        if checksum_results['pass_rate'] >= 0.95:  # 95% 通過率要求
+            checks_passed += 1
+        validation_details['tle_checksum_verification'] = checksum_results
 
         # 3. 數據完整性
         required_fields = ['stage', 'satellites', 'metadata']
@@ -312,24 +343,37 @@ class Stage1RefactoredProcessor(BaseStageProcessor):
 
         success_rate = checks_passed / total_checks
 
-        # 確定驗證狀態
-        if success_rate >= 0.8:
+        # 確定驗證狀態和品質等級 (符合文檔 A+/A/B/C/F 標準)
+        if success_rate >= 1.0:
             validation_status = 'passed'
             overall_status = 'PASS'
-        elif success_rate >= 0.6:
+            quality_grade = 'A+'
+        elif success_rate >= 0.95:
+            validation_status = 'passed'
+            overall_status = 'PASS'
+            quality_grade = 'A'
+        elif success_rate >= 0.8:
+            validation_status = 'passed'
+            overall_status = 'PASS'
+            quality_grade = 'B'
+        elif success_rate >= 0.7:
             validation_status = 'warning'
             overall_status = 'WARNING'
+            quality_grade = 'C'
         else:
             validation_status = 'failed'
             overall_status = 'FAIL'
+            quality_grade = 'F'
 
         return {
             'validation_status': validation_status,
             'overall_status': overall_status,
+            'quality_grade': quality_grade,
             'success_rate': success_rate,
             'validation_details': {
                 **validation_details,
-                'success_rate': success_rate
+                'success_rate': success_rate,
+                'quality_grade': quality_grade
             }
         }
 
@@ -337,6 +381,7 @@ class Stage1RefactoredProcessor(BaseStageProcessor):
         """保存驗證快照"""
         try:
             validation_results = self.run_validation_checks(processing_results)
+            satellite_count = len(processing_results.get('satellites', []))
 
             snapshot_data = {
                 'stage': 1,
@@ -345,11 +390,15 @@ class Stage1RefactoredProcessor(BaseStageProcessor):
                 'timestamp': datetime.now(timezone.utc).isoformat(),
                 'processing_duration': processing_results.get('metadata', {}).get('processing_duration_seconds', 0),
                 'data_summary': {
-                    'has_data': len(processing_results.get('satellites', [])) > 0,
+                    'has_data': satellite_count > 0,
+                    'satellite_count': satellite_count,
                     'data_keys': list(processing_results.keys()),
                     'metadata_keys': list(processing_results.get('metadata', {}).keys())
                 },
                 'validation_passed': validation_results['validation_status'] == 'passed',
+                'next_stage_ready': satellite_count > 0 and validation_results['validation_status'] == 'passed',
+                'refactored_version': True,
+                'interface_compliance': True,
                 'errors': [],
                 'warnings': []
             }
@@ -495,6 +544,85 @@ class Stage1RefactoredProcessor(BaseStageProcessor):
 
         except Exception as e:
             self.logger.warning(f"⚠️ 清理驗證快照時出現問題: {e}")
+
+    def _verify_tle_checksums(self, satellites: List[Dict]) -> Dict[str, Any]:
+        """
+        驗證 TLE 數據的 checksum
+
+        實作 Modulo 10 官方算法
+
+        Args:
+            satellites: 衛星數據列表
+
+        Returns:
+            Dict: checksum 驗證結果
+        """
+        if not satellites:
+            return {
+                'passed': False,
+                'pass_rate': 0.0,
+                'total_checked': 0,
+                'valid_count': 0,
+                'error': '無衛星數據進行 checksum 驗證'
+            }
+
+        total_lines = 0
+        valid_lines = 0
+
+        for satellite in satellites:
+            # 檢查 Line 1
+            line1 = satellite.get('tle_line1', '')
+            if line1 and len(line1) >= 69:
+                if self._calculate_tle_checksum(line1[:-1]) == int(line1[-1]):
+                    valid_lines += 1
+                total_lines += 1
+
+            # 檢查 Line 2
+            line2 = satellite.get('tle_line2', '')
+            if line2 and len(line2) >= 69:
+                if self._calculate_tle_checksum(line2[:-1]) == int(line2[-1]):
+                    valid_lines += 1
+                total_lines += 1
+
+        pass_rate = valid_lines / max(total_lines, 1)
+
+        return {
+            'passed': pass_rate >= 0.95,
+            'pass_rate': pass_rate,
+            'total_checked': total_lines,
+            'valid_count': valid_lines,
+            'checksum_algorithm': 'modulo_10_official'
+        }
+
+    def _calculate_tle_checksum(self, line: str) -> int:
+        """
+        計算 TLE 行的 checksum (官方 Modulo 10 算法)
+
+        基於 NORAD/NASA 官方 TLE 格式規範:
+        - 數字 0-9: 加上數字值
+        - 負號 '-': 加 1
+        - 正號 '+': 加 1
+        - 其他字符: 忽略
+
+        參考: https://celestrak.org/NORAD/documentation/tle-fmt.php
+
+        Args:
+            line: TLE 行數據 (不含 checksum 位)
+
+        Returns:
+            int: 計算得出的 checksum
+        """
+        checksum = 0
+        for char in line:
+            if char.isdigit():
+                checksum += int(char)
+            elif char == '-':
+                checksum += 1  # 負號算作 1
+            elif char == '+':
+                checksum += 1  # 正號算作 1 (修復: 之前遺漏)
+            # 其他字符 (字母、空格、句點等) 被忽略
+
+        return checksum % 10
 
 
 # 工廠函數

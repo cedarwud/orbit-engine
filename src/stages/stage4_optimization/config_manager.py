@@ -132,7 +132,7 @@ class ConfigurationManager:
             "error_handling": {
                 "max_retry_attempts": 3,
                 "retry_delay_seconds": 1.0,
-                "fallback_strategy": "simplified_optimization"
+                "fallback_strategy": "full_academic_optimization"
             },
             "logging": {
                 "log_level": "INFO",
@@ -141,6 +141,18 @@ class ConfigurationManager:
             "validation": {
                 "enable_input_validation": True,
                 "enable_output_validation": True
+            },
+            "resource_monitoring": {
+                "enable_monitoring": True,
+                "monitoring_interval_seconds": 0.1,
+                "enable_warnings": True,
+                "performance_benchmarks": {
+                    "max_memory_mb": 300.0,
+                    "max_cpu_percent": 80.0,
+                    "max_processing_time_seconds": 10.0,
+                    "warning_memory_mb": 250.0,
+                    "warning_cpu_percent": 70.0
+                }
             }
         }
 
@@ -178,6 +190,10 @@ class ConfigurationManager:
                             loaded: Dict[str, Any]) -> Dict[str, Any]:
         """合併配置（深度合併）"""
         merged = default.copy()
+
+        # Handle None loaded configuration
+        if loaded is None:
+            return merged
 
         for key, value in loaded.items():
             if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):

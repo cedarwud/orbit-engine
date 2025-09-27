@@ -238,14 +238,14 @@ class UnifiedCleanupManager:
                 self.logger.info(f"🔧 完整管道模式：階段 {current_stage} 跳過清理，保護數據流")
                 return {"files": 0, "directories": 0}
         else:
-            # 單一階段模式：使用智能清理策略
+            # 單一階段模式：只清理當前階段
             if current_stage is None:
                 # 嘗試從調用堆棧推斷階段號碼
                 current_stage = self._infer_current_stage()
 
             if current_stage:
-                self.logger.info(f"🧠 單一階段模式：使用智能清理策略（階段 {current_stage}）")
-                return self.cleanup_from_stage(current_stage)
+                self.logger.info(f"🗑️ 單一階段模式：只清理階段 {current_stage} 的輸出和驗證快照")
+                return self.cleanup_single_stage(current_stage)
             else:
                 self.logger.warning("⚠️ 單一階段模式但無法確定階段號碼，跳過清理")
                 return {"files": 0, "directories": 0}

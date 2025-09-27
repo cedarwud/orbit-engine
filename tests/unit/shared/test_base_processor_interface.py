@@ -31,7 +31,7 @@ class TestBaseProcessorInterface:
         stage_name = request.param
 
         if stage_name == 'stage1_data_loading_processor':
-            from stages.stage1_orbital_calculation.stage1_data_loading_processor import create_stage1_processor
+            from stages.stage1_orbital_calculation.stage1_main_processor import create_stage1_processor
             return create_stage1_processor()
         elif stage_name == 'stage2_orbital_computing_processor':
             from stages.stage2_orbital_computing.stage2_orbital_computing_processor import create_stage2_processor
@@ -46,7 +46,7 @@ class TestBaseProcessorInterface:
             from stages.stage5_data_integration.data_integration_processor import create_stage5_processor
             return create_stage5_processor()
         elif stage_name == 'stage6_main_processor':
-            from stages.stage6_dynamic_pool_planning.stage6_main_processor import create_stage6_processor
+            from stages.stage6_persistence_api.stage6_main_processor import create_stage6_processor
             return create_stage6_processor()
 
     def test_processor_is_base_processor_instance(self, processor):
