@@ -1,7 +1,21 @@
 # Stage 2: 軌道計算層配置 - Grade A 學術級標準
 # 符合文檔要求的 v2.0 模組化架構配置
 
-# 軌道計算配置
+# 時間序列配置 (Stage 2 v3.0 軌道狀態傳播 - 星座軌道週期優化)
+time_series:
+  interval_seconds: 30                   # 30秒時間解析度
+  window_hours: 2                        # 明確設定2小時窗口 (避免24小時預設值)
+  max_positions: 224                     # OneWeb軌道週期: 112分鐘÷30秒=224點 (涵蓋最長軌道週期)
+  # 星座軌道週期參考:
+  # - Starlink: 96分鐘 → 192個時間點
+  # - OneWeb: 112分鐘 → 224個時間點
+
+# SGP4 軌道傳播配置
+sgp4_propagation:
+  method: "SGP4"                         # 使用標準SGP4算法
+  output_coordinate_system: "TEME"       # TEME座標系統
+
+# 軌道計算配置 (舊版兼容)
 orbital_calculation:
   algorithm: "SGP4"                      # 使用標準SGP4算法
 
@@ -29,7 +43,7 @@ orbital_calculation:
 # 可見性篩選配置
 visibility_filter:
   min_elevation_deg: 10.0                # 預設最小仰角門檻 (NTPU標準)
-  max_distance_km: 2000.0                # 最大距離限制 (確保信號強度)
+  max_distance_km: 4000.0                # 最大距離限制 (基於ITU-R LEO標準，覆蓋OneWeb 3900km理論最大距離)
   min_distance_km: 200.0                 # 最小距離限制 (避免多普勒過大)
 
   # ⭐ 星座特定仰角門檻 (基於軌道高度與系統需求)
@@ -63,24 +77,24 @@ coordinate_conversion:
 
 # 鏈路可行性篩選配置 (Stage 2範圍內的系統約束篩選)
 link_feasibility_filter:
-  # 服務窗口要求 - 調整為符合文檔期望的寬鬆篩選
-  min_service_window_minutes: 1.0        # 最小服務窗口時間 (降低門檻)
-  min_feasibility_score: 0.2            # 最小可行性評分門檻 (降低以符合500-1000顆期望)
+  # 服務窗口要求 - 中等篩選，恢復可運作狀態
+  min_service_window_minutes: 3.0        # 最小服務窗口時間 (3分鐘)
+  min_feasibility_score: 0.4            # 最小可行性評分門檻 (中等門檻)
 
-  # 品質分級門檻 (基於幾何約束的評分) - 降低門檻以符合文檔期望
+  # 品質分級門檻 (基於幾何約束的評分) - 標準嚴格門檻
   quality_thresholds:
     A:
-      min_score: 0.6                     # A級：優秀鏈路品質 (降低門檻)
-      min_service_time: 15               # 需要15分鐘以上服務時間 (降低門檻)
+      min_score: 0.8                     # A級：優秀鏈路品質
+      min_service_time: 30               # 需要30分鐘以上服務時間
     B:
-      min_score: 0.4                     # B級：良好鏈路品質 (降低門檻)
-      min_service_time: 10               # 需要10分鐘以上服務時間 (降低門檻)
+      min_score: 0.7                     # B級：良好鏈路品質
+      min_service_time: 20               # 需要20分鐘以上服務時間
     C:
-      min_score: 0.3                     # C級：可接受鏈路品質 (降低門檻)
-      min_service_time: 5                # 需要5分鐘以上服務時間 (降低門檻)
+      min_score: 0.6                     # C級：可接受鏈路品質
+      min_service_time: 15               # 需要15分鐘以上服務時間
     D:
-      min_score: 0.2                     # D級：最低鏈路品質 (降低門檻)
-      min_service_time: 2                # 需要2分鐘以上服務時間 (降低門檻)
+      min_score: 0.5                     # D級：最低鏈路品質
+      min_service_time: 10               # 需要10分鐘以上服務時間
 
 # 性能配置
 performance:
@@ -96,7 +110,7 @@ performance:
 
   # 🚀 快速測試模式 (用於驗證流程)
   testing_mode:
-    enabled: false                      # 禁用測試模式，使用全量數據
+    enabled: false                      # 禁用測試模式，使用全量9041顆衛星
     satellite_sample_size: 100          # 只處理100顆衛星進行快速測試
     sample_method: "random"             # 隨機取樣 (可選: first, random, distributed)
     preserve_constellation_ratio: true   # 保持星座比例 (Starlink/OneWeb)

@@ -66,8 +66,16 @@ class VisibilityFilter:
         self.config = visibility_config or {}
 
         # 可見性參數 - 使用官方標準常數
-        from ...shared.constants.system_constants import get_system_constants
-        elevation_standards = get_system_constants().get_elevation_standards()
+        try:
+            from shared.constants.system_constants import get_system_constants
+            elevation_standards = get_system_constants().get_elevation_standards()
+        except ImportError:
+            # 備用導入方式
+            import sys
+            import os
+            sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
+            from shared.constants.system_constants import get_system_constants
+            elevation_standards = get_system_constants().get_elevation_standards()
 
         self.min_elevation_deg = self.config.get('min_elevation_deg', elevation_standards.STANDARD_ELEVATION_DEG)
         self.max_distance_km = self.config.get('max_distance_km', elevation_standards.MAX_DISTANCE_KM)
@@ -249,7 +257,7 @@ class VisibilityFilter:
         計算可見性時間窗口
 
         Args:
-            satellite_positions: 經過篩選的衛星位置列表
+            satellite_positions: 經過篩選的衛星位置列表（已通過星座特定仰角門檻篩選）
             time_interval_seconds: 時間間隔（秒）
 
         Returns:
@@ -265,9 +273,16 @@ class VisibilityFilter:
             try:
                 timestamp = position.get('timestamp', '')
                 elevation = position.get('elevation_deg', 0.0)
-                is_visible = position.get('is_visible', False)
 
-                if is_visible and elevation >= self.min_elevation_deg:
+                # 🔧 修復：檢查位置是否通過仰角門檻篩選
+                # 如果有is_visible字段，使用它；否則需要重新檢查仰角
+                if 'is_visible' in position:
+                    is_visible = position['is_visible']
+                else:
+                    # 如果沒有is_visible字段，基於仰角判斷（使用通用門檻作為備份）
+                    is_visible = elevation >= self.min_elevation_deg
+
+                if is_visible:
                     # 開始新的可見性窗口
                     if current_window is None:
                         current_window = {
@@ -724,7 +739,7 @@ class VisibilityFilter:
                     # 格式: 2024-01-01T12:00:00Z
                     clean_timestamp = clean_timestamp.rstrip('Z') + '+00:00'
                 elif '+' not in clean_timestamp and clean_timestamp.count(':') >= 2:
-                    # 格式: 2024-01-01T12:00:00 (假設UTC)
+                    # 格式: 2024-01-01T12:00:00 (標準UTC時間格式)
                     clean_timestamp += '+00:00'
 
                 # 使用fromisoformat解析
@@ -816,7 +831,7 @@ class VisibilityFilter:
         """
         計算分析週期的實際時間長度
 
-        🎓 學術標準：基於實際數據範圍而非固定假設
+        🎓 學術標準：基於實際數據範圍進行動態計算
 
         Args:
             service_windows: 服務窗口列表

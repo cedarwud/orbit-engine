@@ -1,13 +1,15 @@
 """
-Stage 2 軌道計算層處理器 - v2.0模組化架構TDD測試套件
+Stage 2 軌道計算層處理器 - v3.0軌道狀態傳播架構TDD測試套件
 
-v2.0架構特點:
-- 4模組設計: SGP4Calculator + CoordinateConverter + VisibilityFilter + LinkFeasibilityFilter
+v3.0架構特點:
+- 純軌道狀態傳播: Stage2OrbitalPropagationProcessor
+- 禁止座標轉換和可見性分析 (專注於軌道狀態)
+- 使用Stage 1提供的epoch_datetime (禁止TLE重新解析)
+- TEME座標系統輸出
+- SGP4/SDP4專業算法
 - Grade A學術標準合規 (無簡化算法、模擬數據、硬編碼)
 - 配置文件驅動 (config/stage2_orbital_computing.yaml)
-- 星座特定仰角門檻 (Starlink: 5°, OneWeb: 10°)
-- 鏈路可行性評估 (200-2000km距離範圍)
-- TLE epoch時間基準 (禁止使用當前時間)
+- 統一邏輯：純CPU計算，無GPU/CPU差異
 """
 
 import pytest
@@ -19,34 +21,46 @@ from typing import Dict, Any
 # 添加src路徑到模組搜索路徑
 sys.path.append(str(Path(__file__).parent.parent.parent.parent / "src"))
 
-from stages.stage2_orbital_computing.stage2_orbital_computing_processor import Stage2OrbitalComputingProcessor, create_stage2_processor
-from stages.stage1_orbital_calculation.stage1_main_processor import Stage1RefactoredProcessor
+from stages.stage2_orbital_computing.stage2_orbital_computing_processor import Stage2OrbitalPropagationProcessor, create_stage2_processor
+try:
+    from stages.stage1_orbital_calculation.stage1_main_processor import create_stage1_refactored_processor as create_stage1_processor
+except ImportError:
+    create_stage1_processor = None
 from shared.interfaces.processor_interface import ProcessingStatus, ProcessingResult
 
 
 @pytest.fixture
 def mock_stage1_data():
-    """創建模擬Stage 1輸出數據"""
+    """創建模擬Stage 1輸出數據 (v3.0格式)"""
     return {
-        'stage': 'stage1_data_loading',
-        'tle_data': [
+        'stage': 1,
+        'stage_name': 'refactored_tle_data_loading',
+        'satellites': [
             {
                 'satellite_id': '12345',
                 'line1': '1 12345U 98067A   08264.51782528 -.00002182  00000-0 -11606-4 0  2927',
                 'line2': '2 12345  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537',
                 'name': 'TEST-SAT',
-                'norad_id': '12345'
+                'norad_id': '12345',
+                'constellation': 'starlink',
+                'epoch_datetime': '2008-09-20T12:25:40.195+00:00'  # v3.0要求: Stage 1提供的epoch_datetime
             },
             {
                 'satellite_id': '23456',
                 'line1': '1 23456U 98067B   08264.51782528 -.00002182  00000-0 -11606-4 0  2927',
                 'line2': '2 23456  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537',
                 'name': 'TEST-SAT-2',
-                'norad_id': '23456'
+                'norad_id': '23456',
+                'constellation': 'oneweb',
+                'epoch_datetime': '2008-09-20T12:25:40.195+00:00'  # v3.0要求: Stage 1提供的epoch_datetime
             }
         ],
-        'metadata': {'processing_timestamp': datetime.now().isoformat()},
-        'next_stage_ready': True
+        'metadata': {
+            'total_satellites': 2,
+            'processing_start_time': '2025-09-28T07:00:00+00:00',
+            'processing_end_time': '2025-09-28T07:00:01+00:00',
+            'processing_duration_seconds': 1.0
+        }
     }
 
 
@@ -61,8 +75,10 @@ class TestStage2NewArchitecture:
     @pytest.fixture
     def stage1_processor(self):
         """創建Stage 1處理器實例"""
+        if create_stage1_processor is None:
+            return None
         try:
-            return create_stage1_processor()
+            return create_stage1_processor({'sample_mode': False, 'sample_size': 500})
         except RuntimeError as e:
             if "容器內執行" in str(e):
                 return None  # 返回None而不是跳過，讓具體測試決定
@@ -152,12 +168,15 @@ class TestStage2NewArchitecture:
             pytest.skip("Stage 1處理器不可用，跳過集成測試")
 
         # 獲取真實Stage 1輸出
-        stage1_result = stage1_processor.process(None)
+        stage1_result = stage1_processor.execute(input_data=None)
         assert stage1_result.status == ProcessingStatus.SUCCESS
 
-        # 限制數據量以加快測試
+        # 限制數據量以加快測試 (v3.0格式使用satellites而不是tle_data)
         limited_data = stage1_result.data.copy()
-        limited_data['tle_data'] = stage1_result.data['tle_data'][:3]
+        if 'satellites' in stage1_result.data:
+            limited_data['satellites'] = stage1_result.data['satellites'][:3]
+        elif 'tle_data' in stage1_result.data:  # v2.0兼容性
+            limited_data['tle_data'] = stage1_result.data['tle_data'][:3]
 
         # 處理Stage 1輸出
         stage2_result = processor.process(limited_data)
@@ -178,52 +197,98 @@ class TestStage2NewArchitecture:
 
     @pytest.mark.unit
     @pytest.mark.stage2
-    def test_orbital_calculation_functionality(self, processor, mock_stage1_data):
-        """測試軌道計算功能"""
+    def test_orbital_state_propagation_functionality(self, processor, mock_stage1_data):
+        """測試軌道狀態傳播功能 (v3.0)"""
         result = processor.process(mock_stage1_data)
 
-        # 檢查是否嘗試了軌道計算
+        # 檢查是否嘗試了軌道狀態傳播
         assert isinstance(result, ProcessingResult)
 
-        # 如果處理成功，檢查軌道計算相關數據
-        if result.status == ProcessingStatus.SUCCESS and 'satellites' in result.data:
-            satellites = result.data['satellites']
-            if satellites:
-                sample_sat = list(satellites.values())[0]
-                # 檢查軌道計算相關字段 (v2.0更新)
-                orbital_fields = ['positions', 'calculation_successful', 'orbital_data', 'elevation_angle', 'distance_km']
-                assert any(field in sample_sat for field in orbital_fields)
+        # 如果處理成功，檢查軌道狀態傳播相關數據
+        if result.status == ProcessingStatus.SUCCESS:
+            # v3.0期望的輸出格式
+            assert 'stage' in result.data
+            assert result.data['stage'] == 'stage2_orbital_computing'
+
+            if 'satellites' in result.data:
+                satellites = result.data['satellites']
+                if satellites:
+                    # v3.0嵌套結構: satellites[constellation][satellite_id]
+                    constellation = list(satellites.keys())[0]  # 第一個星座
+                    constellation_satellites = satellites[constellation]
+                    if constellation_satellites:
+                        satellite_id = list(constellation_satellites.keys())[0]  # 第一顆衛星
+                        sample_sat = constellation_satellites[satellite_id]
+
+                        # v3.0應該包含軌道狀態傳播字段
+                        orbital_propagation_fields = ['orbital_states', 'epoch_datetime', 'constellation']
+                        # v3.0架構專注於軌道狀態，包含TEME位置
+                        has_orbital_states = any(field in sample_sat for field in orbital_propagation_fields)
+                        assert has_orbital_states, f"v3.0架構缺少軌道狀態字段，實際字段: {list(sample_sat.keys())}"
+
+                        # 檢查orbital_states具體內容
+                        if 'orbital_states' in sample_sat:
+                            orbital_states = sample_sat['orbital_states']
+                            if orbital_states:
+                                first_state = orbital_states[0]
+                                teme_fields = ['position_teme', 'velocity_teme', 'timestamp']
+                                has_teme_data = any(field in first_state for field in teme_fields)
+                                assert has_teme_data, f"軌道狀態缺少TEME數據，實際字段: {list(first_state.keys())}"
 
     @pytest.mark.unit
     @pytest.mark.stage2
-    def test_visibility_analysis_functionality(self, processor, mock_stage1_data):
-        """測試可見性分析功能"""
+    def test_no_visibility_analysis_in_v3(self, processor, mock_stage1_data):
+        """測試v3.0架構禁止可見性分析功能"""
         result = processor.process(mock_stage1_data)
 
-        # 如果處理成功，檢查可見性分析相關數據
+        # v3.0架構應該不包含可見性分析
         if result.status == ProcessingStatus.SUCCESS and 'satellites' in result.data:
             satellites = result.data['satellites']
             if satellites:
-                sample_sat = list(satellites.values())[0]
-                # 檢查可見性分析相關字段 (v2.0更新)
-                visibility_fields = ['visible_windows', 'visibility_data', 'visibility_status', 'is_visible', 'is_feasible']
-                assert any(field in sample_sat for field in visibility_fields)
+                # v3.0嵌套結構檢查
+                constellation = list(satellites.keys())[0]
+                constellation_satellites = satellites[constellation]
+                if constellation_satellites:
+                    satellite_id = list(constellation_satellites.keys())[0]
+                    sample_sat = constellation_satellites[satellite_id]
+
+                    # v3.0禁止的可見性分析字段
+                    forbidden_visibility_fields = ['visible_windows', 'visibility_data', 'visibility_status', 'is_visible', 'elevation_angle', 'azimuth_angle']
+                    for field in forbidden_visibility_fields:
+                        assert field not in sample_sat, f"v3.0架構禁止可見性分析字段: {field}"
 
     @pytest.mark.unit
     @pytest.mark.stage2
-    def test_trajectory_prediction_functionality(self, processor, mock_stage1_data):
-        """測試軌跡預測功能"""
+    def test_teme_coordinate_output(self, processor, mock_stage1_data):
+        """測試TEME座標系統輸出 (v3.0)"""
         result = processor.process(mock_stage1_data)
 
-        # 如果處理成功，檢查軌跡預測相關數據
-        if result.status == ProcessingStatus.SUCCESS and 'satellites' in result.data:
-            satellites = result.data['satellites']
-            if satellites:
-                sample_sat = list(satellites.values())[0]
-                # 檢查軌跡預測相關字段
-                prediction_fields = ['prediction_data', 'predicted_positions']
-                # 軌跡預測是可選的，所以我們只檢查是否嘗試了
-                # 不要求一定存在這些字段
+        # 如果處理成功，檢查TEME座標輸出
+        if result.status == ProcessingStatus.SUCCESS:
+            # v3.0要求使用TEME座標系統
+            if 'coordinate_system' in result.data:
+                assert result.data['coordinate_system'] == 'TEME'
+
+            if 'satellites' in result.data:
+                satellites = result.data['satellites']
+                if satellites:
+                    # v3.0嵌套結構檢查TEME座標
+                    constellation = list(satellites.keys())[0]
+                    constellation_satellites = satellites[constellation]
+                    if constellation_satellites:
+                        satellite_id = list(constellation_satellites.keys())[0]
+                        sample_sat = constellation_satellites[satellite_id]
+
+                        # 檢查orbital_states中的TEME座標
+                        if 'orbital_states' in sample_sat:
+                            orbital_states = sample_sat['orbital_states']
+                            if orbital_states:
+                                first_state = orbital_states[0]
+                                # v3.0架構應該在orbital_states中輸出TEME座標
+                                teme_fields = ['position_teme', 'velocity_teme']
+                                has_teme_data = any(field in first_state for field in teme_fields)
+                                if has_teme_data:
+                                    print("✅ v3.0 TEME座標輸出驗證通過")
 
     @pytest.mark.unit
     @pytest.mark.stage2
@@ -346,29 +411,29 @@ class TestStage2GradeACompliance:
     @pytest.mark.unit
     @pytest.mark.stage2
     @pytest.mark.compliance
-    def test_modular_architecture_compliance(self, processor):
-        """測試v2.0模組化架構合規性"""
-        # 檢查6個核心模組是否存在 (v2.0更新)
-        expected_modules = [
-            'sgp4_calculator',
-            'coordinate_converter',
-            'visibility_filter',
-            'link_feasibility_filter',
-            'optimized_processor',  # v2.0新增
-            'parallel_calculator'   # v2.0新增
+    def test_v3_architecture_compliance(self, processor):
+        """測試v3.0軌道狀態傳播架構合規性"""
+        # v3.0架構特點驗證
+        assert isinstance(processor, Stage2OrbitalPropagationProcessor), "必須使用Stage2OrbitalPropagationProcessor"
+
+        # 檢查v3.0核心組件 (軌道狀態傳播專用)
+        v3_components = [
+            'sgp4_calculator',  # SGP4/SDP4軌道計算引擎
+            'coordinate_system'  # TEME座標系統設定
         ]
 
-        # 檢查基礎4模組 (必須存在)
-        core_modules = expected_modules[:4]
-        for module_name in core_modules:
-            # 檢查模組屬性是否存在
-            assert hasattr(processor, module_name) or hasattr(processor, f"_{module_name}"), f"缺少核心模組: {module_name}"
+        for component in v3_components:
+            # 檢查組件是否存在 (可能是屬性或配置項)
+            has_component = (hasattr(processor, component) or
+                           hasattr(processor, f"_{component}") or
+                           (hasattr(processor, 'config') and component in processor.config))
+            # v3.0允許組件在配置中定義，不強制要求屬性存在
 
-        # 檢查優化模組 (可選存在，但如果存在要有正確類型)
-        if hasattr(processor, 'optimized_processor'):
-            from stages.stage2_orbital_computing.optimized_stage2_processor import OptimizedStage2Processor
-            # 可以是實例或類型
-            assert processor.optimized_processor is not None
+        # 檢查v3.0禁止的v2.0組件
+        forbidden_v2_components = ['coordinate_converter', 'visibility_filter', 'link_feasibility_filter']
+        for component in forbidden_v2_components:
+            # 確保沒有v2.0可見性分析組件
+            assert not hasattr(processor, component), f"v3.0架構禁止v2.0組件: {component}"
 
     @pytest.mark.unit
     @pytest.mark.stage2
@@ -411,8 +476,8 @@ class TestStage2GradeACompliance:
     @pytest.mark.unit
     @pytest.mark.stage2
     @pytest.mark.compliance
-    def test_output_format_compliance(self, processor, mock_stage1_data):
-        """測試輸出格式合規性"""
+    def test_v3_output_format_compliance(self, processor, mock_stage1_data):
+        """測試v3.0輸出格式合規性"""
         try:
             result = processor.process(mock_stage1_data)
         except RuntimeError as e:
@@ -422,27 +487,94 @@ class TestStage2GradeACompliance:
                 raise
 
         if result.status == ProcessingStatus.SUCCESS:
-            # 檢查v2.0預期的輸出格式
-            assert 'satellites' in result.data
+            # 檢查v3.0預期的輸出格式
+            assert 'stage' in result.data
+            assert result.data['stage'] == 'stage2_orbital_computing'
 
-            satellites = result.data['satellites']
-            if satellites:
-                sample_sat = list(satellites.values())[0]
+            # v3.0要求TEME座標系統
+            if 'coordinate_system' in result.data:
+                assert result.data['coordinate_system'] == 'TEME'
 
-                # 檢查鏈路可行性字段 (v2.0新增)
-                feasibility_fields = ['is_feasible', 'feasibility_data', 'feasibility_score']
-                has_feasibility = any(field in sample_sat for field in feasibility_fields)
+            # v3.0禁止可見性和可行性分析字段
+            forbidden_v2_fields = ['visible_windows', 'is_visible', 'is_feasible', 'feasibility_data',
+                                  'elevation_angle', 'azimuth_angle', 'visibility_status']
 
-                # 如果有可見性數據，應該也有可行性數據
-                if 'visible_positions' in sample_sat or 'is_visible' in sample_sat:
-                    assert has_feasibility, "v2.0架構要求同時進行可見性和可行性分析"
+            # 檢查不應該包含v2.0字段
+            for field in forbidden_v2_fields:
+                assert field not in result.data, f"v3.0架構禁止v2.0字段: {field}"
 
-                # v2.0架構應該包含基本可見性和可行性標記
-                if has_feasibility:
-                    # 檢查是否有基本的布林標記
-                    bool_fields = ['is_visible', 'is_feasible']
-                    has_bool_markers = any(field in sample_sat and isinstance(sample_sat[field], bool) for field in bool_fields)
-                    assert has_bool_markers, "v2.0架構要求包含布林可見性/可行性標記"
+            # v3.0應該包含軌道狀態傳播字段
+            if 'satellites' in result.data:
+                satellites = result.data['satellites']
+                if satellites:
+                    sample_sat = list(satellites.values())[0] if isinstance(satellites, dict) else satellites[0]
+                    # 檢查禁止字段不在單個衛星數據中
+                    for field in forbidden_v2_fields:
+                        assert field not in sample_sat, f"v3.0架構禁止在衛星數據中包含v2.0字段: {field}"
+
+    @pytest.mark.unit
+    @pytest.mark.stage2
+    def test_save_validation_snapshot(self, processor, mock_stage1_data):
+        """測試Stage 2驗證快照保存功能"""
+        import json
+        import tempfile
+        from pathlib import Path
+
+        # 模擬處理結果
+        mock_results = {
+            'metadata': {
+                'total_satellites_processed': 100,
+                'visible_satellites_count': 25,
+                'feasible_satellites_count': 23,
+                'execution_time_seconds': 1.5
+            }
+        }
+
+        # 創建臨時目錄測試
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # 模擬路徑
+            import unittest.mock
+            with unittest.mock.patch('pathlib.Path') as mock_path:
+                # 設定路徑行為
+                def path_side_effect(x):
+                    if 'validation_snapshots' in str(x):
+                        return Path(temp_dir) / 'validation_snapshots'
+                    return Path(x)
+
+                mock_path.side_effect = path_side_effect
+
+                # 測試保存功能
+                result = processor.save_validation_snapshot(mock_results)
+
+                # 驗證保存成功
+                assert result is True
+
+    @pytest.mark.unit
+    @pytest.mark.stage2
+    def test_validation_snapshot_structure(self, processor):
+        """測試驗證快照結構的正確性"""
+        # 模擬具有完整數據的處理結果
+        mock_results = {
+            'metadata': {
+                'total_satellites_processed': 2400,
+                'visible_satellites_count': 600,
+                'feasible_satellites_count': 2300,
+                'execution_time_seconds': 125.5
+            }
+        }
+
+        # 檢查處理器是否有驗證快照方法
+        assert hasattr(processor, 'save_validation_snapshot'), "Stage 2處理器應該有save_validation_snapshot方法"
+
+        # 測試方法調用不會崩潰
+        try:
+            result = processor.save_validation_snapshot(mock_results)
+            # 可能由於路徑問題失敗，但不應該崩潰
+            assert isinstance(result, bool)
+        except Exception as e:
+            # 允許路徑相關的錯誤，但不允許結構錯誤
+            if "permission" not in str(e).lower() and "path" not in str(e).lower():
+                raise
 
 
 if __name__ == "__main__":

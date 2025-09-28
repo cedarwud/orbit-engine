@@ -4,7 +4,7 @@ Link Feasibility Filter - 鏈路可行性篩選器
 根據 stage2-orbital-computing.md 文檔第105-112行定義的功能職責：
 - 基礎可見性檢查（幾何可見性）
 - 星座特定服務門檻篩選（Starlink: 5°, OneWeb: 10°）
-- 鏈路預算約束檢查（距離範圍200-2000km）
+- 鏈路預算約束檢查（距離範圍使用配置文件設定）
 - 系統邊界驗證（地理邊界）
 - 服務窗口計算（可通訊時間段）
 
@@ -39,7 +39,7 @@ class LinkFeasibilityFilter:
     功能職責：
     - 基礎可見性檢查（幾何可見性）
     - 星座特定服務門檻篩選（Starlink: 5°, OneWeb: 10°）
-    - 鏈路預算約束檢查（距離範圍200-2000km）
+    - 鏈路預算約束檢查（距離範圍使用配置文件設定）
     - 系統邊界驗證（地理邊界）
     - 服務窗口計算（可通訊時間段）
 
@@ -59,7 +59,9 @@ class LinkFeasibilityFilter:
         self.config = config or {}
 
         # 初始化可見性篩選器（重用現有邏輯）
-        self.visibility_filter = VisibilityFilter(observer_location, config)
+        # 🔧 修復：優先使用專門的visibility_filter配置，回退到整個config
+        visibility_config = config.get('visibility_filter', config) if config else {}
+        self.visibility_filter = VisibilityFilter(observer_location, visibility_config)
 
         # 鏈路可行性特定參數
         self.min_service_window_minutes = self.config.get('min_service_window_minutes', 2.0)

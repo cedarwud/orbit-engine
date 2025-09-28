@@ -154,13 +154,27 @@ class TestStage1RefactoredProcessor:
         satellites = result.data.get('satellites', [])
         assert len(satellites) > 0, "應該載入衛星數據"
 
-        # 檢查第一顆衛星數據結構
+        # 檢查第一顆衛星數據結構 (包含個別epoch時間)
         if satellites:
             satellite = satellites[0]
-            required_fields = ['satellite_id', 'tle_line1', 'tle_line2', 'norad_id']
+            required_fields = ['satellite_id', 'tle_line1', 'tle_line2', 'norad_id', 'epoch_datetime']
 
             for field in required_fields:
                 assert field in satellite, f"衛星數據缺少字段: {field}"
+
+            # ⚠️ 學術標準修正: 驗證個別epoch_datetime字段
+            assert 'epoch_datetime' in satellite, "每顆衛星必須有個別epoch_datetime字段"
+            epoch_datetime = satellite['epoch_datetime']
+            assert epoch_datetime is not None, "epoch_datetime不能為空"
+            assert isinstance(epoch_datetime, str), "epoch_datetime必須為ISO格式字串"
+
+            # 驗證ISO 8601格式
+            from datetime import datetime
+            try:
+                parsed_dt = datetime.fromisoformat(epoch_datetime.replace('Z', '+00:00'))
+                assert parsed_dt is not None, "epoch_datetime必須為有效的ISO 8601格式"
+            except ValueError:
+                pytest.fail(f"epoch_datetime格式不正確: {epoch_datetime}")
 
     @pytest.mark.unit
     @pytest.mark.stage1
@@ -183,15 +197,29 @@ class TestStage1RefactoredProcessor:
     @pytest.mark.unit
     @pytest.mark.stage1
     def test_time_base_establishment(self, processor):
-        """測試時間基準建立功能"""
+        """測試個別epoch時間基準建立功能 (學術標準修正)"""
         result = processor.execute()
         metadata = result.data.get('metadata', {})
 
-        # 檢查時間基準字段
-        time_fields = ['calculation_base_time', 'tle_epoch_time']
-        for field in time_fields:
-            assert field in metadata, f"缺少時間基準字段: {field}"
-            assert metadata[field] is not None, f"時間基準字段不能為空: {field}"
+        # ⚠️ 學術標準修正: 檢查個別epoch時間字段 (不再檢查統一時間基準)
+        academic_compliance_fields = [
+            'time_base_source',
+            'academic_compliance',
+            'individual_epoch_processing',
+            'academic_compliance_note'
+        ]
+        for field in academic_compliance_fields:
+            assert field in metadata, f"缺少學術標準字段: {field}"
+
+        # 驗證個別epoch處理標記
+        assert metadata['individual_epoch_processing'] == True, "必須啟用個別epoch處理"
+        assert metadata['academic_compliance'] == 'individual_epoch_based', "必須符合個別epoch學術標準"
+        assert metadata['time_base_source'] == 'individual_tle_epochs', "時間來源必須為個別TLE epochs"
+
+        # 檢查禁止統一時間基準
+        forbidden_fields = ['calculation_base_time', 'primary_epoch_time']
+        for field in forbidden_fields:
+            assert field not in metadata, f"禁止字段出現: {field} (不符合學術標準)"
 
         # 檢查時間基準資料品質
         assert 'time_quality_metrics' in metadata
@@ -333,10 +361,18 @@ class TestStage1RefactoredProcessor:
         assert 'metadata' in stage2_input
         assert 'stage' in stage2_input
 
-        # 檢查時間基準字段 (Stage 2 繼承用)
+        # ⚠️ 學術標準修正: 檢查個別epoch時間繼承字段 (Stage 2 繼承用)
         metadata = stage2_input['metadata']
-        assert 'calculation_base_time' in metadata
-        assert 'tle_epoch_time' in metadata
+        assert 'time_base_source' in metadata
+        assert metadata['time_base_source'] == 'individual_tle_epochs'
+        assert 'academic_compliance' in metadata
+        assert metadata['academic_compliance'] == 'individual_epoch_based'
+
+        # 檢查stage1_time_inheritance新結構
+        assert 'stage1_time_inheritance' in metadata
+        inheritance = metadata['stage1_time_inheritance']
+        assert inheritance['time_processing_method'] == 'individual_epoch_based'
+        assert inheritance['unified_time_base_prohibited'] == True
 
     @pytest.mark.unit
     @pytest.mark.stage1
@@ -348,10 +384,16 @@ class TestStage1RefactoredProcessor:
         if satellites:
             satellite = satellites[0]
 
-            # 檢查基本字段 (與舊版本兼容)
-            basic_fields = ['satellite_id', 'tle_line1', 'tle_line2', 'norad_id']
+            # ⚠️ 學術標準修正: 檢查基本字段 (包含個別epoch時間)
+            basic_fields = ['satellite_id', 'tle_line1', 'tle_line2', 'norad_id', 'epoch_datetime']
             for field in basic_fields:
                 assert field in satellite, f"基本字段缺失: {field}"
+
+            # 驗證個別epoch_datetime字段格式
+            epoch_datetime = satellite['epoch_datetime']
+            assert isinstance(epoch_datetime, str), "epoch_datetime必須為ISO格式字串"
+            assert 'T' in epoch_datetime, "epoch_datetime必須包含ISO 8601的T分隔符"
+            assert epoch_datetime.endswith(('+00:00', 'Z')), "epoch_datetime必須包含UTC時區資訊"
 
     # === 性能測試 ===
 
@@ -390,9 +432,22 @@ class TestStage1RefactoredProcessor:
         # 完整處理應該在 30 秒內完成 (文檔要求)
         assert duration < 30.0, f"完整處理時間超過要求: {duration:.2f}秒"
 
-        # 應該處理大量衛星
+        # 應該處理完整的衛星數據集 (9000+ 顆衛星)
         satellites_count = len(result.data.get('satellites', []))
-        assert satellites_count > 100, f"處理衛星數量過少: {satellites_count}"
+        expected_min = 8000  # 最少期望 8000+ 顆衛星 (Starlink + OneWeb)
+        assert satellites_count >= expected_min, f"衛星數量未達標: 載入{satellites_count}顆，期望至少{expected_min}顆"
+
+        # 檢查主要星座是否存在
+        from collections import Counter
+        constellation_counts = Counter([s.get('constellation', 'unknown') for s in result.data.get('satellites', [])])
+
+        # Starlink 應該有大量衛星 (7000+)
+        starlink_count = constellation_counts.get('starlink', 0)
+        assert starlink_count >= 7000, f"Starlink衛星數量不足: {starlink_count}顆，期望至少7000顆"
+
+        # OneWeb 應該有數百顆衛星 (500+)
+        oneweb_count = constellation_counts.get('oneweb', 0)
+        assert oneweb_count >= 500, f"OneWeb衛星數量不足: {oneweb_count}顆，期望至少500顆"
 
     # === 錯誤處理測試 ===
 

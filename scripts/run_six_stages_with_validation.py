@@ -38,6 +38,63 @@ logger = logging.getLogger(__name__)
 
 # 導入必要模組
 from shared.interfaces.processor_interface import ProcessingResult, ProcessingStatus
+import yaml
+
+
+def load_stage2_config(config_path: str) -> dict:
+    """載入Stage 2配置文件"""
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config_dict = yaml.safe_load(f)
+
+        # 顯示關鍵配置信息
+        visibility_config = config_dict.get('visibility_filter', {})
+        elevation_thresholds = visibility_config.get('constellation_elevation_thresholds', {})
+
+        print(f'📊 配置載入成功:')
+        print(f'   Starlink 仰角: {elevation_thresholds.get("starlink", "N/A")}°')
+        print(f'   OneWeb 仰角: {elevation_thresholds.get("oneweb", "N/A")}°')
+        print(f'   預設仰角: {visibility_config.get("min_elevation_deg", "N/A")}°')
+
+        return config_dict
+    except Exception as e:
+        print(f'❌ 配置載入失敗: {e}')
+        return {}
+
+
+def create_stage2_processor_unified(config_path: str):
+    """
+    創建Stage 2處理器 - v3.0 軌道狀態傳播架構 (統一邏輯)
+
+    🎯 唯一執行路徑:
+    - Stage2OrbitalPropagationProcessor (v3.0 標準軌道狀態傳播)
+    - 純CPU計算，無GPU/CPU差異
+    - 單一統一邏輯，無回退機制
+
+    ✅ v3.0架構特性:
+    - 純軌道狀態傳播 (禁止座標轉換和可見性分析)
+    - 使用 Stage 1 epoch_datetime (禁止 TLE 重新解析)
+    - TEME 座標系統輸出
+    - SGP4/SDP4 專業算法
+    """
+    config_dict = load_stage2_config(config_path)
+
+    if not config_dict:
+        print('⚠️ 配置載入失敗，使用 v3.0 標準處理器')
+        from stages.stage2_orbital_computing.stage2_orbital_computing_processor import Stage2OrbitalPropagationProcessor
+        return Stage2OrbitalPropagationProcessor()
+
+    # ✅ 唯一執行路徑：v3.0 標準軌道狀態傳播處理器
+    print('🛰️ 初始化 v3.0 軌道狀態傳播處理器 (統一邏輯)...')
+    from stages.stage2_orbital_computing.stage2_orbital_computing_processor import Stage2OrbitalPropagationProcessor
+    processor = Stage2OrbitalPropagationProcessor(config=config_dict)
+    print('✅ v3.0 軌道狀態傳播處理器初始化成功')
+    print('   📋 架構: v3.0 軌道狀態傳播 (唯一執行路徑)')
+    print('   🎯 功能: SGP4/SDP4 + TEME 座標輸出')
+    print('   💻 計算: 純CPU計算，無GPU/CPU差異')
+    print('   ⚠️  時間: 使用 Stage 1 epoch_datetime')
+    print('   🚫 禁止: 座標轉換、可見性分析、舊版回退')
+    return processor
 
 
 def clean_stage_outputs(stage_number: int):
@@ -64,6 +121,50 @@ def clean_stage_outputs(stage_number: int):
 
     except Exception as e:
         print(f"⚠️ 清理 Stage {stage_number} 時發生錯誤: {e}")
+
+
+def execute_stage1_unified() -> tuple:
+    """
+    統一的 Stage 1 執行函數 (消除重複邏輯)
+
+    Returns:
+        tuple: (success: bool, stage1_result: ProcessingResult, stage1_data: dict)
+    """
+    try:
+        # 清理舊的輸出
+        clean_stage_outputs(1)
+
+        # 使用統一的重構版本 (舊版本已破壞，已移除)
+        from stages.stage1_orbital_calculation.stage1_main_processor import create_stage1_refactored_processor
+        stage1 = create_stage1_refactored_processor(
+            config={'sample_mode': False, 'sample_size': 500}
+        )
+        print('✅ 使用重構版本: Stage1RefactoredProcessor (唯一可用版本)')
+
+        # 執行 Stage 1
+        stage1_result = stage1.execute(input_data=None)
+
+        # 處理結果格式 (重構版本應該總是返回 ProcessingResult)
+        if isinstance(stage1_result, ProcessingResult):
+            if stage1_result.status == ProcessingStatus.SUCCESS:
+                print(f'✅ Stage 1 完成: {len(stage1_result.data.get("satellites", []))} 顆衛星')
+                stage1_data = stage1_result.data
+                return True, stage1_result, stage1_data
+            else:
+                print(f'❌ Stage 1 執行失敗: {stage1_result.status}')
+                return False, stage1_result, {}
+        else:
+            # 不應該發生，但保留兼容性
+            print(f'⚠️ Stage 1 返回意外格式: {type(stage1_result)}')
+            if isinstance(stage1_result, dict) and stage1_result.get('satellites'):
+                print(f'✅ Stage 1 完成: {len(stage1_result.get("satellites", []))} 顆衛星')
+                return True, stage1_result, stage1_result
+            else:
+                return False, stage1_result, {}
+
+    except Exception as e:
+        print(f'❌ Stage 1 執行異常: {e}')
+        return False, None, {}
 
 
 def validate_stage_immediately(stage_processor, processing_results, stage_num, stage_name):
@@ -153,7 +254,7 @@ def check_validation_snapshot_quality(stage_num):
         with open(snapshot_path, 'r', encoding='utf-8') as f:
             snapshot_data = json.load(f)
 
-        # Stage 1 專用檢查 - 更新版
+        # Stage 1 專用檢查 - 修復虛假驗證問題
         if stage_num == 1:
             if snapshot_data.get('status') == 'success' and snapshot_data.get('validation_passed', False):
                 satellite_count = snapshot_data.get('data_summary', {}).get('satellite_count', 0)
@@ -163,16 +264,88 @@ def check_validation_snapshot_quality(stage_num):
                 is_refactored = snapshot_data.get('refactored_version', False)
                 interface_compliance = snapshot_data.get('interface_compliance', False)
 
-                if satellite_count > 0 and next_stage_ready:
-                    status_msg = f"Stage 1 合理性檢查通過: 載入{satellite_count}顆衛星數據"
+                # 修復虛假驗證: 檢查數據完整性而不是僅檢查 > 0
+                # 期望值: Starlink(8390) + OneWeb(651) = 9041顆衛星
+                expected_total = 9041
+                min_acceptable = 8000  # 至少80%完整度
+
+                if satellite_count >= min_acceptable and next_stage_ready:
+                    completeness = (satellite_count / expected_total * 100) if expected_total > 0 else 0
+                    status_msg = f"Stage 1 數據完整性檢查通過: 載入{satellite_count}顆衛星 (完整度:{completeness:.1f}%)"
                     if is_refactored:
                         status_msg += " (重構版本)"
                     return True, status_msg
+                elif satellite_count > 0:
+                    completeness = (satellite_count / expected_total * 100) if expected_total > 0 else 0
+                    return False, f"❌ Stage 1 數據不完整: 僅載入{satellite_count}顆衛星 (完整度:{completeness:.1f}%，需要≥{min_acceptable}顆)"
                 else:
                     return False, f"❌ Stage 1 數據不足: {satellite_count}顆衛星, 下階段準備:{next_stage_ready}"
             else:
                 status = snapshot_data.get('status', 'unknown')
                 return False, f"❌ Stage 1 執行狀態異常: {status}"
+
+        # Stage 2 專用檢查 - 軌道狀態傳播層 (v3.0 架構)
+        elif stage_num == 2:
+            # 檢查 v3.0 Stage 2 驗證快照格式 (純軌道狀態傳播)
+            if snapshot_data.get('stage') == 'stage2_orbital_computing':
+                # v3.0 架構: 只檢查軌道狀態傳播，不檢查可見性/可行性
+                data_summary = snapshot_data.get('data_summary', {})
+                validation_checks = snapshot_data.get('validation_checks', {})
+
+                total_satellites = data_summary.get('total_satellites_processed', 0)
+                successful_propagations = data_summary.get('successful_propagations', 0)
+                total_teme_positions = data_summary.get('total_teme_positions', 0)
+                validation_passed = snapshot_data.get('validation_passed', False)
+
+                # v3.0 架構基本檢查 - 軌道狀態傳播成功
+                if total_satellites == 0:
+                    return False, f"❌ Stage 2 未處理任何衛星數據"
+
+                if successful_propagations == 0:
+                    return False, f"❌ Stage 2 軌道狀態傳播失敗: 沒有成功的軌道計算"
+
+                if total_teme_positions == 0:
+                    return False, f"❌ Stage 2 TEME座標生成失敗: 沒有軌道狀態點"
+
+                # 檢查專用驗證通過率 (至少4/5項通過)
+                checks_details = validation_checks.get('check_details', {})
+                checks_passed = validation_checks.get('checks_passed', 0)
+                checks_performed = validation_checks.get('checks_performed', 0)
+
+                if checks_performed < 5:
+                    return False, f"❌ Stage 2 專用驗證不完整: 只執行了{checks_performed}/5項檢查"
+
+                if checks_passed < 4:
+                    return False, f"❌ Stage 2 專用驗證未達標: 只通過了{checks_passed}/5項檢查"
+
+                # 檢查 v3.0 架構合規性
+                if not snapshot_data.get('v3_architecture', False):
+                    return False, f"❌ Stage 2 架構版本不符: 未使用v3.0軌道狀態傳播架構"
+
+                if not snapshot_data.get('orbital_state_propagation', False):
+                    return False, f"❌ Stage 2 功能不符: 未執行軌道狀態傳播"
+
+                # 成功通過所有 v3.0 架構檢查
+                success_rate = (successful_propagations / total_satellites * 100) if total_satellites > 0 else 0
+                status_msg = f"Stage 2 v3.0架構檢查通過: {total_satellites}衛星 → {successful_propagations}成功軌道傳播 ({success_rate:.1f}%) → {total_teme_positions}個TEME座標點"
+                return True, status_msg
+
+            # 舊版快照格式檢查 (向後兼容)
+            elif 'validation_passed' in snapshot_data:
+                if snapshot_data.get('validation_passed', False):
+                    metrics = snapshot_data.get('metrics', {})
+                    feasible_satellites = metrics.get('feasible_satellites', 0)
+                    input_satellites = metrics.get('input_satellites', 0)
+
+                    if feasible_satellites > 0 and input_satellites > 0:
+                        feasible_rate = (feasible_satellites / input_satellites * 100)
+                        return True, f"Stage 2 合理性檢查通過: {feasible_satellites}/{input_satellites} 可行 ({feasible_rate:.1f}%)"
+                    else:
+                        return False, f"❌ Stage 2 數據不足: 可行{feasible_satellites}/總計{input_satellites}"
+                else:
+                    return False, f"❌ Stage 2 驗證未通過"
+            else:
+                return False, f"❌ Stage 2 驗證快照格式不正確"
 
         # Stage 3 專用檢查
         elif stage_num == 3:
@@ -203,56 +376,28 @@ def run_all_stages_sequential(validation_level='STANDARD'):
     stage_results = {}
 
     try:
-        # 🔧 更新：階段一使用重構後的處理器
-        print('\\n📦 階段一：數據載入層 (重構版本 v1.0)')
+        # 🔧 使用統一的 Stage 1 執行函數 (消除重複邏輯)
+        print('\\n📦 階段一：數據載入層 (重構版本)')
         print('-' * 60)
-        print('🔧 使用 Stage1RefactoredProcessor (100% BaseStageProcessor 合規)')
 
-        # 清理舊的輸出
-        clean_stage_outputs(1)
+        success, stage1_result, stage1_data = execute_stage1_unified()
 
-        # 環境變數控制使用重構版本
-        use_refactored = os.environ.get('USE_REFACTORED_STAGE1', 'true').lower() == 'true'
-
-        if use_refactored:
-            from stages.stage1_orbital_calculation.stage1_main_processor import create_stage1_refactored_processor
-            stage1 = create_stage1_refactored_processor(
-                config={'sample_mode': False, 'sample_size': 500}
-            )
-            print('✅ 使用重構版本: Stage1RefactoredProcessor')
-        else:
-            from stages.stage1_orbital_calculation.stage1_main_processor import Stage1MainProcessor
-            stage1 = Stage1MainProcessor(
-                config={'sample_mode': False, 'sample_size': 500}
-            )
-            print('⚠️ 使用舊版本: Stage1MainProcessor')
-
-        # 執行 Stage 1
-        stage1_result = stage1.execute(input_data=None)
-
-        # 處理結果格式差異
-        if isinstance(stage1_result, ProcessingResult):
-            # 重構版本返回 ProcessingResult
-            print(f'📊 處理狀態: {stage1_result.status}')
-            print(f'📊 處理時間: {stage1_result.metrics.duration_seconds:.3f}秒')
-            print(f'📊 處理衛星: {len(stage1_result.data.get("satellites", []))}顆')
-
-            # 存儲結果供後續階段使用
-            stage_results['stage1'] = stage1_result
-            stage1_data = stage1_result.data  # 提取數據部分
-        else:
-            # 舊版本返回 Dict
-            print(f'📊 處理衛星: {len(stage1_result.get("satellites", []))}顆')
-            stage_results['stage1'] = stage1_result
-            stage1_data = stage1_result
-
-        if not stage1_data:
+        if not success or not stage1_data:
             print('❌ 階段一處理失敗')
             return False, 1, "階段一處理失敗"
 
-        # 🔍 階段一立即驗證 - 使用更新後的驗證函數
+        # 存儲結果供後續階段使用
+        stage_results['stage1'] = stage1_result
+
+        # 顯示處理結果統計
+        if isinstance(stage1_result, ProcessingResult):
+            print(f'📊 處理狀態: {stage1_result.status}')
+            print(f'📊 處理時間: {stage1_result.metrics.duration_seconds:.3f}秒')
+            print(f'📊 處理衛星: {len(stage1_data.get("satellites", []))}顆')
+
+        # 🔍 階段一立即驗證
         validation_success, validation_msg = validate_stage_immediately(
-            stage1, stage_results['stage1'], 1, "數據載入層"
+            None, stage_results['stage1'], 1, "數據載入層"
         )
 
         if not validation_success:
@@ -275,8 +420,17 @@ def run_all_stages_sequential(validation_level='STANDARD'):
         # 清理舊的輸出
         clean_stage_outputs(2)
 
-        from stages.stage2_orbital_computing.optimized_stage2_processor import OptimizedStage2Processor
-        stage2 = OptimizedStage2Processor(enable_optimization=True)
+        # 🔧 新增：載入正確的配置文件
+        config_path = project_root / "config/stage2_orbital_computing.yaml"
+        if config_path.exists():
+            print(f'📄 載入配置文件: {config_path}')
+
+            # 🎯 統一處理器：v3.0 軌道狀態傳播 (CPU計算)
+            stage2 = create_stage2_processor_unified(str(config_path))
+        else:
+            print('⚠️ 配置文件不存在，使用 v3.0 標準處理器')
+            from stages.stage2_orbital_computing.stage2_orbital_computing_processor import Stage2OrbitalPropagationProcessor
+            stage2 = Stage2OrbitalPropagationProcessor()
 
         # 🔧 修復：處理 ProcessingResult 格式
         if isinstance(stage_results['stage1'], ProcessingResult):
@@ -516,48 +670,32 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
             print('\\n📦 階段一：數據載入層 (重構版本)')
             print('-' * 60)
 
-            # 清理舊的輸出
-            clean_stage_outputs(1)
+            # 🔧 使用統一的 Stage 1 執行函數 (消除重複邏輯)
+            success, result, stage1_data = execute_stage1_unified()
 
-            # 環境變數控制
-            use_refactored = os.environ.get('USE_REFACTORED_STAGE1', 'true').lower() == 'true'
+            if not success:
+                return False, 1, "Stage 1 執行失敗"
 
-            if use_refactored:
-                from stages.stage1_orbital_calculation.stage1_main_processor import create_stage1_refactored_processor
-                processor = create_stage1_refactored_processor({'sample_mode': False})
-                print('✅ 使用重構版本: Stage1RefactoredProcessor')
-            else:
-                from stages.stage1_orbital_calculation.stage1_main_processor import Stage1MainProcessor
-                processor = Stage1MainProcessor({'sample_mode': False})
-                print('⚠️ 使用舊版本: Stage1MainProcessor')
-
-            result = processor.execute()
-
-            # 處理結果驗證
+            # 執行驗證
             if isinstance(result, ProcessingResult):
-                if result.status == ProcessingStatus.SUCCESS:
-                    print(f'✅ Stage 1 完成: {len(result.data.get("satellites", []))} 顆衛星')
+                validation_success, validation_msg = validate_stage_immediately(
+                    None, result, 1, "數據載入層"
+                )
 
-                    # 執行驗證
-                    validation_success, validation_msg = validate_stage_immediately(
-                        processor, result, 1, "數據載入層"
-                    )
-
-                    if validation_success:
-                        return True, 1, f"Stage 1 成功完成並驗證通過: {validation_msg}"
-                    else:
-                        return False, 1, f"Stage 1 驗證失敗: {validation_msg}"
+                if validation_success:
+                    return True, 1, f"Stage 1 成功完成並驗證通過: {validation_msg}"
                 else:
-                    return False, 1, f"Stage 1 執行失敗: {result.errors}"
+                    return False, 1, f"Stage 1 驗證失敗: {validation_msg}"
             else:
-                # 舊版本處理
-                satellites_count = len(result.get('satellites', []))
-                print(f'✅ Stage 1 完成: {satellites_count} 顆衛星')
+                # 舊版本格式 (不應該發生)
+                satellites_count = len(stage1_data.get('satellites', []))
                 return True, 1, f"Stage 1 成功完成: {satellites_count} 顆衛星"
 
         elif target_stage == 2:
             print('\\n🛰️ 階段二：軌道計算與鏈路可行性評估層')
             print('-' * 60)
+
+            clean_stage_outputs(2)
 
             # 尋找Stage 1輸出文件
             stage1_output = find_latest_stage_output(1)
@@ -567,40 +705,14 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
 
             print(f'📊 使用Stage 1輸出: {stage1_output}')
 
-            # TODO: 實現Stage 2單獨執行邏輯
-            print('⚠️ Stage 2單獨執行功能待實現')
-            return False, 2, "Stage 2單獨執行功能待實現"
-
-        elif target_stage == 3:
-            print('\\n📡 階段三：信號分析層')
-            print('-' * 60)
-
-            # 尋找Stage 2輸出文件
-            stage2_output = find_latest_stage_output(2)
-            if not stage2_output:
-                print('❌ 找不到Stage 2輸出文件，請先執行Stage 2')
-                return False, 3, "需要Stage 2輸出文件"
-
-            print(f'📊 使用Stage 2輸出: {stage2_output}')
-
-            # TODO: 實現Stage 3單獨執行邏輯
-            print('⚠️ Stage 3單獨執行功能待實現')
-            return False, 3, "Stage 3單獨執行功能待實現"
-
-        elif target_stage == 2:
-            print('\\n🛰️ 階段二：軌道計算與鏈路可行性評估層')
-            print('-' * 60)
-
-            clean_stage_outputs(2)
-
-            # 尋找Stage 1輸出
-            stage1_output = find_latest_stage_output(1)
-            if not stage1_output:
-                print('❌ 找不到Stage 1輸出文件，請先執行Stage 1')
-                return False, 2, "需要Stage 1輸出文件"
-
-            from stages.stage2_orbital_computing.optimized_stage2_processor import OptimizedStage2Processor
-            processor = OptimizedStage2Processor(enable_optimization=True)
+            # 🔧 使用統一v3.0處理器 (CPU計算)
+            config_path = project_root / "config/stage2_orbital_computing.yaml"
+            if config_path.exists():
+                processor = create_stage2_processor_unified(str(config_path))
+            else:
+                print('⚠️ 配置文件不存在，使用 v3.0 標準處理器')
+                from stages.stage2_orbital_computing.stage2_orbital_computing_processor import Stage2OrbitalPropagationProcessor
+                processor = Stage2OrbitalPropagationProcessor()
 
             # 載入前階段數據
             import json
@@ -620,6 +732,7 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
                 return True, 2, f"Stage 2 成功完成並驗證通過: {validation_msg}"
             else:
                 return False, 2, f"Stage 2 驗證失敗: {validation_msg}"
+
 
         elif target_stage == 3:
             print('\\n📡 階段三：信號分析層')
@@ -777,17 +890,11 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description='六階段數據處理系統 (重構更新版)')
     parser.add_argument('--stage', type=int, choices=[1,2,3,4,5,6], help='運行特定階段')
-    parser.add_argument('--use-refactored', action='store_true', default=True, help='使用重構後的 Stage 1 (預設啟用)')
-    parser.add_argument('--use-legacy', action='store_true', help='使用舊版 Stage 1')
+    # 已移除舊版本支持 (--use-legacy 已破壞)
     args = parser.parse_args()
 
-    # 設置環境變數
-    if args.use_legacy:
-        os.environ['USE_REFACTORED_STAGE1'] = 'false'
-        print('🔧 強制使用舊版 Stage 1')
-    else:
-        os.environ['USE_REFACTORED_STAGE1'] = 'true'
-        print('🔧 使用重構版 Stage 1 (推薦)')
+    # 已移除舊版本支持 (已破壞，不相容)
+    print('🔧 使用重構版 Stage 1 (唯一可用版本)')
 
     start_time = time.time()
 
@@ -811,6 +918,14 @@ def main():
         print('   📦 標準化: ProcessingResult 輸出格式')
         print('   📦 驗證: 5項專用驗證檢查')
         print('   📦 兼容性: 完美的向後兼容')
+
+    print('\\n🚀 Stage 2 v3.0 軌道狀態傳播特性 (統一邏輯):')
+    print('   🎯 唯一: Stage2OrbitalPropagationProcessor (v3.0 統一標準)')
+    print('   💻 計算: 純CPU計算，無GPU/CPU差異')
+    print('   📋 架構: 純軌道狀態傳播，禁止座標轉換和可見性分析')
+    print('   🎯 輸出: TEME 座標系統的軌道狀態時間序列')
+    print('   ⚠️  時間: 使用 Stage 1 epoch_datetime，禁止 TLE 重新解析')
+    print('   🚫 移除: 所有舊版處理器、GPU邏輯、回退機制')
 
     return 0 if success else 1
 

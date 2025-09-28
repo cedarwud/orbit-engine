@@ -69,19 +69,23 @@ class TimeReferenceManager:
 
     def establish_time_reference(self, tle_data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        建立整個數據集的時間基準
+        建立個別TLE記錄的時間基準 (符合學術標準)
+
+        ⚠️ 重要：每筆TLE記錄保持獨立的epoch時間，不創建統一時間基準
+        根據學術標準，TLE文件包含多天數據，每筆記錄有不同epoch時間，
+        統一時間基準會導致軌道計算誤差。
 
         Args:
             tle_data_list: TLE數據列表
 
         Returns:
-            時間基準建立結果
+            時間基準建立結果 (保持個別epoch時間)
         """
-        self.logger.info(f"⏰ 建立{len(tle_data_list)}筆TLE數據的時間基準...")
+        self.logger.info(f"⏰ 建立{len(tle_data_list)}筆TLE數據的個別時間基準...")
 
         time_reference_result = {
             'time_reference_established': False,
-            'primary_epoch_time': None,
+            'individual_epoch_processing': True,  # 標記使用個別epoch處理
             'epoch_time_range': {},
             'standardized_data': [],
             'time_quality_metrics': {},
@@ -89,7 +93,8 @@ class TimeReferenceManager:
                 'reference_timestamp': datetime.now(timezone.utc).isoformat(),
                 'time_standard': 'UTC',
                 'precision_level': 'microsecond',
-                'manager_version': '2.0.0'
+                'manager_version': '2.1.0',
+                'academic_compliance': 'individual_epoch_based'
             }
         }
 
@@ -139,23 +144,24 @@ class TimeReferenceManager:
                 standardized_data.append(enhanced_tle)
                 self.time_stats['parsing_errors'] += 1
 
-        # 建立時間基準
+        # 建立個別時間基準記錄 (不創建統一基準)
         if epoch_times:
             time_reference_result.update({
                 'time_reference_established': True,
-                'primary_epoch_time': min(epoch_times).isoformat(),  # 使用最早時間作為基準
                 'epoch_time_range': {
                     'earliest': min(epoch_times).isoformat(),
                     'latest': max(epoch_times).isoformat(),
-                    'span_days': (max(epoch_times) - min(epoch_times)).days
+                    'span_days': (max(epoch_times) - min(epoch_times)).days,
+                    'total_individual_epochs': len(epoch_times)
                 },
-                'standardized_data': standardized_data
+                'standardized_data': standardized_data,
+                'academic_compliance_note': '每筆TLE記錄保持獨立epoch時間，符合學術標準'
             })
 
             # 生成時間品質度量
             time_reference_result['time_quality_metrics'] = self._generate_time_quality_metrics(epoch_times)
 
-            self.logger.info(f"✅ 時間基準建立完成，處理{len(epoch_times)}個有效epoch")
+            self.logger.info(f"✅ 個別時間基準建立完成，處理{len(epoch_times)}個獨立epoch (無統一基準)")
         else:
             self.logger.error("❌ 無法建立時間基準，沒有有效的epoch時間")
 
@@ -574,19 +580,20 @@ class TimeReferenceManager:
 
     def synchronize_time_references(self, standardized_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        同步時間基準 (為多階段處理準備)
+        驗證個別時間基準 (不創建主時間基準)
+
+        ⚠️ 重要：根據學術標準，不同步到統一時間，只驗證個別epoch的品質
 
         Args:
             standardized_data: 標準化後的數據
 
         Returns:
-            時間同步結果
+            個別時間基準驗證結果
         """
         sync_result = {
-            'synchronization_success': False,
-            'master_time_reference': None,
+            'individual_epoch_validation': True,
             'synchronized_epochs': [],
-            'sync_quality_metrics': {}
+            'validation_quality_metrics': {}
         }
 
         if not standardized_data:
@@ -603,21 +610,57 @@ class TimeReferenceManager:
                     continue
 
         if valid_epochs:
-            # 使用最早的時間作為主基準
-            master_epoch = min(valid_epochs, key=lambda x: x[0])
+            # 驗證個別epoch品質 (不創建主基準)
             sync_result.update({
-                'synchronization_success': True,
-                'master_time_reference': master_epoch[0].isoformat(),
+                'individual_epochs_valid': True,
+                'total_valid_epochs': len(valid_epochs),
                 'synchronized_epochs': [data['epoch_datetime'] for _, data in valid_epochs]
             })
 
-            # 計算同步品質度量
-            sync_result['sync_quality_metrics'] = self._calculate_sync_quality(valid_epochs, master_epoch[0])
+            # 計算個別epoch品質度量
+            sync_result['validation_quality_metrics'] = self._calculate_individual_epoch_quality(valid_epochs)
 
         return sync_result
 
+    def _calculate_individual_epoch_quality(self, valid_epochs: List[Tuple[datetime, Dict]]) -> Dict[str, Any]:
+        """計算個別epoch品質 (不依賴主時間基準)"""
+        if not valid_epochs:
+            return {'total_valid_epochs': 0, 'quality_grade': 'F'}
+
+        epoch_qualities = []
+        current_time = datetime.now(timezone.utc)
+
+        for epoch_dt, data in valid_epochs:
+            # 基於個別epoch的品質評估
+            age_days = (current_time - epoch_dt).days
+
+            if age_days <= 3:
+                quality_score = 95
+            elif age_days <= 7:
+                quality_score = 90
+            elif age_days <= 14:
+                quality_score = 85
+            elif age_days <= 30:
+                quality_score = 80
+            else:
+                quality_score = max(60, 75 - age_days)
+
+            epoch_qualities.append(quality_score)
+
+        avg_quality = sum(epoch_qualities) / len(epoch_qualities)
+
+        return {
+            'total_valid_epochs': len(valid_epochs),
+            'average_epoch_quality': avg_quality,
+            'individual_quality_scores': epoch_qualities,
+            'quality_grade': 'A' if avg_quality >= 90 else 'B' if avg_quality >= 80 else 'C',
+            'academic_compliance': 'individual_epoch_based'
+        }
+
     def _calculate_sync_quality(self, valid_epochs: List[Tuple[datetime, Dict]], master_time: datetime) -> Dict[str, Any]:
-        """計算時間同步品質"""
+        """舊版同步品質計算 (已廉用，保留兼容)"""
+        # 這個方法已被 _calculate_individual_epoch_quality 取代
+        # 保留以避免破壞現有代碼
         time_offsets = [(abs((epoch_dt - master_time).total_seconds()), data) for epoch_dt, data in valid_epochs]
 
         return {
@@ -625,7 +668,8 @@ class TimeReferenceManager:
             'max_time_offset_seconds': max(offset for offset, _ in time_offsets) if time_offsets else 0,
             'avg_time_offset_seconds': sum(offset for offset, _ in time_offsets) / len(time_offsets) if time_offsets else 0,
             'sync_precision_grade': 'A' if all(offset <= 1.0 for offset, _ in time_offsets) else 'B',
-            'master_time_quality': self._assess_time_quality(master_time, 1.0)
+            'master_time_quality': self._assess_time_quality(master_time, 1.0),
+            'deprecated_note': '這個方法已被取代，不符合學術標準'
         }
 
     def _analyze_data_source_consistency(self, epoch_times: List[datetime]) -> Dict[str, Any]:

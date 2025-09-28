@@ -71,10 +71,10 @@ class TestStage1PureAcademicGradeA(unittest.TestCase):
 
     def _load_real_tle_sample(self, max_samples=5):
         """
-        動態載入真實TLE數據樣本（避免硬編碼）
+        動態載入真實TLE數據（Academic Grade A 要求使用完整數據集）
 
         Args:
-            max_samples: 最大樣本數量
+            max_samples: 最大樣本數量，None表示載入全部數據
 
         Returns:
             真實TLE數據列表
@@ -86,10 +86,18 @@ class TestStage1PureAcademicGradeA(unittest.TestCase):
             scan_result = loader.scan_tle_data()
 
             if scan_result['total_satellites'] > 0:
-                # 載入少量真實數據用於測試
-                real_data = loader.load_satellite_data(
-                    scan_result,
-                    sample_mode=True,
+                if max_samples is None:
+                    # Academic Grade A: 載入完整數據集
+                    real_data = loader.load_satellite_data(
+                        scan_result,
+                        sample_mode=False,  # 使用完整數據
+                        sample_size=0
+                    )
+                else:
+                    # 載入少量真實數據用於快速測試
+                    real_data = loader.load_satellite_data(
+                        scan_result,
+                        sample_mode=True,
                     sample_size=max_samples
                 )
                 return real_data
@@ -169,8 +177,8 @@ class TestStage1PureAcademicGradeA(unittest.TestCase):
         """測試時間精度真實計算（基於實際TLE數據，無估計值）"""
         time_manager = TimeReferenceManager(self.real_data_config)
 
-        # 動態載入真實TLE數據
-        real_tle_list = self._load_real_tle_sample(max_samples=3)
+        # 動態載入真實TLE數據 - 使用完整數據集進行學術級測試
+        real_tle_list = self._load_real_tle_sample(max_samples=None)  # None = 載入全部數據
 
         if not real_tle_list:
             self.skipTest("無可用的真實TLE數據，跳過時間精度測試")
@@ -351,6 +359,56 @@ class TestStage1PureAcademicGradeA(unittest.TestCase):
 
             result = validator._check_real_tle_data([test_tle])
             self.assertFalse(result, f"應該拒絕測試數據路徑: {path}")
+
+    def test_full_dataset_validation_academic_grade_a(self):
+        """Academic Grade A: 完整數據集驗證（載入全部9041顆衛星）"""
+        validator = DataValidator(self.real_data_config)
+
+        # 載入完整數據集進行Academic Grade A驗證
+        full_tle_data = self._load_real_tle_sample(max_samples=None)
+
+        if not full_tle_data:
+            self.skipTest("無可用的完整TLE數據集，跳過Academic Grade A測試")
+
+        # Academic Grade A要求: 最少8000顆衛星
+        self.assertGreaterEqual(len(full_tle_data), 8000,
+                              f"Academic Grade A要求最少8000顆衛星，實際載入: {len(full_tle_data)}")
+
+        # 星座分布驗證
+        starlink_count = sum(1 for tle in full_tle_data if tle.get('constellation', '').lower() == 'starlink')
+        oneweb_count = sum(1 for tle in full_tle_data if tle.get('constellation', '').lower() == 'oneweb')
+
+        # Academic Grade A要求: Starlink最少7000顆，OneWeb最少500顆
+        self.assertGreaterEqual(starlink_count, 7000,
+                              f"Academic Grade A要求Starlink最少7000顆，實際: {starlink_count}")
+        self.assertGreaterEqual(oneweb_count, 500,
+                              f"Academic Grade A要求OneWeb最少500顆，實際: {oneweb_count}")
+
+        # 執行完整數據集驗證
+        validation_result = validator.validate_tle_dataset(full_tle_data)
+
+        # Academic Grade A驗證標準
+        self.assertIn('is_valid', validation_result)
+        self.assertIn('overall_grade', validation_result)
+
+        # 檢查學術合規性分數
+        academic_compliance = validation_result['validation_details']['academic_compliance']
+        compliance_score = academic_compliance['compliance_score']
+
+        # Academic Grade A要求: 合規分數應該基於完整數據集計算
+        self.assertIsInstance(compliance_score, (int, float))
+        self.assertTrue(0 <= compliance_score <= 100)
+
+        # 數據完整性驗證
+        data_completeness = len(full_tle_data) / 9041  # 預期9041顆衛星
+        self.assertGreaterEqual(data_completeness, 0.99,
+                              f"數據完整性應該≥99%，實際: {data_completeness:.2%}")
+
+        print(f"Academic Grade A測試通過 - 載入衛星數量: {len(full_tle_data)}")
+        print(f"  Starlink: {starlink_count} 顆")
+        print(f"  OneWeb: {oneweb_count} 顆")
+        print(f"  數據完整性: {data_completeness:.2%}")
+        print(f"  學術合規分數: {compliance_score}")
 
 
 class TestStage1NoSimulationDataPure(unittest.TestCase):

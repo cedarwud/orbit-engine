@@ -30,7 +30,7 @@
 ✅ v2.0 職責 (純數據載入):
 - TLE檔案載入和解析
 - 數據格式驗證和品質檢查
-- 時間基準標準化 (TLE epoch → calculation_base_time)
+- 個別時間基準保持 (每筆TLE保持獨立 epoch_datetime)
 - 為Stage 2提供清潔的TLE數據
 
 ❌ 不再包含 (已移至Stage 2):

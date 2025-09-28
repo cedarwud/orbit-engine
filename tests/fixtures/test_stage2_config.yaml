@@ -1,0 +1,17 @@
+link_feasibility_filter:
+  min_feasibility_score: 0.7
+  min_service_window_minutes: 5.0
+  quality_thresholds:
+    excellent: 0.9
+orbital_calculation:
+  algorithm: SGP4
+  time_interval_seconds: 300
+  time_points: 192
+visibility_filter:
+  geographic_bounds:
+    east: 180.0
+    north: 90.0
+    south: -90.0
+    west: -180.0
+  max_distance_km: 2000.0
+  min_elevation_deg: 10.0

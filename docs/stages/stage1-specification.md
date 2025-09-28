@@ -79,11 +79,18 @@ class Stage1MainProcessor(BaseStageProcessor):
 - **NORAD ID 一致性**: 兩行數據一致性檢查
 - **必要字段檢查**: 確保所有關鍵字段存在
 
-#### 3. **時間基準建立**
-- **TLE Epoch 提取**: 高精度時間解析
+#### 3. **時間基準建立** 🚨
+- **TLE Epoch 提取**: 高精度時間解析，保存每顆衛星的獨立 epoch_datetime
 - **時間標準化**: ISO 8601 格式輸出
-- **時間基準繼承**: 為 Stage 2 提供 calculation_base_time
+- **🔴 CRITICAL: 獨立時間基準**: 每筆 TLE 記錄使用自身的 epoch 時間
+- **🚫 禁止統一時間**: 不得創建全域統一的 calculation_base_time
 - **微秒精度**: 科學級時間精度保證
+- **數據傳遞**: 為 Stage 2 提供每顆衛星的 epoch_datetime 字段
+
+**⚠️ 時間基準關鍵原則**:
+- 每個 TLE 文件包含多天數據，每筆記錄的 epoch 時間不同
+- 必須保持每筆記錄的獨立 epoch_datetime，Stage 2 直接使用此時間
+- Stage 2 **禁止重新解析 TLE**，必須使用 Stage 1 提供的 epoch_datetime
 
 #### 4. **數據標準化**
 - **衛星數據結構**: 標準化衛星記錄格式
@@ -188,6 +195,9 @@ satellite = {
     'tle_line2': '2 25544  51.6461 339.7939...',
     'line1': '1 25544U 98067A   23001.00000000...',  # 別名
     'line2': '2 25544  51.6461 339.7939...',        # 別名
+
+    # 🚨 CRITICAL: 獨立時間基準 (Stage 2 必須使用)
+    'epoch_datetime': '2025-09-27T07:30:24.572437+00:00',  # ISO 8601 格式
 
     # 來源信息
     'source_file': 'tle_data/starlink.txt'
@@ -317,12 +327,15 @@ with open('data/validation_snapshots/stage1_validation.json', 'r') as f:
 - **✅ 時間基準**: 100% 使用 TLE epoch 時間
 - **✅ 格式標準**: 嚴格遵循 NORAD TLE 格式
 - **✅ 精度保證**: 微秒級時間精度
+- **✅ 獨立時間**: 每筆記錄保持獨立的 epoch_datetime
 
 ### 零容忍項目
 - **❌ 簡化算法**: 絕不允許回退到簡化實現
 - **❌ 估算值**: 禁止使用任何估算或假設值
 - **❌ 模擬數據**: 必須使用真實 TLE 數據
 - **❌ 當前時間**: 禁止使用系統當前時間作為計算基準
+- **❌ 統一時間基準**: 禁止為不同 epoch 的 TLE 創建統一時間基準
+- **❌ 文件時間**: 禁止使用文件日期替代記錄內部 epoch 時間
 
 ---
 

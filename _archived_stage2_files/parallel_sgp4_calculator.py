@@ -33,7 +33,14 @@ import time
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from ...shared.engines.sgp4_orbital_engine import SGP4OrbitalEngine
+try:
+    from shared.engines.sgp4_orbital_engine import SGP4OrbitalEngine
+except ImportError:
+    # 回退導入路徑
+    import sys
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).parent.parent.parent))
+    from shared.engines.sgp4_orbital_engine import SGP4OrbitalEngine
 
 # 導入SGP4Position類和其他必要組件
 try:
@@ -455,8 +462,8 @@ class ParallelSGP4Calculator:
         )
 
         for satellite in satellites:
+            sat_id = satellite.get('satellite_id', 'unknown')  # 提前定義，避免變數作用域錯誤
             try:
-                sat_id = satellite['satellite_id']
                 line1 = satellite.get('tle_line1', satellite.get('line1', ''))
                 line2 = satellite.get('tle_line2', satellite.get('line2', ''))
 
