@@ -928,6 +928,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description='六階段數據處理系統 (重構更新版)')
     parser.add_argument('--stage', type=int, choices=[1,2,3,4,5,6], help='運行特定階段')
+    parser.add_argument('--stages', type=str, help='運行階段範圍，如 "1-2" 或 "1,3,5"')
     # 已移除舊版本支持 (--use-legacy 已破壞)
     args = parser.parse_args()
 
@@ -936,7 +937,50 @@ def main():
 
     start_time = time.time()
 
-    if args.stage:
+    if args.stages:
+        # 解析階段範圍
+        stages_to_run = []
+        if '-' in args.stages:
+            # 範圍格式: "1-3"
+            start, end = map(int, args.stages.split('-'))
+            stages_to_run = list(range(start, end + 1))
+        else:
+            # 逗號分隔格式: "1,3,5"
+            stages_to_run = [int(s.strip()) for s in args.stages.split(',')]
+
+        print(f'🎯 運行階段範圍: {stages_to_run}')
+
+        # 順序執行指定階段
+        overall_success = True
+        last_completed = 0
+        final_message = ""
+
+        for stage in stages_to_run:
+            if stage not in [1,2,3,4,5,6]:
+                print(f'❌ 無效階段: {stage}')
+                overall_success = False
+                break
+
+            print(f'\n{"="*60}')
+            print(f'🚀 執行階段 {stage}')
+            print(f'{"="*60}')
+
+            success, completed_stage, message = run_stage_specific(stage)
+            last_completed = completed_stage
+            final_message = message
+
+            if not success:
+                print(f'❌ 階段 {stage} 失敗，停止後續執行')
+                overall_success = False
+                break
+            else:
+                print(f'✅ 階段 {stage} 完成')
+
+        success = overall_success
+        completed_stage = last_completed
+        message = final_message
+
+    elif args.stage:
         success, completed_stage, message = run_stage_specific(args.stage)
     else:
         success, completed_stage, message = run_all_stages_sequential()

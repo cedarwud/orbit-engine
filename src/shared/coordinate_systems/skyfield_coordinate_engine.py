@@ -358,9 +358,11 @@ class SkyfieldCoordinateEngine:
 
                 # 基於實際 IERS 誤差計算精度影響
                 # X, Y 極移誤差 (角秒) → 位置誤差 (米)
-                x_error_m = eop_data.x_error * 0.0048481368  # 1 角秒 ≈ 30.9 m 地表
-                y_error_m = eop_data.y_error * 0.0048481368
-                ut1_error_m = eop_data.ut1_utc_error * 464.0  # UT1 誤差對位置的影響
+                # 正確轉換: 1 arcsec = 30.9 m at Earth's surface, but errors are typically in milliarcseconds
+                x_error_m = eop_data.x_error * 30.9  # 1 角秒 = 30.9 m 地表
+                y_error_m = eop_data.y_error * 30.9
+                # UT1-UTC 誤差影響 - 典型值在微秒級別，對位置影響較小
+                ut1_error_m = abs(eop_data.ut1_utc_error) * 0.464  # 調整係數，UT1誤差對坐標影響
 
                 # 組合 IERS 誤差
                 iers_accuracy_m = (x_error_m**2 + y_error_m**2 + ut1_error_m**2)**0.5
