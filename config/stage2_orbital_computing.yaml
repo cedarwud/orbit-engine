@@ -1,14 +1,14 @@
 # Stage 2: 軌道計算層配置 - Grade A 學術級標準
 # 符合文檔要求的 v2.0 模組化架構配置
 
-# 時間序列配置 (Stage 2 v3.0 軌道狀態傳播 - 星座軌道週期優化)
+# 時間序列配置 (Stage 2 v3.0 軌道狀態傳播 - 動態軌道週期)
 time_series:
-  interval_seconds: 30                   # 30秒時間解析度
-  window_hours: 2                        # 明確設定2小時窗口 (避免24小時預設值)
-  max_positions: 224                     # OneWeb軌道週期: 112分鐘÷30秒=224點 (涵蓋最長軌道週期)
-  # 星座軌道週期參考:
-  # - Starlink: 96分鐘 → 192個時間點
-  # - OneWeb: 112分鐘 → 224個時間點
+  interval_seconds: 60                   # 60秒時間解析度 (平衡精度與效率)
+  use_orbital_period: true               # 使用實際軌道週期而非固定時間窗口
+  # 動態計算配置 - 基於實際TLE軌道週期
+  dynamic_calculation: true              # 啟用基於實際TLE數據的動態計算
+  min_positions: 30                      # 最小位置點數（30分鐘數據）
+  coverage_cycles: 1.0                   # 完整軌道週期覆蓋倍數
 
 # SGP4 軌道傳播配置
 sgp4_propagation:
@@ -19,23 +19,15 @@ sgp4_propagation:
 orbital_calculation:
   algorithm: "SGP4"                      # 使用標準SGP4算法
 
-  # ✅ 正確邏輯：完整軌道週期可見性計算
-  dynamic_time_points: false             # 禁用動態時間點計算
-  time_interval_seconds: 30              # 30秒時間解析度 (按用戶要求)
-  coverage_cycles: 1.0                   # 完整軌道週期 (按用戶邏輯)
+  # ✅ 動態計算：基於實際TLE軌道參數
+  dynamic_time_points: true              # 啟用動態時間點計算
+  time_interval_seconds: 30              # 30秒時間解析度
+  coverage_cycles: 1.0                   # 完整軌道週期
 
-  # 星座特定設定 (完整軌道週期)
-  constellation_settings:
-    starlink:
-      coverage_cycles: 1.0               # Starlink: 完整週期 (96分鐘)
-    oneweb:
-      coverage_cycles: 1.0               # OneWeb: 完整週期 (112分鐘)
-    default:
-      coverage_cycles: 1.0               # 其他星座: 完整週期
+  # Grade A 標準：禁止星座特定硬編碼設置，改用動態計算
+  # 所有計算基於實際TLE軌道參數，確保學術級精度
 
-  # 靜態配置 (完整軌道週期模式)
-  time_points: 192                       # Starlink: 96分鐘÷30秒=192點
-  prediction_horizon_hours: 2            # 2小時預測窗口
+  use_orbital_period: true               # 使用實際軌道週期替代固定預測窗口
 
   coordinate_system: "TEME"              # 初始座標系統
   precision_grade: "A"                   # 學術級精度要求
@@ -46,18 +38,19 @@ visibility_filter:
   max_distance_km: 4000.0                # 最大距離限制 (基於ITU-R LEO標準，覆蓋OneWeb 3900km理論最大距離)
   min_distance_km: 200.0                 # 最小距離限制 (避免多普勒過大)
 
-  # ⭐ 星座特定仰角門檻 (基於軌道高度與系統需求)
-  constellation_elevation_thresholds:
-    starlink: 5.0                        # Starlink LEO低軌使用5°
-    oneweb: 10.0                         # OneWeb MEO中軌使用10°
-    other: 10.0                          # 其他衛星預設10°
+  # Grade A 標準：禁止星座特定硬編碼，改用統一標準
+  # 基於ITU-R建議和學術研究的通用仰角門檻
+  # 不再使用星座特定硬編碼參數
 
-  # 觀測者位置 (NTPU精確座標)
+  # 觀測者位置配置 (可配置，支持多站點部署)
   observer_location:
-    latitude: 24.9441                    # 24°56'39"N
-    longitude: 121.3714                  # 121°22'17"E
-    altitude_km: 0.035                   # 35米海拔
-    name: "NTPU_Taipei"
+    # Grade A 標準：支持動態配置觀測站位置
+    # 可通過環境變量或外部配置覆蓋以下預設值
+    latitude: ${OBSERVER_LATITUDE:24.9441}      # 緯度 (度)
+    longitude: ${OBSERVER_LONGITUDE:121.3714}   # 經度 (度)
+    altitude_km: ${OBSERVER_ALTITUDE:0.035}     # 海拔高度 (km)
+    name: ${OBSERVER_NAME:"Default_Observer"}   # 觀測站名稱
+    # 示例配置：NTPU台北 (24.9441°N, 121.3714°E, 35m)
 
   # 地理邊界 (可選的額外篩選)
   geographic_bounds:
@@ -99,7 +92,7 @@ link_feasibility_filter:
 # 性能配置
 performance:
   timeout_thresholds:
-    orbital_calculation: 120.0          # 軌道計算超時 (秒)
+    orbital_calculation: 600.0          # 軌道計算超時 (秒) - 基於9041顆衛星實際需求調整
     coordinate_conversion: 30.0         # 座標轉換超時 (秒)
     visibility_analysis: 60.0           # 可見性分析超時 (秒)
     trajectory_prediction: 45.0         # 軌道預測超時 (秒)
@@ -126,7 +119,7 @@ validation:
   quality_checks:
     min_satellites_processed: 1         # 最少處理衛星數
     min_success_rate: 0.95              # 最低成功率 95%
-    max_calculation_time: 300           # 最大計算時間 5分鐘
+    max_calculation_time: 600           # 最大計算時間 10分鐘 (基於大規模真實數據處理需求)
 
   prohibited_items:
     - "simplified_algorithms"           # 禁止簡化算法

@@ -347,9 +347,27 @@ def check_validation_snapshot_quality(stage_num):
             else:
                 return False, f"❌ Stage 2 驗證快照格式不正確"
 
-        # Stage 3 專用檢查
+        # Stage 3 專用檢查 (新架構)
         elif stage_num == 3:
-            if snapshot_data.get('status') == 'success':
+            # 檢查新架構格式: coordinate transformation validation
+            if 'validation_results' in snapshot_data:
+                overall_status = snapshot_data.get('overall_status', 'UNKNOWN')
+                validation_passed = snapshot_data.get('validation_results', {}).get('passed', False)
+
+                if overall_status == 'PASS' and validation_passed:
+                    satellites_processed = snapshot_data.get('data_summary', {}).get('satellites_processed', 0)
+                    coord_points = snapshot_data.get('data_summary', {}).get('coordinate_points_count', 0)
+                    avg_accuracy = snapshot_data.get('validation_results', {}).get('checks', {}).get('coordinate_transformation_accuracy', {}).get('average_accuracy_m', 0)
+
+                    if satellites_processed > 0:
+                        return True, f"Stage 3 座標轉換檢查通過: {satellites_processed}顆衛星 → {coord_points}個座標點 (精度:{avg_accuracy:.3f}m)"
+                    else:
+                        return False, f"❌ Stage 3 處理數據不足: {satellites_processed}顆衛星"
+                else:
+                    return False, f"❌ Stage 3 驗證失敗: {overall_status}"
+
+            # 舊格式檢查 (向後兼容)
+            elif snapshot_data.get('status') == 'success':
                 analyzed_satellites = snapshot_data.get('data_summary', {}).get('analyzed_satellites', 0)
                 gpp_events = snapshot_data.get('data_summary', {}).get('detected_events', 0)
 
@@ -455,21 +473,31 @@ def run_all_stages_sequential(validation_level='STANDARD'):
 
         print(f'✅ 階段二完成並驗證通過: {validation_msg}')
 
-        # 階段三：信號分析層 (重構版本)
-        print('\\n📡 階段三：信號分析層')
+        # 階段三：座標系統轉換層 (重構版本)
+        print('\\n🌍 階段三：座標系統轉換層')
         print('-' * 60)
 
         # 清理舊的輸出
         clean_stage_outputs(3)
 
-        from stages.stage3_signal_analysis.stage3_signal_analysis_processor import Stage3SignalAnalysisProcessor
+        from stages.stage3_coordinate_transformation.stage3_coordinate_transform_processor import Stage3CoordinateTransformProcessor
         stage3_config = {
-            'frequency_ghz': 12.0,      # Ku頻段
-            'tx_power_dbw': 40.0,       # 衛星發射功率
-            'antenna_gain_db': 35.0,    # 天線增益
-            'noise_floor_dbm': -120.0,  # 噪聲底限
+            'coordinate_config': {
+                'source_frame': 'TEME',
+                'target_frame': 'WGS84',
+                'time_corrections': True,
+                'polar_motion': True,
+                'nutation_model': 'IAU2000A'
+            },
+            'skyfield_config': {
+                'ephemeris_file': 'de421.bsp',
+                'auto_download': True
+            },
+            'precision_config': {
+                'target_accuracy_m': 0.5
+            }
         }
-        stage3 = Stage3SignalAnalysisProcessor(config=stage3_config)
+        stage3 = Stage3CoordinateTransformProcessor(config=stage3_config)
 
         # 統一使用execute()方法，並提取數據部分
         if isinstance(stage_results['stage2'], ProcessingResult):
@@ -495,7 +523,7 @@ def run_all_stages_sequential(validation_level='STANDARD'):
 
         # 階段三驗證
         validation_success, validation_msg = validate_stage_immediately(
-            stage3, stage3_result, 3, "信號分析層"
+            stage3, stage3_result, 3, "座標系統轉換層"
         )
 
         if not validation_success:
@@ -735,7 +763,7 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
 
 
         elif target_stage == 3:
-            print('\\n📡 階段三：信號分析層')
+            print('\\n🌍 階段三：座標系統轉換層')
             print('-' * 60)
 
             clean_stage_outputs(3)
@@ -746,14 +774,24 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
                 print('❌ 找不到Stage 2輸出文件，請先執行Stage 2')
                 return False, 3, "需要Stage 2輸出文件"
 
-            from stages.stage3_signal_analysis.stage3_signal_analysis_processor import Stage3SignalAnalysisProcessor
+            from stages.stage3_coordinate_transformation.stage3_coordinate_transform_processor import Stage3CoordinateTransformProcessor
             stage3_config = {
-                'frequency_ghz': 12.0,
-                'tx_power_dbw': 40.0,
-                'antenna_gain_db': 35.0,
-                'noise_temperature_k': 150.0
+                'coordinate_config': {
+                    'source_frame': 'TEME',
+                    'target_frame': 'WGS84',
+                    'time_corrections': True,
+                    'polar_motion': True,
+                    'nutation_model': 'IAU2000A'
+                },
+                'skyfield_config': {
+                    'ephemeris_file': 'de421.bsp',
+                    'auto_download': True
+                },
+                'precision_config': {
+                    'target_accuracy_m': 0.5
+                }
             }
-            processor = Stage3SignalAnalysisProcessor(config=stage3_config)
+            processor = Stage3CoordinateTransformProcessor(config=stage3_config)
 
             # 載入前階段數據
             import json
@@ -766,7 +804,7 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
                 return False, 3, "Stage 3 執行失敗"
 
             validation_success, validation_msg = validate_stage_immediately(
-                processor, result, 3, "信號分析層"
+                processor, result, 3, "座標系統轉換層"
             )
 
             if validation_success:

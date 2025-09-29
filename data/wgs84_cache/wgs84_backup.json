@@ -1,0 +1,10 @@
+{
+  "wgs84_g1150": {
+    "semi_major_axis_m": 6378137.0,
+    "inverse_flattening": 298.257223563,
+    "geocentric_gravitational_constant": 398600441800000.0,
+    "angular_velocity_rad_s": 7.2921151467e-05,
+    "source": "NIMA_TR8350_2_Official",
+    "created_at": "2025-09-28T12:50:46.254057+00:00"
+  }
+}

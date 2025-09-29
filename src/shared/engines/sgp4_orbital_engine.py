@@ -147,21 +147,35 @@ class SGP4OrbitalEngine:
             # ⚡ 性能優化：預計算constellation參數，避免重複字符串操作
             constellation = satellite_data.get('constellation', '').lower()
             
-            # 🔧 生成時間點（根據星座類型決定點數）- 優化算法
-            if constellation == 'starlink':
-                # Starlink: 96分鐘軌道，每30秒1點 = 192個點
-                num_points = 192
-                actual_duration_minutes = 96
-            elif constellation == 'oneweb':
-                # OneWeb: 108分鐘軌道，文檔要求218個點
-                num_points = 218  
-                actual_duration_minutes = 109
-            else:
-                # 預設值
-                num_points = 240
-                actual_duration_minutes = time_range_minutes
-            
-            interval_minutes = actual_duration_minutes / num_points
+            # ✅ 動態計算時間點（基於實際TLE軌道參數）- Grade A標準
+            # 從TLE數據計算真實軌道週期
+            mean_motion_str = tle_line2[52:63].strip()
+            if not mean_motion_str:
+                raise ValueError("TLE第二行mean motion字段為空")
+
+            mean_motion = float(mean_motion_str)
+            if mean_motion <= 0:
+                raise ValueError(f"Mean motion必須為正數: {mean_motion}")
+
+            # 計算實際軌道週期
+            actual_orbital_period_minutes = 1440.0 / mean_motion
+
+            # 基於配置的時間間隔計算點數
+            time_interval_minutes = 0.5  # 30秒 = 0.5分鐘
+            num_points = int(actual_orbital_period_minutes / time_interval_minutes)
+
+            # 確保最小合理點數
+            min_points = 60  # 至少30分鐘的數據
+            num_points = max(num_points, min_points)
+
+            actual_duration_minutes = num_points * time_interval_minutes
+            interval_minutes = time_interval_minutes
+
+            logger.debug(f"🔬 基於TLE計算時間點:")
+            logger.debug(f"  - Mean motion: {mean_motion:.6f} revs/day")
+            logger.debug(f"  - 軌道週期: {actual_orbital_period_minutes:.1f}分鐘")
+            logger.debug(f"  - 時間點數: {num_points}")
+            logger.debug(f"  - 時間間隔: {interval_minutes*60:.0f}秒")
             
             # ⚡ 性能優化：向量化時間點生成，減少循環開銷
             time_offsets = [i * interval_minutes for i in range(num_points)]

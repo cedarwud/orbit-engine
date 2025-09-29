@@ -94,30 +94,32 @@ class SGP4Calculator:
         try:
             self.calculation_stats["total_calculations"] += 1
 
-            # 🚨 關鍵：解析TLE epoch時間作為計算基準
+            # ✅ v3.0架構要求：使用Stage 1提供的epoch_datetime，禁止TLE重新解析
             tle_line1 = tle_data.get('line1', tle_data.get('tle_line1', ''))
             tle_line2 = tle_data.get('line2', tle_data.get('tle_line2', ''))
 
             if not tle_line1 or not tle_line2:
                 raise ValueError("TLE數據不完整")
 
-            # 解析TLE epoch時間
-            epoch_year = int(tle_line1[18:20])
-            epoch_day = float(tle_line1[20:32])
+            # 🚨 關鍵修復：使用Stage 1的epoch_datetime，不重新解析TLE
+            epoch_datetime_str = tle_data.get('epoch_datetime')
+            if not epoch_datetime_str:
+                raise ValueError("v3.0架構要求：必須提供Stage 1的epoch_datetime，禁止TLE重新解析")
 
-            if epoch_year < 57:
-                full_year = 2000 + epoch_year
-            else:
-                full_year = 1900 + epoch_year
+            try:
+                # 解析Stage 1提供的epoch_datetime
+                epoch_time = datetime.fromisoformat(epoch_datetime_str.replace('Z', '+00:00'))
+                calculation_time = epoch_time + timedelta(minutes=time_since_epoch)
 
-            # epoch_time = TimeUtils.parse_tle_epoch(full_year, epoch_day)
-            # 使用標準TLE時間解析算法
-            # 完整實現TLE epoch時間轉換，符合SGP4標準
-            epoch_time = datetime(full_year, 1, 1, tzinfo=timezone.utc) + timedelta(days=epoch_day - 1)
-            calculation_time = epoch_time + timedelta(minutes=time_since_epoch)
-            # 確保時區信息正確設置
-            if calculation_time.tzinfo is None:
-                calculation_time = calculation_time.replace(tzinfo=timezone.utc)
+                # 確保時區信息正確設置
+                if calculation_time.tzinfo is None:
+                    calculation_time = calculation_time.replace(tzinfo=timezone.utc)
+
+                # v3.0合規性標記
+                self.logger.debug(f"✅ v3.0合規：使用Stage 1 epoch_datetime: {epoch_datetime_str}")
+
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Stage 1 epoch_datetime格式錯誤: {epoch_datetime_str}, 錯誤: {e}")
 
             # 構建SGP4引擎期望的數據格式
             sgp4_data = {
@@ -158,7 +160,7 @@ class SGP4Calculator:
 
     def _calculate_velocity_direct(self, tle_line1: str, tle_line2: str, time_since_epoch: float) -> Tuple[float, float, float]:
         """
-        直接使用 SGP4 庫計算速度分量
+        使用標準SGP4庫計算精確速度分量 - Grade A學術標準
 
         Args:
             tle_line1: TLE第一行
@@ -169,51 +171,46 @@ class SGP4Calculator:
             Tuple[float, float, float]: (vx, vy, vz) in km/s
         """
         try:
-            # 嘗試使用 sgp4 庫直接計算
-            try:
-                from sgp4.api import Satrec
-                from sgp4 import omm
+            # ✅ 強制使用標準SGP4庫 - 無回退機制
+            from sgp4.api import Satrec
 
-                satellite = Satrec.twoline2rv(tle_line1, tle_line2)
+            # 創建SGP4衛星對象
+            satellite = Satrec.twoline2rv(tle_line1, tle_line2)
 
-                # 計算位置和速度
-                error, position, velocity = satellite.sgp4_tsince(time_since_epoch)
+            # 使用標準SGP4算法計算位置和速度
+            error, position, velocity = satellite.sgp4_tsince(time_since_epoch)
 
-                if error == 0 and velocity is not None:
-                    return velocity[0], velocity[1], velocity[2]
+            # 檢查計算錯誤
+            if error != 0:
+                error_messages = {
+                    1: "mean eccentricity < 0.0 or > 1.0",
+                    2: "mean motion < 0.0",
+                    3: "perturbed eccentricity < 0.0 or > 1.0",
+                    4: "semi-latus rectum < 0.0",
+                    5: "epoch elements are sub-orbital",
+                    6: "satellite has decayed"
+                }
+                error_msg = error_messages.get(error, f"SGP4計算錯誤代碼: {error}")
+                raise RuntimeError(f"SGP4計算失敗: {error_msg}")
 
-            except ImportError:
-                self.logger.warning("sgp4 庫不可用，使用估算方法")
+            # 驗證速度數據有效性
+            if velocity is None or len(velocity) != 3:
+                raise RuntimeError("SGP4返回無效速度數據")
 
-            # 回退方法：基於軌道物理學的速度估算
-            # 對於 LEO 衛星，典型速度約 7.5 km/s
-            # 這是簡化實現，實際應使用完整 SGP4 算法
+            # 檢查速度合理性 (LEO衛星速度應在3-12 km/s範圍)
+            speed = (velocity[0]**2 + velocity[1]**2 + velocity[2]**2)**0.5
+            if not (3.0 <= speed <= 12.0):
+                self.logger.warning(f"速度超出合理範圍: {speed:.2f} km/s")
 
-            # 從 TLE 解析軌道參數
-            mean_motion = float(tle_line2[52:63])  # 每日軌道數
-            orbital_period_minutes = 1440 / mean_motion  # 軌道週期（分鐘）
+            return float(velocity[0]), float(velocity[1]), float(velocity[2])
 
-            # 估算軌道速度（簡化球體模型）
-            earth_radius = 6371.0  # km
-            mu = 398600.4418  # km^3/s^2 (地球重力參數)
-
-            # 估算軌道半徑（簡化）
-            orbital_radius = (mu * (orbital_period_minutes * 60) ** 2 / (4 * 3.14159265359 ** 2)) ** (1/3)
-            orbital_velocity = (mu / orbital_radius) ** 0.5
-
-            # 返回估算的速度分量（這是簡化實現）
-            # 實際應該基於真實軌道方向
-            vx = orbital_velocity * 0.6  # 估算 x 分量
-            vy = orbital_velocity * 0.6  # 估算 y 分量
-            vz = orbital_velocity * 0.5  # 估算 z 分量
-
-            self.logger.warning(f"使用估算速度方法: v≈{orbital_velocity:.2f} km/s")
-            return vx, vy, vz
+        except ImportError as e:
+            # ❌ Grade A標準：不允許無SGP4庫運行
+            raise RuntimeError(f"Grade A標準要求：必須安裝sgp4庫，當前系統缺少該依賴: {e}")
 
         except Exception as e:
-            self.logger.error(f"速度計算失敗: {e}")
-            # 最後回退：使用典型 LEO 速度
-            return 5.0, 5.0, 3.0  # 簡化的典型 LEO 速度分量
+            # ❌ Grade A標準：不允許簡化算法回退
+            raise RuntimeError(f"SGP4速度計算失敗，Grade A標準禁止使用估算方法: {e}")
 
     def batch_calculate(self, tle_data_list: List[Dict[str, Any]], time_series: List[float]) -> Dict[str, SGP4OrbitResult]:
         """
@@ -345,7 +342,7 @@ class SGP4Calculator:
 
     def calculate_orbital_period(self, tle_line2: str) -> float:
         """
-        從TLE數據計算軌道週期
+        從TLE數據計算精確軌道週期 - Grade A學術標準
 
         Args:
             tle_line2: TLE第二行數據
@@ -354,87 +351,79 @@ class SGP4Calculator:
             float: 軌道週期（分鐘）
         """
         try:
-            # 從TLE第二行提取mean motion (每日圈數)
-            mean_motion = float(tle_line2.split()[7])
-            
-            # 計算軌道週期：1440分鐘/天 ÷ 每日圈數
-            orbital_period_minutes = 1440.0 / mean_motion
-            
-            return orbital_period_minutes
-            
-        except Exception as e:
-            self.logger.warning(f"計算軌道週期失敗: {e}")
-            return 96.0  # 使用Starlink最大軌道週期，保持與星座設定一致
+            # ✅ 精確解析TLE第二行的mean motion
+            # TLE格式：positions 52-63 是 mean motion (revolutions per day)
+            mean_motion_str = tle_line2[52:63].strip()
+            if not mean_motion_str:
+                raise ValueError("TLE第二行mean motion字段為空")
 
-    def calculate_optimal_time_points(self, tle_line2: str, time_interval_seconds: int = 30, coverage_cycles: float = 1.0, use_max_period: bool = True) -> int:
+            mean_motion = float(mean_motion_str)
+
+            # 驗證mean motion合理性
+            if mean_motion <= 0:
+                raise ValueError(f"Mean motion必須為正數: {mean_motion}")
+
+            if mean_motion > 20:  # 超過20圈/天不合理
+                raise ValueError(f"Mean motion超出合理範圍: {mean_motion} revs/day")
+
+            # ✅ 使用標準軌道力學公式：1440分鐘/天 ÷ 每日圈數
+            orbital_period_minutes = 1440.0 / mean_motion
+
+            # 驗證軌道週期合理性 (LEO: 85-130分鐘)
+            if not (80.0 <= orbital_period_minutes <= 150.0):
+                self.logger.warning(f"軌道週期超出典型LEO範圍: {orbital_period_minutes:.1f}分鐘")
+
+            return orbital_period_minutes
+
+        except Exception as e:
+            # ❌ Grade A標準：不允許硬編碼回退值
+            raise ValueError(f"軌道週期計算失敗，Grade A標準禁止使用預設值: {e}")
+
+    def calculate_optimal_time_points(self, tle_line2: str, time_interval_seconds: int = 30, coverage_cycles: float = 1.0) -> int:
         """
-        基於學術標準計算最佳時間點數量 - 符合軌道物理學
-        
+        基於實際軌道物理參數計算時間點數量 - Grade A學術標準
+
         學術原則：
-        1. 基於實際軌道物理參數
-        2. 星座特定計算，使用完整算法
-        3. 完整軌道週期覆蓋，無重複數據
-        
+        1. 基於實際TLE軌道參數計算
+        2. 禁止星座硬編碼或預設值
+        3. 完整軌道週期覆蓋，基於物理計算
+
         Args:
             tle_line2: TLE第二行數據
-            time_interval_seconds: 時間間隔（秒）- 學術標準30秒
+            time_interval_seconds: 時間間隔（秒）
             coverage_cycles: 覆蓋週期數（1.0=完整軌道週期）
-            use_max_period: 是否使用星座最大軌道週期（保守策略）
-            
+
         Returns:
-            int: 學術標準時間點數量
+            int: 基於物理計算的時間點數量
         """
         try:
+            # ✅ 從真實TLE數據計算軌道週期
             orbital_period_minutes = self.calculate_orbital_period(tle_line2)
-            
-            if use_max_period:
-                # 🎯 學術標準：基於星座物理特性的保守策略
-                constellation_max_periods = {
-                    'starlink': 96.0,   # Starlink最大軌道週期（學術文獻標準）
-                    'oneweb': 112.0,    # OneWeb最大軌道週期（學術文獻標準）
-                    'default': 100.0    # 其他星座保守值
-                }
-                
-                # 星座識別（基於軌道週期範圍）
-                if 92 <= orbital_period_minutes <= 98:
-                    max_period = constellation_max_periods['starlink']
-                    constellation = 'Starlink'
-                elif 105 <= orbital_period_minutes <= 115:
-                    max_period = constellation_max_periods['oneweb']
-                    constellation = 'OneWeb'
-                else:
-                    max_period = constellation_max_periods['default']
-                    constellation = 'Other'
-                
-                calculation_period = max_period
-                self.logger.info(f"🎓 學術標準星座識別:")
-                self.logger.info(f"  - 星座: {constellation}")
-                self.logger.info(f"  - 實際週期: {orbital_period_minutes:.1f}分鐘")
-                self.logger.info(f"  - 學術基準: {max_period:.1f}分鐘（保守最大值）")
-            else:
-                calculation_period = orbital_period_minutes
-                self.logger.info(f"📊 使用實際軌道週期: {orbital_period_minutes:.1f}分鐘")
-            
-            # 🔬 學術標準計算：基於物理軌道週期
-            coverage_time_minutes = calculation_period * coverage_cycles
+
+            # ✅ 基於物理軌道週期計算覆蓋時間
+            coverage_time_minutes = orbital_period_minutes * coverage_cycles
             coverage_time_seconds = coverage_time_minutes * 60
+
+            # ✅ 基於時間間隔計算精確時間點數
             time_points = int(coverage_time_seconds / time_interval_seconds)
-            
-            # 學術驗證：確保最小合理覆蓋
-            min_time_points = (60 * 60) // time_interval_seconds  # 至少1小時
-            time_points = max(time_points, min_time_points)
-            
-            # 學術級日誌記錄
-            self.logger.info(f"🔬 學術Grade A計算詳情:")
-            self.logger.info(f"  - 軌道週期: {calculation_period:.1f}分鐘")
-            self.logger.info(f"  - 覆蓋倍數: {coverage_cycles:.1f}x (完整軌道週期)")
+
+            # 驗證最小合理數量 (至少30分鐘的數據)
+            min_time_points = (30 * 60) // time_interval_seconds
+            if time_points < min_time_points:
+                self.logger.warning(f"計算的時間點數({time_points})小於最小要求({min_time_points})，使用最小值")
+                time_points = min_time_points
+
+            # 學術級計算記錄
+            self.logger.info(f"🔬 Grade A軌道物理計算:")
+            self.logger.info(f"  - 實際軌道週期: {orbital_period_minutes:.1f}分鐘")
+            self.logger.info(f"  - 覆蓋倍數: {coverage_cycles:.1f}x")
             self.logger.info(f"  - 覆蓋時間: {coverage_time_minutes:.1f}分鐘")
             self.logger.info(f"  - 時間間隔: {time_interval_seconds}秒")
-            self.logger.info(f"  - 時間點數: {time_points}")
-            self.logger.info(f"  - 學術標準: 物理基礎，無重複數據")
-            
+            self.logger.info(f"  - 計算時間點數: {time_points}")
+            self.logger.info(f"  - 計算基礎: 真實TLE軌道參數")
+
             return time_points
-            
+
         except Exception as e:
-            self.logger.warning(f"計算最佳時間點失敗: {e}")
-            return 120  # 安全備用值  # 返回默認值  # 返回默認值
+            # ❌ Grade A標準：不允許硬編碼回退值
+            raise ValueError(f"時間點計算失敗，Grade A標準禁止使用預設值: {e}")

@@ -355,7 +355,7 @@ cat data/validation_snapshots/stage2_validation.json | jq '.metadata.coordinate_
 
 ---
 
-**文檔版本**: v2.0 (重構版)
+**文檔版本**: v3.0 (重構版)
 **概念狀態**: ✅ 軌道狀態傳播 (已修正)
 **學術合規**: ✅ Grade A 標準
 **維護負責**: Orbit Engine Team
