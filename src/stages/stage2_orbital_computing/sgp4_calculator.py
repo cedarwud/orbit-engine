@@ -14,16 +14,9 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 
-try:
-    from shared.engines.sgp4_orbital_engine import SGP4OrbitalEngine
-    from shared.utils.time_utils import TimeUtils
-except ImportError:
-    # 回退導入路徑
-    import sys
-    from pathlib import Path
-    sys.path.append(str(Path(__file__).parent.parent.parent))
-    from shared.engines.sgp4_orbital_engine import SGP4OrbitalEngine
-    from shared.utils.time_utils import TimeUtils
+# 直接使用 Skyfield - NASA JPL 標準
+from skyfield.api import load, EarthSatellite
+from skyfield.timelib import Time
 
 logger = logging.getLogger(__name__)
 
@@ -60,29 +53,29 @@ class SGP4Calculator:
     """
 
     def __init__(self):
-        """初始化SGP4計算器"""
+        """初始化SGP4計算器 - 直接使用 Skyfield"""
         self.logger = logging.getLogger(f"{__name__}.SGP4Calculator")
 
-        # 初始化真實SGP4引擎 - Grade A要求
-        self.sgp4_engine = SGP4OrbitalEngine(
-            observer_coordinates=None,  # Stage 2不需要觀測者座標
-            eci_only_mode=True         # 僅輸出ECI座標
-        )
+        # 初始化 Skyfield 時間尺度 - NASA JPL 標準
+        self.ts = load.timescale()
+
+        # 衛星快取，避免重複創建
+        self.satellite_cache = {}
 
         # 計算統計
         self.calculation_stats = {
             "total_calculations": 0,
             "successful_calculations": 0,
             "failed_calculations": 0,
-            "engine_type": "SGP4OrbitalEngine",
+            "engine_type": "Skyfield_Direct",
             "academic_grade": "A"
         }
 
-        self.logger.info("✅ SGP4Calculator 初始化完成 - 學術級Grade A標準")
+        self.logger.info("✅ SGP4Calculator 初始化完成 - 直接使用 Skyfield NASA JPL 標準")
 
     def calculate_position(self, tle_data: Dict[str, Any], time_since_epoch: float) -> Optional[SGP4Position]:
         """
-        計算指定時間的衛星位置
+        計算指定時間的衛星位置 - 直接使用 Skyfield
 
         Args:
             tle_data: TLE數據字典，包含line1, line2等
@@ -97,6 +90,7 @@ class SGP4Calculator:
             # ✅ v3.0架構要求：使用Stage 1提供的epoch_datetime，禁止TLE重新解析
             tle_line1 = tle_data.get('line1', tle_data.get('tle_line1', ''))
             tle_line2 = tle_data.get('line2', tle_data.get('tle_line2', ''))
+            satellite_name = tle_data.get('name', tle_data.get('satellite_id', 'Satellite'))
 
             if not tle_line1 or not tle_line2:
                 raise ValueError("TLE數據不完整")
@@ -106,111 +100,55 @@ class SGP4Calculator:
             if not epoch_datetime_str:
                 raise ValueError("v3.0架構要求：必須提供Stage 1的epoch_datetime，禁止TLE重新解析")
 
-            try:
-                # 解析Stage 1提供的epoch_datetime
-                epoch_time = datetime.fromisoformat(epoch_datetime_str.replace('Z', '+00:00'))
-                calculation_time = epoch_time + timedelta(minutes=time_since_epoch)
+            # 解析Stage 1提供的epoch_datetime
+            epoch_time = datetime.fromisoformat(epoch_datetime_str.replace('Z', '+00:00'))
+            calculation_time = epoch_time + timedelta(minutes=time_since_epoch)
 
-                # 確保時區信息正確設置
-                if calculation_time.tzinfo is None:
-                    calculation_time = calculation_time.replace(tzinfo=timezone.utc)
+            # 確保時區信息正確設置
+            if calculation_time.tzinfo is None:
+                calculation_time = calculation_time.replace(tzinfo=timezone.utc)
 
-                # v3.0合規性標記
-                self.logger.debug(f"✅ v3.0合規：使用Stage 1 epoch_datetime: {epoch_datetime_str}")
+            # v3.0合規性標記
+            self.logger.debug(f"✅ v3.0合規：使用Stage 1 epoch_datetime: {epoch_datetime_str}")
 
-            except (ValueError, TypeError) as e:
-                raise ValueError(f"Stage 1 epoch_datetime格式錯誤: {epoch_datetime_str}, 錯誤: {e}")
+            # 🚀 直接使用 Skyfield - NASA JPL 標準
+            # 建立衛星快取鍵
+            cache_key = f"{satellite_name}_{tle_line1[:20]}"
 
-            # 構建SGP4引擎期望的數據格式
-            sgp4_data = {
-                'line1': tle_line1,
-                'line2': tle_line2,
-                'satellite_name': tle_data.get('name', 'Satellite'),
-                'epoch_datetime': epoch_time
-            }
-
-            # 使用真實SGP4引擎計算
-            result = self.sgp4_engine.calculate_position(sgp4_data, calculation_time)
-
-            if result and result.calculation_successful and result.position:
-                # 使用直接 SGP4 庫計算速度分量
-                vx, vy, vz = self._calculate_velocity_direct(tle_line1, tle_line2, time_since_epoch)
-
-                position = SGP4Position(
-                    x=result.position.x,
-                    y=result.position.y,
-                    z=result.position.z,
-                    vx=vx,
-                    vy=vy,
-                    vz=vz,
-                    timestamp=calculation_time.isoformat(),
-                    time_since_epoch_minutes=time_since_epoch
-                )
-
-                self.calculation_stats["successful_calculations"] += 1
-                return position
+            if cache_key not in self.satellite_cache:
+                # 創建 Skyfield 衛星物件（自動使用 SGP4/SDP4）
+                satellite = EarthSatellite(tle_line1, tle_line2, satellite_name, self.ts)
+                self.satellite_cache[cache_key] = satellite
             else:
-                self.calculation_stats["failed_calculations"] += 1
-                return None
+                satellite = self.satellite_cache[cache_key]
+
+            # 計算指定時間的軌道狀態
+            t = self.ts.from_datetime(calculation_time)
+            geocentric = satellite.at(t)
+
+            # 獲取 TEME 座標系統的位置和速度（Skyfield 默認輸出）
+            position_km = geocentric.position.km     # [x, y, z] in km
+            velocity_km_per_s = geocentric.velocity.km_per_s  # [vx, vy, vz] in km/s
+
+            position = SGP4Position(
+                x=position_km[0],
+                y=position_km[1],
+                z=position_km[2],
+                vx=velocity_km_per_s[0],
+                vy=velocity_km_per_s[1],
+                vz=velocity_km_per_s[2],
+                timestamp=calculation_time.isoformat(),
+                time_since_epoch_minutes=time_since_epoch
+            )
+
+            self.calculation_stats["successful_calculations"] += 1
+            return position
 
         except Exception as e:
-            self.logger.error(f"SGP4計算失敗: {e}")
+            self.logger.error(f"Skyfield 計算失敗: {e}")
             self.calculation_stats["failed_calculations"] += 1
             return None
 
-    def _calculate_velocity_direct(self, tle_line1: str, tle_line2: str, time_since_epoch: float) -> Tuple[float, float, float]:
-        """
-        使用標準SGP4庫計算精確速度分量 - Grade A學術標準
-
-        Args:
-            tle_line1: TLE第一行
-            tle_line2: TLE第二行
-            time_since_epoch: 相對epoch的時間（分鐘）
-
-        Returns:
-            Tuple[float, float, float]: (vx, vy, vz) in km/s
-        """
-        try:
-            # ✅ 強制使用標準SGP4庫 - 無回退機制
-            from sgp4.api import Satrec
-
-            # 創建SGP4衛星對象
-            satellite = Satrec.twoline2rv(tle_line1, tle_line2)
-
-            # 使用標準SGP4算法計算位置和速度
-            error, position, velocity = satellite.sgp4_tsince(time_since_epoch)
-
-            # 檢查計算錯誤
-            if error != 0:
-                error_messages = {
-                    1: "mean eccentricity < 0.0 or > 1.0",
-                    2: "mean motion < 0.0",
-                    3: "perturbed eccentricity < 0.0 or > 1.0",
-                    4: "semi-latus rectum < 0.0",
-                    5: "epoch elements are sub-orbital",
-                    6: "satellite has decayed"
-                }
-                error_msg = error_messages.get(error, f"SGP4計算錯誤代碼: {error}")
-                raise RuntimeError(f"SGP4計算失敗: {error_msg}")
-
-            # 驗證速度數據有效性
-            if velocity is None or len(velocity) != 3:
-                raise RuntimeError("SGP4返回無效速度數據")
-
-            # 檢查速度合理性 (LEO衛星速度應在3-12 km/s範圍)
-            speed = (velocity[0]**2 + velocity[1]**2 + velocity[2]**2)**0.5
-            if not (3.0 <= speed <= 12.0):
-                self.logger.warning(f"速度超出合理範圍: {speed:.2f} km/s")
-
-            return float(velocity[0]), float(velocity[1]), float(velocity[2])
-
-        except ImportError as e:
-            # ❌ Grade A標準：不允許無SGP4庫運行
-            raise RuntimeError(f"Grade A標準要求：必須安裝sgp4庫，當前系統缺少該依賴: {e}")
-
-        except Exception as e:
-            # ❌ Grade A標準：不允許簡化算法回退
-            raise RuntimeError(f"SGP4速度計算失敗，Grade A標準禁止使用估算方法: {e}")
 
     def batch_calculate(self, tle_data_list: List[Dict[str, Any]], time_series: List[float]) -> Dict[str, SGP4OrbitResult]:
         """
@@ -342,7 +280,7 @@ class SGP4Calculator:
 
     def calculate_orbital_period(self, tle_line2: str) -> float:
         """
-        從TLE數據計算精確軌道週期 - Grade A學術標準
+        從TLE數據計算精確軌道週期 - 直接使用標準公式
 
         Args:
             tle_line2: TLE第二行數據
@@ -369,7 +307,7 @@ class SGP4Calculator:
             # ✅ 使用標準軌道力學公式：1440分鐘/天 ÷ 每日圈數
             orbital_period_minutes = 1440.0 / mean_motion
 
-            # 驗證軌道週期合理性 (LEO: 85-130分鐘)
+            # 驗證軌道週期合理性 (LEO: 85-150分鐘)
             if not (80.0 <= orbital_period_minutes <= 150.0):
                 self.logger.warning(f"軌道週期超出典型LEO範圍: {orbital_period_minutes:.1f}分鐘")
 
