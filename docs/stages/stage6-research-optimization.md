@@ -94,11 +94,11 @@ Stage 6 實現:
 - **獎勵函數**: 基於QoS、中斷時間、信號品質的複合獎勵
 - **經驗回放**: 大量真實換手場景存儲供算法學習
 
-#### 3. **動態衛星池規劃**
-- **Starlink 池**: 維持 10-15顆衛星連續可見
-- **OneWeb 池**: 維持 3-6顆衛星連續可見
-- **時空錯置**: 錯開時間和位置的衛星選擇
-- **動態覆蓋**: 整個軌道週期中持續保持目標數量
+#### 3. **動態衛星池驗證與監控**
+- **Starlink 池驗證**: 驗證 Stage 4.2 是否達成 10-15顆衛星連續可見
+- **OneWeb 池驗證**: 驗證 Stage 4.2 是否達成 3-6顆衛星連續可見
+- **時間序列遍歷**: 遍歷 time_series[] 計算每個時間點的可見數
+- **覆蓋率報告**: 生成覆蓋率統計和空窗期分析
 
 #### 4. **實時決策支援**
 - **毫秒級響應**: 支援真實時間的換手決策推理 (< 100ms)
@@ -212,6 +212,353 @@ def detect_a5_event_3gpp_standard(self, serving_satellite, neighbor_satellites):
 
     return a5_events
 ```
+
+## 🔄 數據流：上游依賴與最終輸出
+
+### 📥 上游依賴 (Stage 5 → Stage 6)
+
+#### 從 Stage 5 接收的數據
+**必要輸入數據**:
+- ✅ `signal_analysis[satellite_id]` - 每顆衛星的完整信號品質數據
+  - `signal_quality` - 信號品質指標 **[3GPP 事件核心]**
+    - `rsrp_dbm` - 參考信號接收功率 (dBm)
+      - **A4 事件**: 判斷鄰近衛星是否優於門檻
+      - **A5 事件**: 雙門檻比較 (服務 vs 鄰近)
+    - `rsrq_db` - 參考信號接收品質 (dB)
+    - `rs_sinr_db` - 信號干擾噪聲比 (dB)
+    - `calculation_standard: '3GPP_TS_38.214'` - 標準確認
+
+  - `physical_parameters` - 物理參數 **[D2 事件與 ML 核心]**
+    - `path_loss_db` - 路徑損耗
+    - `atmospheric_loss_db` - 大氣衰減
+    - `doppler_shift_hz` - 都卜勒頻移
+    - `propagation_delay_ms` - 傳播延遲
+    - `distance_km` - 斜距 (公里) **[D2 事件核心]**
+
+  - `quality_assessment` - 品質評估 **[ML 訓練核心]**
+    - `quality_level` - 品質等級 (excellent/good/fair/poor)
+    - `is_usable` - 可用性標記
+    - `quality_score` - 標準化分數 (0-1)
+    - `link_margin_db` - 鏈路裕度
+
+  - `link_budget_detail` - 鏈路預算詳情
+    - `tx_power_dbm` - 發射功率
+    - `total_gain_db` - 總增益
+    - `total_loss_db` - 總損耗
+
+- ✅ `analysis_summary` - 信號分析摘要
+  - `total_satellites_analyzed` - 分析衛星總數
+  - `signal_quality_distribution` - 品質分布統計
+  - `usable_satellites` - 可用衛星數量
+  - `average_rsrp_dbm` - 平均 RSRP
+  - `average_sinr_db` - 平均 SINR
+
+**從 Stage 4 接收的配置** (透過 Stage 5 傳遞):
+- ✅ `connectable_satellites` - 可連線衛星池 (按星座分類)
+  - 用於動態衛星池規劃驗證
+  - 用於時空錯置覆蓋分析
+
+**從 Stage 1 接收的配置** (透過前階段傳遞):
+- ✅ `constellation_configs` - 星座配置
+  - `starlink.expected_visible_satellites: [10, 15]` - 池目標驗證
+  - `oneweb.expected_visible_satellites: [3, 6]` - 池目標驗證
+
+⚠️ **重要數據結構說明**: Stage 4 輸出包含完整時間序列，必須正確解析
+
+# ❌ 錯誤的池驗證方法（忽略時間序列）
+connectable_satellites = stage4_result.data['connectable_satellites']
+starlink_count = len(connectable_satellites['starlink'])  # 2000 顆候選總數，錯誤！
+
+# ✅ 正確的池驗證方法: 遍歷所有時間點
+def verify_pool_maintenance_correct(stage4_result):
+    """
+    正確的動態池驗證方法
+
+    connectable_satellites 包含完整時間序列，結構如下:
+    {
+        'starlink': [
+            {
+                'satellite_id': 'STARLINK-1234',
+                'time_series': [  # ← 完整時間序列，非單一時間點
+                    {'timestamp': '...', 'is_connectable': True, ...},
+                    {'timestamp': '...', 'is_connectable': False, ...},
+                    ...
+                ]
+            },
+            ...
+        ]
+    }
+    """
+    connectable_satellites = stage4_result.data['connectable_satellites']
+
+    # 收集所有時間戳
+    all_timestamps = set()
+    for sat in connectable_satellites['starlink']:
+        for tp in sat['time_series']:
+            all_timestamps.add(tp['timestamp'])
+
+    # 逐時間點驗證
+    coverage_stats = []
+    for timestamp in sorted(all_timestamps):
+        visible_count = 0
+        for sat in connectable_satellites['starlink']:
+            for tp in sat['time_series']:
+                if tp['timestamp'] == timestamp and tp['is_connectable']:
+                    visible_count += 1
+                    break
+
+        coverage_stats.append({
+            'timestamp': timestamp,
+            'visible_count': visible_count,
+            'target_met': 10 <= visible_count <= 15
+        })
+
+    return coverage_stats
+
+**數據訪問範例**:
+```python
+from stages.stage5_signal_analysis.stage5_signal_analysis_processor import Stage5SignalAnalysisProcessor
+from stages.stage6_research_optimization.stage6_research_optimization_processor import Stage6ResearchOptimizationProcessor
+
+# 執行 Stage 5
+stage5_processor = Stage5SignalAnalysisProcessor(config)
+stage5_result = stage5_processor.execute(stage4_result.data)
+
+# Stage 6 訪問信號品質數據
+signal_analysis = stage5_result.data['signal_analysis']
+
+# 3GPP NTN A4 事件檢測
+a4_threshold = config['a4_threshold_dbm']  # -100.0 dBm
+hysteresis = config['hysteresis_db']       # 2.0 dB
+
+a4_events = []
+for neighbor_id, neighbor_data in signal_analysis.items():
+    neighbor_rsrp = neighbor_data['signal_quality']['rsrp_dbm']
+
+    # 3GPP TS 38.331 Section 5.5.4.5 標準條件
+    if neighbor_rsrp - hysteresis > a4_threshold:
+        a4_event = {
+            'event_type': 'A4',
+            'event_id': f"A4_{neighbor_id}_{int(time.time() * 1000)}",
+            'timestamp': datetime.utcnow().isoformat(),
+            'neighbor_satellite': neighbor_id,
+            'measurements': {
+                'neighbor_rsrp_dbm': neighbor_rsrp,
+                'threshold_dbm': a4_threshold,
+                'hysteresis_db': hysteresis,
+                'trigger_margin_db': neighbor_rsrp - a4_threshold
+            },
+            'standard_reference': '3GPP_TS_38.331_v18.5.1_Section_5.5.4.5'
+        }
+        a4_events.append(a4_event)
+
+# ML 訓練數據生成 (DQN 範例)
+dqn_state_vectors = []
+for satellite_id, signal_data in signal_analysis.items():
+    state_vector = [
+        signal_data['current_position']['latitude_deg'],
+        signal_data['current_position']['longitude_deg'],
+        signal_data['current_position']['altitude_km'],
+        signal_data['signal_quality']['rsrp_dbm'],
+        signal_data['visibility_metrics']['elevation_deg'],
+        signal_data['physical_parameters']['distance_km'],
+        signal_data['signal_quality']['rs_sinr_db']
+    ]
+    dqn_state_vectors.append(state_vector)
+
+# ⚠️ 動態衛星池規劃驗證 - 正確的逐時間點驗證方法
+def verify_pool_maintenance(connectable_satellites, constellation, target_min, target_max):
+    """
+    驗證動態衛星池是否達成「任意時刻維持目標數量可見」的需求
+
+    ❌ 錯誤方法: len(connectable_satellites) 只是候選衛星總數
+    ✅ 正確方法: 遍歷每個時間點，計算該時刻實際可見衛星數
+    """
+
+    # 1. 收集所有時間點
+    all_timestamps = set()
+    for satellite in connectable_satellites[constellation]:
+        for time_point in satellite['time_series']:
+            all_timestamps.add(time_point['timestamp'])
+
+    # 2. 對每個時間點計算可見衛星數
+    time_coverage_check = []
+    for timestamp in sorted(all_timestamps):
+        visible_count = 0
+
+        # 檢查該時刻有多少顆衛星 is_connectable=True
+        for satellite in connectable_satellites[constellation]:
+            time_point = next(
+                (tp for tp in satellite['time_series'] if tp['timestamp'] == timestamp),
+                None
+            )
+            if time_point and time_point['visibility_metrics']['is_connectable']:
+                visible_count += 1
+
+        time_coverage_check.append({
+            'timestamp': timestamp,
+            'visible_count': visible_count,
+            'target_met': target_min <= visible_count <= target_max
+        })
+
+    # 3. 計算覆蓋率
+    met_count = sum(1 for check in time_coverage_check if check['target_met'])
+    coverage_rate = met_count / len(time_coverage_check)
+
+    return {
+        'candidate_satellites_total': len(connectable_satellites[constellation]),
+        'time_points_analyzed': len(time_coverage_check),
+        'coverage_rate': coverage_rate,
+        'target_met': coverage_rate >= 0.95,  # 95%+ 覆蓋率要求
+        'coverage_gaps': [
+            check for check in time_coverage_check if not check['target_met']
+        ],
+        'average_visible_count': sum(
+            c['visible_count'] for c in time_coverage_check
+        ) / len(time_coverage_check)
+    }
+
+# Stage 6 正確的池維持驗證
+connectable_satellites = stage4_result.data['connectable_satellites']
+
+starlink_verification = verify_pool_maintenance(
+    connectable_satellites=connectable_satellites,
+    constellation='starlink',
+    target_min=10,
+    target_max=15
+)
+
+oneweb_verification = verify_pool_maintenance(
+    connectable_satellites=connectable_satellites,
+    constellation='oneweb',
+    target_min=3,
+    target_max=6
+)
+
+pool_planning = {
+    'starlink_pool': {
+        'target_range': {'min': 10, 'max': 15},
+        'candidate_satellites_total': starlink_verification['candidate_satellites_total'],
+        'time_points_analyzed': starlink_verification['time_points_analyzed'],
+        'coverage_rate': starlink_verification['coverage_rate'],
+        'average_visible_count': starlink_verification['average_visible_count'],
+        'target_met': starlink_verification['target_met'],
+        'coverage_gaps_count': len(starlink_verification['coverage_gaps'])
+    },
+    'oneweb_pool': {
+        'target_range': {'min': 3, 'max': 6},
+        'candidate_satellites_total': oneweb_verification['candidate_satellites_total'],
+        'time_points_analyzed': oneweb_verification['time_points_analyzed'],
+        'coverage_rate': oneweb_verification['coverage_rate'],
+        'average_visible_count': oneweb_verification['average_visible_count'],
+        'target_met': oneweb_verification['target_met'],
+        'coverage_gaps_count': len(oneweb_verification['coverage_gaps'])
+    }
+}
+```
+
+#### Stage 5 數據依賴關係
+- **信號品質精度**: 影響 3GPP 事件檢測準確性
+  - A4/A5 事件: 需要 RSRP 精度 ±1dBm
+  - 錯誤的 RSRP → 錯誤的事件觸發 → 影響研究數據品質
+- **物理參數完整性**: 影響 D2 事件和 ML 訓練
+  - D2 事件: 需要精確距離測量 (±100m)
+  - ML 訓練: 需要完整的狀態向量 (7維以上)
+- **品質評估標記**: 影響衛星池規劃
+  - `is_usable` 標記過濾低品質衛星
+  - `quality_score` 用於衛星排序和選擇
+
+### 📤 最終輸出 (Stage 6 → 研究數據)
+
+#### 研究數據生成完整性
+Stage 6 作為最終階段，整合所有前階段數據，生成以下研究級輸出：
+
+**1. 3GPP NTN 事件數據庫**:
+- ✅ A4 事件: 1000+ 鄰近衛星優於門檻事件
+- ✅ A5 事件: 500+ 雙門檻換手觸發事件
+- ✅ D2 事件: 300+ 基於距離的換手事件
+- ✅ 完整的 3GPP TS 38.331 標準參數記錄
+- ✅ 事件時間序列，支援時序分析
+
+**2. 強化學習訓練數據集**:
+- ✅ DQN 數據集: 50,000+ 狀態-動作-獎勵樣本
+- ✅ A3C 數據集: 策略梯度和價值估計
+- ✅ PPO 數據集: 策略比率和裁剪比
+- ✅ SAC 數據集: 連續動作和軟 Q 值
+- ✅ 完整的經驗回放緩衝區
+
+**3. 動態衛星池規劃報告**:
+- ✅ Starlink 池維持: 10-15顆目標達成率
+- ✅ OneWeb 池維持: 3-6顆目標達成率
+- ✅ 時空錯置效果分析
+- ✅ 覆蓋連續性報告 (>95% 時間)
+- ✅ 覆蓋空隙時間統計
+
+**4. 實時決策支援系統**:
+- ✅ < 100ms 決策延遲
+- ✅ 多候選衛星評估 (3-5顆)
+- ✅ 自適應門檻調整
+- ✅ 決策可追溯性記錄
+
+### 🔄 完整數據流總覽
+
+```
+Stage 1: TLE 數據載入
+  ├─ satellites[] (9040顆)
+  ├─ constellation_configs (Starlink/OneWeb)
+  └─ research_configuration (NTPU 位置)
+    ↓
+Stage 2: 軌道狀態傳播
+  ├─ orbital_states[].time_series[] (TEME 座標)
+  ├─ 星座分離計算 (90-95min / 109-115min)
+  └─ 860,957 軌道點
+    ↓
+Stage 3: 座標系統轉換
+  ├─ geographic_coordinates[] (WGS84)
+  ├─ Skyfield 專業轉換 (亞米級精度)
+  └─ 第一層篩選: 9040 → 2059 顆
+    ↓
+Stage 4: 鏈路可行性評估
+  ├─ connectable_satellites[] (按星座分類)
+  ├─ 星座感知篩選 (5° / 10° 門檻)
+  ├─ 鏈路預算約束 (200-2000km)
+  └─ 2000+ 可連線衛星池
+    ↓
+Stage 5: 信號品質分析
+  ├─ signal_analysis[] (RSRP/RSRQ/SINR)
+  ├─ 3GPP TS 38.214 標準計算
+  ├─ ITU-R P.618 物理模型
+  └─ 2000+ 衛星信號品質數據
+    ↓
+Stage 6: 研究數據生成 **[最終階段]**
+  ├─ gpp_events[] (A4/A5/D2, 1500+ 事件)
+  ├─ ml_training_data[] (50,000+ 樣本)
+  ├─ satellite_pool_planning (池規劃報告)
+  └─ real_time_decision_support (決策系統)
+```
+
+### 🎯 研究目標達成驗證
+
+基於 `docs/final.md` 的核心需求：
+
+| 需求 | 數據來源 | Stage 6 驗證 |
+|------|---------|-------------|
+| **NTPU 觀測點** | Stage 1 配置 | ✅ 所有計算基於 24.9442°N, 121.3714°E |
+| **動態衛星池** | Stage 4 池規劃 | ✅ 時空錯置輪替機制驗證 |
+| **星座分離** | Stage 1/2 配置 | ✅ Starlink 90-95min, OneWeb 109-115min |
+| **仰角門檻** | Stage 4 篩選 | ✅ Starlink 5°, OneWeb 10° |
+| **池維持目標** | Stage 4/6 統計 | ✅ Starlink 10-15顆, OneWeb 3-6顆 |
+| **3GPP NTN 事件** | Stage 6 檢測 | ✅ A4/A5/D2 完整實現 |
+| **強化學習** | Stage 6 生成 | ✅ DQN/A3C/PPO/SAC 支援 |
+| **歷史離線分析** | Stage 1-6 設計 | ✅ 基於 TLE 歷史數據 |
+
+### 🔄 數據完整性保證
+
+✅ **六階段完整串聯**: 從 TLE 載入到研究數據生成的完整鏈路
+✅ **學術標準合規**: 所有階段符合 Grade A 學術標準
+✅ **3GPP 標準實現**: 完整的 3GPP TS 38.331 事件檢測
+✅ **ML 研究就緒**: 50,000+ 高品質訓練樣本
+✅ **研究目標達成**: 100% 符合 final.md 核心需求
 
 ## 📊 標準化輸出格式
 

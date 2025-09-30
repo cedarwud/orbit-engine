@@ -218,6 +218,15 @@ class BaseStageProcessor(BaseProcessor):
                     validation_snapshot['next_stage_ready'] = satellite_count > 0 and result.status == ProcessingStatus.SUCCESS
                     validation_snapshot['refactored_version'] = True
                     validation_snapshot['interface_compliance'] = True
+
+                    # ✅ 添加完整 metadata 用於驗證腳本檢查
+                    validation_snapshot['metadata'] = result.data.get('metadata', {})
+
+                    # ✅ 添加衛星樣本用於 epoch_datetime 獨立性驗證
+                    satellites = result.data.get('satellites', [])
+                    satellites_sample = satellites[:10] if len(satellites) > 10 else satellites
+                    validation_snapshot['satellites_sample'] = satellites_sample
+
                 elif 'tle_data' in result.data:
                     validation_snapshot['data_summary']['satellite_count'] = len(result.data['tle_data'])
 

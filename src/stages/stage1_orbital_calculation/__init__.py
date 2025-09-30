@@ -45,10 +45,12 @@
 """
 
 # 🔄 v2.0 主處理器 (符合文檔設計)
-from .stage1_main_processor import Stage1RefactoredProcessor, create_stage1_refactored_processor
-# Backward compatibility alias
-Stage1MainProcessor = Stage1RefactoredProcessor
-create_stage1_main_processor = create_stage1_refactored_processor
+from .stage1_main_processor import (
+    Stage1MainProcessor,
+    create_stage1_processor,
+    create_stage1_main_processor,
+    create_stage1_refactored_processor  # 向後兼容別名
+)
 
 # 🏗️ v2.0 核心組件 (四個組件)
 from .tle_data_loader import TLEDataLoader
@@ -66,22 +68,16 @@ from .time_reference_manager import TimeReferenceManager
 
 __all__ = [
     # 🔄 v2.0 主要介面
-    'Stage1MainProcessor',         # 主處理器 (文檔標準)
-    'create_stage1_main_processor', # 工廠函數
+    'Stage1MainProcessor',         # 主處理器 (唯一處理器)
+    'create_stage1_processor',     # 主工廠函數
+    'create_stage1_main_processor', # 工廠函數（向後兼容）
+    'create_stage1_refactored_processor', # 工廠函數（向後兼容）
 
     # 🏗️ v2.0 核心組件
     'TLEDataLoader',               # TLE檔案載入器
     'DataValidator',               # 數據格式驗證器
     'TimeReferenceManager',        # 時間基準管理器
-
-    # 🔄 向後兼容處理器
-    'Stage1DataLoadingProcessor',  # 簡化版處理器
-    # 'Stage1TLEProcessor',          # 舊版處理器已移除
-
-    # 🧪 驗證組件
-    # 'OrbitalValidationEngine'      # 驗證引擎 (已歸檔)
 ]
 
-# 🎯 預設主處理器 (文檔推薦)
+# 🎯 預設主處理器別名
 Stage1Processor = Stage1MainProcessor
-create_stage1_processor = create_stage1_main_processor

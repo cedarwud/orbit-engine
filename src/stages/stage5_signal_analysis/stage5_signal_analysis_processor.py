@@ -19,17 +19,17 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 import math
 # 🚨 Grade A要求：使用學術級物理常數
-from shared.constants.physics_constants import PhysicsConstants
+from src.shared.constants.physics_constants import PhysicsConstants
 physics_consts = PhysicsConstants()
 
 
 # 共享模組導入
-from shared.base_processor import BaseStageProcessor
-from shared.interfaces import ProcessingStatus, ProcessingResult, create_processing_result
-from shared.validation_framework import ValidationEngine
-# Stage 3核心模組 (文檔定義的4個核心模組)
+from src.shared.base_processor import BaseStageProcessor
+from src.shared.interfaces import ProcessingStatus, ProcessingResult, create_processing_result
+from src.shared.validation_framework import ValidationEngine
+# Stage 5核心模組 (重構後專注信號品質分析)
 from .signal_quality_calculator import SignalQualityCalculator
-from .gpp_event_detector import GPPEventDetector
+# [移除] GPPEventDetector - 已移至 Stage 6 研究數據生成層
 from .physics_calculator import PhysicsCalculator
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
 
         # 初始化組件 - 僅4個核心模組
         self.signal_calculator = SignalQualityCalculator()
-        self.gpp_detector = GPPEventDetector()
+        # [移除] GPPEventDetector - 已移至 Stage 6 研究數據生成層
         self.physics_calculator = PhysicsCalculator()
         
         # 處理統計
@@ -85,7 +85,7 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
             'good_signals': 0,
             'fair_signals': 0,
             'poor_signals': 0,
-            'gpp_events_detected': 0
+            # [移除] gpp_events_detected - 已移至 Stage 6
         }
 
         self.logger.info("Stage 5 信號品質分析處理器已初始化 - 3GPP/ITU-R 標準模式")

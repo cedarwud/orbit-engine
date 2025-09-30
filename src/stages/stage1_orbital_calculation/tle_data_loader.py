@@ -12,7 +12,10 @@ import os
 import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+from shared.constants.tle_constants import TLEConstants
+from shared.constants.constellation_constants import ConstellationRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -54,11 +57,11 @@ class TLEDataLoader:
             'total_satellites': 0
         }
         
-        # 掃描已知的星座目錄
-        for constellation in ['starlink', 'oneweb']:
-            constellation_result = self._scan_constellation(constellation)
+        # 動態掃描所有註冊的星座（配置驅動）
+        for constellation_name in ConstellationRegistry.get_all_names():
+            constellation_result = self._scan_constellation(constellation_name)
             if constellation_result:
-                scan_result['constellations'][constellation] = constellation_result
+                scan_result['constellations'][constellation_name] = constellation_result
                 scan_result['total_files'] += constellation_result['files_count']
                 scan_result['total_satellites'] += constellation_result['satellite_count']
         
@@ -142,12 +145,18 @@ class TLEDataLoader:
             try:
                 # ⚡ 效能優化：sample_mode下只載入部分數據
                 if sample_mode:
-                    # 根據星座類型分配採樣數量
-                    if constellation.lower() == 'starlink':
-                        constellation_sample_size = min(sample_size // 2, 10)  # Starlink最多10顆
-                    else:
-                        constellation_sample_size = min(sample_size // 4, 5)   # 其他星座最多5顆
-                    
+                    # 根據星座配置分配採樣數量（配置驅動）
+                    try:
+                        constellation_config = ConstellationRegistry.get_constellation(constellation)
+                        constellation_sample_size = min(
+                            int(sample_size * constellation_config.sample_ratio),
+                            constellation_config.sample_max
+                        )
+                    except ValueError:
+                        # 未知星座使用默認值
+                        constellation_sample_size = min(sample_size // 10, 5)
+                        self.logger.warning(f"未知星座 {constellation}，使用默認採樣配置")
+
                     satellites = self._load_tle_file(info['latest_file'], constellation, limit=constellation_sample_size)
                     self.logger.info(f"🧪 {constellation} 採樣載入: {len(satellites)} 顆衛星 (樣本模式)")
                 else:
@@ -251,24 +260,49 @@ class TLEDataLoader:
         return satellites
     
     def _validate_tle_format(self, line1: str, line2: str) -> bool:
-        """基本TLE格式驗證 - 寬鬆版本用於開發測試"""
+        """
+        嚴格 TLE 格式驗證 - 符合 NORAD 官方標準
+
+        Academic Compliance Strategy:
+        - 必須符合官方 69 字符格式
+        - Checksum 在後續 _fix_tle_checksum() 中修復（容錯處理）
+        - 必須使用 ASCII 可打印字符
+        - 必須通過基本結構驗證
+
+        Note: Checksum 驗證移至修復後，因為源數據可能有錯誤 checksum，
+              但我們會使用官方算法修復它，確保學術合規性。
+        """
         try:
-            # 檢查最小長度 (允許稍短的測試數據)
-            if len(line1) < 60 or len(line2) < 60:
+            # ✅ 1. 嚴格長度檢查: 必須恰好 69 字符
+            if len(line1) != TLEConstants.TLE_LINE_LENGTH or len(line2) != TLEConstants.TLE_LINE_LENGTH:
                 return False
-            
-            # 檢查行首
+
+            # ✅ 2. 檢查行首標識
             if line1[0] != '1' or line2[0] != '2':
                 return False
-            
-            # 檢查NORAD ID一致性 (允許更寬鬆的格式)
-            if len(line1) >= 7 and len(line2) >= 7:
-                norad_id1 = line1[2:7].strip()
-                norad_id2 = line2[2:7].strip()
-                return norad_id1 == norad_id2
-            
-            return True  # 如果長度不夠，暫時通過
-            
+
+            # ✅ 3. 檢查 NORAD ID 一致性
+            norad_id1 = line1[2:7].strip()
+            norad_id2 = line2[2:7].strip()
+            if norad_id1 != norad_id2:
+                return False
+
+            # ✅ 4. ASCII 字符檢查
+            if not all(32 <= ord(c) <= 126 for c in line1):
+                return False
+            if not all(32 <= ord(c) <= 126 for c in line2):
+                return False
+
+            # ✅ 5. 檢查關鍵字段可解析性
+            # 確保 epoch 字段存在且格式正確
+            if len(line1) < 32:
+                return False
+            epoch_str = line1[18:32].strip()
+            if not epoch_str or len(epoch_str) < 5:
+                return False
+
+            return True
+
         except Exception:
             return False
     
@@ -315,6 +349,37 @@ class TLEDataLoader:
         except Exception as e:
             self.logger.debug(f"解析 TLE epoch 失敗: {e}, line1: {tle_line1[:40]}...")
             return None
+
+    def _verify_tle_checksum(self, tle_line: str) -> bool:
+        """
+        驗證 TLE 行的 checksum 是否正確
+
+        官方 NORAD 標準：
+        - 數字: 加上該數字的值
+        - 正號(+): 算作 1
+        - 負號(-): 算作 1
+        - 其他字符: 忽略
+        - Checksum = (sum % 10)
+        """
+        if len(tle_line) != TLEConstants.TLE_LINE_LENGTH:
+            return False
+
+        try:
+            # 計算前 68 個字符的 checksum
+            checksum_calculated = 0
+            for char in tle_line[:68]:
+                if char.isdigit():
+                    checksum_calculated += int(char)
+                elif char == '-' or char == '+':
+                    checksum_calculated += 1
+
+            expected_checksum = checksum_calculated % 10
+            actual_checksum = int(tle_line[68])
+
+            return expected_checksum == actual_checksum
+
+        except (ValueError, IndexError):
+            return False
 
     def _fix_tle_checksum(self, tle_line: str) -> str:
         """
@@ -380,23 +445,23 @@ class TLEDataLoader:
             health_status["issues"].append(f"TLE基礎路徑不存在: {self.tle_data_dir}")
             return health_status
         
-        # 檢查各星座數據
-        for constellation in ['starlink', 'oneweb']:
-            constellation_dir = self.tle_data_dir / constellation / "tle"
+        # 檢查各星座數據（配置驅動）
+        for constellation_name in ConstellationRegistry.get_all_names():
+            constellation_dir = self.tle_data_dir / constellation_name / "tle"
             
             if not constellation_dir.exists():
-                health_status["issues"].append(f"{constellation} TLE目錄不存在")
+                health_status["issues"].append(f"{constellation_name} TLE目錄不存在")
                 continue
-            
-            tle_files = list(constellation_dir.glob(f"{constellation}_*.tle"))
+
+            tle_files = list(constellation_dir.glob(f"{constellation_name}_*.tle"))
             health_status["total_tle_files"] += len(tle_files)
-            
+
             if tle_files:
                 # 找最新文件
                 latest_file = max(tle_files, key=lambda f: f.stem.split('_')[-1])
-                health_status["latest_files"][constellation] = latest_file.stem.split('_')[-1]
+                health_status["latest_files"][constellation_name] = latest_file.stem.split('_')[-1]
             else:
-                health_status["issues"].append(f"{constellation} 無TLE文件")
+                health_status["issues"].append(f"{constellation_name} 無TLE文件")
         
         if health_status["issues"]:
             health_status["overall_healthy"] = False

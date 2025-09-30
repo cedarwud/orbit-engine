@@ -30,19 +30,19 @@ from pathlib import Path
 
 # 真實座標轉換引擎
 try:
-    from shared.coordinate_systems.skyfield_coordinate_engine import (
+    from src.shared.coordinate_systems.skyfield_coordinate_engine import (
         get_coordinate_engine, CoordinateTransformResult
     )
-    from shared.coordinate_systems.iers_data_manager import get_iers_manager
-    from shared.coordinate_systems.wgs84_manager import get_wgs84_manager
+    from src.shared.coordinate_systems.iers_data_manager import get_iers_manager
+    from src.shared.coordinate_systems.wgs84_manager import get_wgs84_manager
     REAL_COORDINATE_SYSTEM_AVAILABLE = True
 except ImportError as e:
     logging.error(f"真實座標系統模組未安裝: {e}")
     REAL_COORDINATE_SYSTEM_AVAILABLE = False
 
 # 共享模組導入
-from shared.base_processor import BaseStageProcessor
-from shared.interfaces import ProcessingStatus, ProcessingResult, create_processing_result
+from src.shared.base_processor import BaseStageProcessor
+from src.shared.interfaces import ProcessingStatus, ProcessingResult, create_processing_result
 
 logger = logging.getLogger(__name__)
 
@@ -306,203 +306,7 @@ class Stage3CoordinateTransformProcessor(BaseStageProcessor):
         self.logger.info(f"提取了 {len(teme_coordinates)} 顆衛星的 TEME 座標數據")
         return teme_coordinates
 
-    def _first_layer_visibility_filter(self, teme_data: Dict[str, Any]) -> Dict[str, Any]:
-        """第一層可見性篩選 - 使用真實算法進行快速初篩"""
-        # NTPU 地面站座標 (研究項目固定參數)
-        ntpu_lat_deg = 24.9441  # 緯度 (度) - NTPU 24°56'39"N
-        ntpu_lon_deg = 121.3714  # 經度 (度) - NTPU 121°22'17"E
-        ntpu_alt_km = 0.035  # 海拔 (km)
-
-        visible_satellites = {}
-        total_satellites = len(teme_data)
-        processed = 0
-
-        for satellite_id, satellite_data in teme_data.items():
-            processed += 1
-            if processed % 1000 == 0:
-                self.logger.info(f"篩選進度: {processed}/{total_satellites} ({processed/total_satellites:.1%})")
-
-            # 調試：檢查前幾個衛星的數據格式
-            if processed <= 3:
-                self.logger.info(f"調試 {satellite_id}: 數據鍵 = {list(satellite_data.keys())}")
-                time_series = satellite_data.get('time_series', [])
-                if time_series:
-                    first_point = time_series[0]
-                    self.logger.info(f"調試 {satellite_id}: 第一個點鍵 = {list(first_point.keys())}")
-                    if 'position_teme_km' in first_point:
-                        self.logger.info(f"調試 {satellite_id}: position_teme_km = {first_point['position_teme_km']}")
-                    elif 'position_teme' in first_point:
-                        self.logger.info(f"調試 {satellite_id}: position_teme = {first_point['position_teme']}")
-                    else:
-                        self.logger.warning(f"調試 {satellite_id}: 找不到位置數據")
-
-            # 修正：使用正確的 Stage 2 輸出結構
-            orbital_states = satellite_data.get('orbital_states', [])
-            if not orbital_states:
-                # 兼容舊格式
-                time_series = satellite_data.get('time_series', [])
-                orbital_states = time_series
-
-            if not orbital_states:
-                continue
-
-            # 修正：放寬連續可見時間要求，第一層主要做粗篩
-            minimum_continuous_minutes = 2.0  # 第一層放寬至2分鐘（精密篩選時再嚴格要求）
-            time_interval_seconds = 60  # Stage 2 的時間間隔（1分鐘）
-            min_continuous_points = int((minimum_continuous_minutes * 60) / time_interval_seconds)  # 2個點 = 2分鐘
-
-            # 獲取星座類型以確定仰角門檻
-            constellation = satellite_data.get('constellation', 'unknown').lower()
-            if 'starlink' in constellation:
-                min_elevation = 5.0  # Starlink 5度門檻
-            elif 'oneweb' in constellation:
-                min_elevation = 10.0  # OneWeb 10度門檻
-            else:
-                min_elevation = 5.0  # 預設5度
-
-            # 🚀 修正採樣策略：減少採樣步長以避免錯過可見窗口
-            # 第一步：密集採樣檢查（每2個點取1個，保持50%覆蓋率）
-            sample_step = 2
-            sample_indices = list(range(0, len(orbital_states), sample_step))
-
-            # 第二步：快速幾何篩選（使用真實算法但簡化步驟）
-            quick_visible_count = 0
-            for sample_idx in sample_indices:
-                if sample_idx >= len(orbital_states):
-                    break
-
-                teme_point = orbital_states[sample_idx]
-                position_teme = teme_point.get('position_teme_km', teme_point.get('position_teme', [0, 0, 0]))
-                timestamp_str = teme_point.get('timestamp', '')
-
-                if not timestamp_str:
-                    continue
-
-                try:
-                    # 解析時間
-                    dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-
-                    # 🎯 使用快速但相對準確的TEME→WGS84轉換
-                    lat_deg, lon_deg, alt_km = self._fast_teme_to_wgs84(position_teme, dt)
-
-                    # 快速高度合理性檢查
-                    if 200 <= alt_km <= 2000:  # LEO衛星高度範圍
-                        # 🎯 使用幾何仰角計算（保持相對準確性）
-                        elevation_deg = self._geometric_elevation_calculation(
-                            sat_lat=lat_deg, sat_lon=lon_deg, sat_alt=alt_km,
-                            obs_lat=ntpu_lat_deg, obs_lon=ntpu_lon_deg, obs_alt=ntpu_alt_km
-                        )
-
-                        # 快速可見性檢查（進一步放寬門檻，第一層為粗篩）
-                        if elevation_deg > (min_elevation - 3.0):  # 放寬3度，確保不誤殺邊界衛星
-                            quick_visible_count += 1
-
-                except Exception as e:
-                    continue
-
-            # 第三步：基於採樣結果決定精密計算策略（大幅放寬門檻）
-            sample_visible_ratio = quick_visible_count / len(sample_indices) if sample_indices else 0
-            required_sample_ratio = 0.05  # 降低到5%門檻，避免過度篩選
-
-            if sample_visible_ratio < required_sample_ratio:
-                # 採樣顯示基本不可見，但仍進行簡化檢查以避免誤殺
-                continuous_visible_count = 0
-                max_continuous_count = 0
-                is_visible = False
-
-                # 簡化檢查：每5個點檢查1個
-                check_step = 5
-                for idx in range(0, len(orbital_states), check_step):
-                    teme_point = orbital_states[idx]
-                    position_teme = teme_point.get('position_teme_km', teme_point.get('position_teme', [0, 0, 0]))
-                    timestamp_str = teme_point.get('timestamp', '')
-
-                    if not timestamp_str:
-                        continuous_visible_count = 0
-                        continue
-
-                    try:
-                        dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                        lat_deg, lon_deg, alt_km = self._fast_teme_to_wgs84(position_teme, dt)
-
-                        elevation_deg = self._geometric_elevation_calculation(
-                            sat_lat=lat_deg, sat_lon=lon_deg, sat_alt=alt_km,
-                            obs_lat=ntpu_lat_deg, obs_lon=ntpu_lon_deg, obs_alt=ntpu_alt_km
-                        )
-
-                        if elevation_deg > min_elevation:
-                            continuous_visible_count += 1
-                            max_continuous_count = max(max_continuous_count, continuous_visible_count)
-                            # 第一層粗篩：只要有任何一個點可見就通過
-                            if continuous_visible_count >= 1:
-                                is_visible = True
-                        else:
-                            continuous_visible_count = 0
-
-                    except Exception as e:
-                        continuous_visible_count = 0
-                        continue
-            else:
-                # 🎯 有希望的衛星進行更精密的檢查
-                continuous_visible_count = 0
-                max_continuous_count = 0
-                is_visible = False
-
-                # 精密計算：每2個點檢查1個（仍有50%性能提升）
-                precision_step = 2
-                for idx in range(0, len(orbital_states), precision_step):
-                    teme_point = orbital_states[idx]
-                    position_teme = teme_point.get('position_teme_km', teme_point.get('position_teme', [0, 0, 0]))
-                    timestamp_str = teme_point.get('timestamp', '')
-
-                    if not timestamp_str:
-                        continuous_visible_count = 0
-                        continue
-
-                    try:
-                        dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-
-                        # 使用快速但準確的幾何轉換
-                        lat_deg, lon_deg, alt_km = self._fast_teme_to_wgs84(position_teme, dt)
-
-                        # 精確仰角計算
-                        elevation_deg = self._geometric_elevation_calculation(
-                            sat_lat=lat_deg, sat_lon=lon_deg, sat_alt=alt_km,
-                            obs_lat=ntpu_lat_deg, obs_lon=ntpu_lon_deg, obs_alt=ntpu_alt_km
-                        )
-
-                        # 精確可見性判斷（第一層粗篩，放寬要求）
-                        if elevation_deg > min_elevation:
-                            continuous_visible_count += 1
-                            max_continuous_count = max(max_continuous_count, continuous_visible_count)
-
-                            # 第一層粗篩：只要有1個點可見就通過，避免誤殺
-                            if continuous_visible_count >= 1:
-                                is_visible = True
-                        else:
-                            continuous_visible_count = 0
-
-                    except Exception as e:
-                        continuous_visible_count = 0
-                        continue
-
-            # 詳細調試特定衛星
-            if satellite_id in ['44961', '44968', '44925', '44718', '44747', '44723', '44762']:
-                continuous_minutes = (max_continuous_count * time_interval_seconds) / 60.0
-                self.logger.info(f"🔍 調試 {satellite_id} ({constellation}): 最大連續可見 {continuous_minutes:.1f}分鐘, "
-                               f"門檻:{min_elevation}°, 需要:{minimum_continuous_minutes}分鐘, 結果:{'✅' if is_visible else '❌'}")
-
-            if is_visible:
-                visible_satellites[satellite_id] = satellite_data
-
-                # 調試前幾個可見衛星
-                if len(visible_satellites) <= 5:
-                    continuous_minutes = (max_continuous_count * time_interval_seconds) / 60.0
-                    self.logger.info(f"✅ {satellite_id} ({constellation}): 最大連續可見 {continuous_minutes:.1f}分鐘 "
-                                   f"(門檻:{min_elevation}°)")
-
-        self.logger.info(f"✅ 第一層篩選完成: {len(visible_satellites)}/{total_satellites} 顆衛星可見")
-        return visible_satellites
+    # [移除] _first_layer_visibility_filter - 已移至 Stage 4 鏈路可行性評估層
 
     def _real_teme_to_wgs84_single_point(self, position_teme_km: List[float], dt: datetime) -> Optional[Dict[str, float]]:
         """使用真實 Skyfield 引擎進行單點 TEME→WGS84 轉換"""
@@ -524,84 +328,9 @@ class Stage3CoordinateTransformProcessor(BaseStageProcessor):
             self.logger.warning(f"真實座標轉換失敗: {e}")
             return None
 
-    def _real_elevation_calculation(self, sat_lat: float, sat_lon: float, sat_alt: float,
-                                  obs_lat: float, obs_lon: float, obs_alt: float,
-                                  timestamp: datetime) -> float:
-        """使用真實算法計算仰角 - 基於 Skyfield 專業計算"""
-        try:
-            # 使用 Skyfield 引擎的仰角計算功能
-            elevation_result = self.coordinate_engine.calculate_satellite_elevation(
-                satellite_lat_deg=sat_lat,
-                satellite_lon_deg=sat_lon,
-                satellite_alt_m=sat_alt * 1000.0,  # 轉換為米
-                observer_lat_deg=obs_lat,
-                observer_lon_deg=obs_lon,
-                observer_alt_m=obs_alt * 1000.0,   # 轉換為米
-                datetime_utc=timestamp
-            )
+    # [移除] _real_elevation_calculation - 已移至 Stage 4 鏈路可行性評估層
 
-            return elevation_result.elevation_deg
-
-        except Exception as e:
-            self.logger.warning(f"真實仰角計算失敗: {e}, 使用備用幾何計算")
-            # 如果 Skyfield 計算失敗，使用基本的球面幾何計算
-            return self._geometric_elevation_calculation(
-                sat_lat, sat_lon, sat_alt, obs_lat, obs_lon, obs_alt
-            )
-
-    def _geometric_elevation_calculation(self, sat_lat: float, sat_lon: float, sat_alt: float,
-                                       obs_lat: float, obs_lon: float, obs_alt: float) -> float:
-        """基本球面幾何仰角計算 (備用方法)"""
-        try:
-            # 使用官方 WGS84 參數
-            wgs84_params = self.wgs84_manager.get_wgs84_parameters()
-            earth_radius_km = wgs84_params.semi_major_axis_m / 1000.0
-
-            # 轉換為弧度
-            sat_lat_rad = math.radians(sat_lat)
-            sat_lon_rad = math.radians(sat_lon)
-            obs_lat_rad = math.radians(obs_lat)
-            obs_lon_rad = math.radians(obs_lon)
-
-            # 觀測者位置向量 (地心坐標)
-            obs_x = (earth_radius_km + obs_alt) * math.cos(obs_lat_rad) * math.cos(obs_lon_rad)
-            obs_y = (earth_radius_km + obs_alt) * math.cos(obs_lat_rad) * math.sin(obs_lon_rad)
-            obs_z = (earth_radius_km + obs_alt) * math.sin(obs_lat_rad)
-
-            # 衛星位置向量 (地心坐標)
-            sat_x = (earth_radius_km + sat_alt) * math.cos(sat_lat_rad) * math.cos(sat_lon_rad)
-            sat_y = (earth_radius_km + sat_alt) * math.cos(sat_lat_rad) * math.sin(sat_lon_rad)
-            sat_z = (earth_radius_km + sat_alt) * math.sin(sat_lat_rad)
-
-            # 觀測者的地心向量
-            obs_vec_norm = math.sqrt(obs_x*obs_x + obs_y*obs_y + obs_z*obs_z)
-            obs_unit_x = obs_x / obs_vec_norm
-            obs_unit_y = obs_y / obs_vec_norm
-            obs_unit_z = obs_z / obs_vec_norm
-
-            # 衛星相對於觀測者的向量
-            rel_x = sat_x - obs_x
-            rel_y = sat_y - obs_y
-            rel_z = sat_z - obs_z
-            rel_norm = math.sqrt(rel_x*rel_x + rel_y*rel_y + rel_z*rel_z)
-
-            if rel_norm == 0:
-                return 90.0
-
-            # 單位向量
-            rel_unit_x = rel_x / rel_norm
-            rel_unit_y = rel_y / rel_norm
-            rel_unit_z = rel_z / rel_norm
-
-            # 計算仰角：觀測者天頂方向與衛星方向的夾角
-            dot_product = rel_unit_x * obs_unit_x + rel_unit_y * obs_unit_y + rel_unit_z * obs_unit_z
-            elevation_rad = math.asin(max(-1.0, min(1.0, dot_product)))
-
-            return math.degrees(elevation_rad)
-
-        except Exception as e:
-            self.logger.error(f"幾何仰角計算失敗: {e}")
-            return -90.0
+    # [移除] _geometric_elevation_calculation - 已移至 Stage 4 鏈路可行性評估層
 
     def _fast_teme_to_wgs84(self, position_teme_km: List[float], dt: datetime) -> Tuple[float, float, float]:
         """修正的TEME→WGS84轉換"""
@@ -690,54 +419,7 @@ class Stage3CoordinateTransformProcessor(BaseStageProcessor):
             self.logger.error(f"備用 GMST 計算失敗: {e}")
             return 0.0
 
-    def _fast_elevation_calculation(self, sat_lat: float, sat_lon: float, sat_alt: float,
-                                  obs_lat: float, obs_lon: float, obs_alt: float) -> float:
-        """仰角計算 (已廢棄 - 請使用 _real_elevation_calculation)"""
-        # 轉換為弧度
-        sat_lat_rad = math.radians(sat_lat)
-        sat_lon_rad = math.radians(sat_lon)
-        obs_lat_rad = math.radians(obs_lat)
-        obs_lon_rad = math.radians(obs_lon)
-
-        # 計算衛星與觀測者的距離向量 - 使用官方 WGS84 參數
-        wgs84_params = self.wgs84_manager.get_wgs84_parameters()
-        earth_radius_km = wgs84_params.semi_major_axis_m / 1000.0  # 轉換為 km
-
-        # 觀測者位置 (笛卡爾座標)
-        obs_x = (earth_radius_km + obs_alt) * math.cos(obs_lat_rad) * math.cos(obs_lon_rad)
-        obs_y = (earth_radius_km + obs_alt) * math.cos(obs_lat_rad) * math.sin(obs_lon_rad)
-        obs_z = (earth_radius_km + obs_alt) * math.sin(obs_lat_rad)
-
-        # 衛星位置 (笛卡爾座標)
-        sat_x = (earth_radius_km + sat_alt) * math.cos(sat_lat_rad) * math.cos(sat_lon_rad)
-        sat_y = (earth_radius_km + sat_alt) * math.cos(sat_lat_rad) * math.sin(sat_lon_rad)
-        sat_z = (earth_radius_km + sat_alt) * math.sin(sat_lat_rad)
-
-        # 衛星相對於觀測者的向量
-        dx = sat_x - obs_x
-        dy = sat_y - obs_y
-        dz = sat_z - obs_z
-
-        # 觀測者的天頂向量
-        zenith_x = obs_x / math.sqrt(obs_x*obs_x + obs_y*obs_y + obs_z*obs_z)
-        zenith_y = obs_y / math.sqrt(obs_x*obs_x + obs_y*obs_y + obs_z*obs_z)
-        zenith_z = obs_z / math.sqrt(obs_x*obs_x + obs_y*obs_y + obs_z*obs_z)
-
-        # 計算仰角
-        range_km = math.sqrt(dx*dx + dy*dy + dz*dz)
-        if range_km == 0:
-            return -90.0
-
-        # 標準化衛星方向向量
-        dx_norm = dx / range_km
-        dy_norm = dy / range_km
-        dz_norm = dz / range_km
-
-        # 仰角 = 90° - 與天頂的夾角
-        dot_product = dx_norm * zenith_x + dy_norm * zenith_y + dz_norm * zenith_z
-        elevation_rad = math.asin(max(-1.0, min(1.0, dot_product)))
-
-        return math.degrees(elevation_rad)
+    # [移除] _fast_elevation_calculation - 已移至 Stage 4 鏈路可行性評估層
 
     def _datetime_to_julian_date(self, dt: datetime) -> float:
         """日期時間轉換為儒略日"""
@@ -763,25 +445,18 @@ class Stage3CoordinateTransformProcessor(BaseStageProcessor):
 
         self.logger.info(f"📊 全量衛星集: {len(test_satellites)} 顆衛星")
 
-        # 第一層: 快速可見性篩選 (使用完整軌道週期)
-        # 檢查測試模式 - 跳過可見性篩選以便單元測試
-        if self.config.get('test_mode') or self.config.get('skip_visibility_filter'):
-            self.logger.info("🧪 測試模式: 跳過可見性篩選")
-            visible_satellites = test_satellites
-        else:
-            self.logger.info("🔍 第一層: 開始快速可見性篩選...")
-            visible_satellites = self._first_layer_visibility_filter(test_satellites)
+        # Stage 3 v3.0: 純座標轉換，不進行可見性篩選
+        self.logger.info("🌍 Stage 3: 執行純座標轉換 (TEME→WGS84)")
+        coordinate_data = test_satellites
 
-        filter_stats = {
+        transform_stats = {
             'total_satellites': len(teme_data),
-            'visible_satellites': len(visible_satellites),
-            'filter_ratio': len(visible_satellites) / len(teme_data) if teme_data else 0
+            'processed_satellites': len(coordinate_data)
         }
 
-        self.logger.info(f"📊 篩選結果: {filter_stats['total_satellites']} → {filter_stats['visible_satellites']} 顆衛星 "
-                        f"({filter_stats['filter_ratio']:.1%} 通過)")
+        self.logger.info(f"📊 轉換結果: {transform_stats['total_satellites']} 顆衛星 待轉換")
 
-        if not visible_satellites:
+        if not coordinate_data:
             self.logger.warning("⚠️ 第一層篩選後無可見衛星")
             return {}
 
@@ -794,7 +469,7 @@ class Stage3CoordinateTransformProcessor(BaseStageProcessor):
 
         self.logger.info("🔄 準備精密座標轉換數據...")
 
-        for satellite_id, satellite_data in visible_satellites.items():
+        for satellite_id, satellite_data in coordinate_data.items():
             time_series = satellite_data.get('time_series', [])
             for point_idx, teme_point in enumerate(time_series):
                 try:

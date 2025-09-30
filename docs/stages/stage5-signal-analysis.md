@@ -7,10 +7,11 @@
 
 ## 📖 概述與目標
 
-**核心職責**: 基於可連線衛星的精確信號品質分析
-**輸入**: Stage 4 的可連線衛星池
-**輸出**: RSRP/RSRQ/SINR 信號品質數據
-**處理時間**: ~0.5秒 (2000+顆可連線衛星信號分析)
+**核心職責**: 基於可連線衛星池（含完整時間序列）的精確信號品質分析
+**輸入**: Stage 4 的可連線衛星池（包含完整時間序列，~95-220 時間點/衛星）
+**輸出**: 每個時間點的 RSRP/RSRQ/SINR 時間序列信號品質數據
+**處理方式**: 遍歷每顆衛星的時間序列，逐時間點計算信號品質
+**處理時間**: ~0.5秒 (2000+顆可連線衛星 × 時間序列點數)
 **學術標準**: 3GPP TS 38.214 和 ITU-R P.618 完整實現
 
 ### 🎯 Stage 5 核心價值
@@ -75,11 +76,13 @@ Stage 5: 信號品質分析 (正確的階段定位)
 
 ### ✅ **Stage 5 專屬職責**
 
-#### 1. **3GPP 標準信號計算**
+#### 1. **3GPP 標準信號計算** (時間序列處理)
+- **時間序列處理**: 對每顆衛星的 ~95-220 個時間點逐點計算
 - **RSRP (Reference Signal Received Power)**: 基於 3GPP TS 38.214
 - **RSRQ (Reference Signal Received Quality)**: 完整干擾建模
 - **RS-SINR (Signal-to-Interference-plus-Noise Ratio)**: 信號干擾噪聲比
 - **動態天線增益**: 基於物理原理的接收器增益計算
+- **動態信號追蹤**: 追蹤信號品質隨時間變化（衛星移動導致）
 
 #### 2. **ITU-R 物理傳播模型**
 - **自由空間損耗**: Friis 公式，CODATA 2018 光速常數
@@ -185,6 +188,265 @@ def simplified_rsrp_calculation(distance, elevation):
     return -100 - 20 * np.log10(distance) - 5 / np.sin(elevation)
 ```
 
+## 🔄 數據流：上游依賴與下游使用
+
+### 📥 上游依賴 (Stage 4 → Stage 5)
+
+#### 從 Stage 4 接收的數據
+**必要輸入數據**:
+- ✅ `connectable_satellites` - 可連線衛星池 (按星座分類)
+  - `starlink[]` - Starlink 可連線衛星列表
+  - `oneweb[]` - OneWeb 可連線衛星列表
+  - `other[]` - 其他星座衛星列表
+  - 每顆衛星包含:
+    - `satellite_id` - 衛星唯一標識
+    - `name` - 衛星名稱
+    - `constellation` - 星座類型
+    - `norad_id` - NORAD 目錄編號
+    - `current_position` - 當前位置
+      - `latitude_deg` - WGS84 緯度
+      - `longitude_deg` - WGS84 經度
+      - `altitude_km` - 高度 (公里)
+    - `visibility_metrics` - 可見性指標
+      - `elevation_deg` - 仰角 (度) **[核心參數]**
+      - `azimuth_deg` - 方位角 (度)
+      - `distance_km` - 斜距 (公里) **[核心參數]**
+      - `threshold_applied` - 應用的門檻
+      - `is_connectable` - 可連線標記
+
+- ✅ `feasibility_summary` - 可行性摘要
+  - `total_connectable` - 可連線衛星總數
+  - `by_constellation` - 按星座統計
+
+**從 Stage 1 接收的配置** (透過 metadata 傳遞):
+- ✅ `constellation_configs` - 星座配置信息 **⚠️ 關鍵配置來源**
+  - **來源**: Stage 1 初始載入，透過每個階段 metadata 向下傳遞
+  - **訪問路徑**: `stage1_result.data['metadata']['constellation_configs']`
+  - `starlink` - Starlink 星座配置
+    - `tx_power_dbw: 40.0` - 發射功率
+    - `tx_antenna_gain_db: 35.0` - 發射天線增益
+    - `frequency_ghz: 12.5` - 工作頻率 (Ku頻段)
+    - `service_elevation_threshold_deg: 5.0` - 服務仰角門檻
+  - `oneweb` - OneWeb 星座配置
+    - `tx_power_dbw: 38.0` - 發射功率
+    - `tx_antenna_gain_db: 33.0` - 發射天線增益
+    - `frequency_ghz: 12.75` - 工作頻率
+    - `service_elevation_threshold_deg: 10.0` - 服務仰角門檻
+
+**數據訪問範例**:
+```python
+from stages.stage4_link_feasibility.stage4_link_feasibility_processor import Stage4LinkFeasibilityProcessor
+from stages.stage5_signal_analysis.stage5_signal_analysis_processor import Stage5SignalAnalysisProcessor
+
+# 執行 Stage 4
+stage4_processor = Stage4LinkFeasibilityProcessor(config)
+stage4_result = stage4_processor.execute(stage3_result.data)
+
+# ⚠️ 重要: 從 Stage 1 獲取星座配置 (透過 metadata 傳遞)
+# 方法 1: 從 Stage 1 結果直接訪問 (推薦)
+constellation_configs = stage1_result.data['metadata']['constellation_configs']
+
+# 方法 2: 從 Stage 4 metadata 訪問 (已傳遞)
+constellation_configs = stage4_result.data['metadata'].get('constellation_configs')
+
+# 方法 3: 從 Stage 3 metadata 訪問
+constellation_configs = stage3_result.data['metadata'].get('constellation_configs')
+
+# Stage 5 訪問可連線衛星池
+connectable_satellites = stage4_result.data['connectable_satellites']
+
+# 僅對可連線衛星進行信號分析
+for constellation, satellites in connectable_satellites.items():
+    # ⚠️ 關鍵: 獲取星座特定配置
+    constellation_config = constellation_configs.get(constellation, constellation_configs.get('default', {}))
+
+    # 星座特定參數
+    tx_power_dbw = constellation_config.get('tx_power_dbw', 40.0)
+    tx_gain_db = constellation_config.get('tx_antenna_gain_db', 35.0)
+    frequency_ghz = constellation_config.get('frequency_ghz', 12.5)
+
+    for satellite in satellites:
+        # 獲取可見性指標 (Stage 4 輸出)
+        elevation_deg = satellite['visibility_metrics']['elevation_deg']
+        distance_km = satellite['visibility_metrics']['distance_km']
+
+        # 3GPP 標準信號計算
+        # 1. 自由空間損耗 (ITU-R P.618)
+        path_loss_db = calculate_free_space_loss(
+            distance_km=distance_km,
+            frequency_ghz=frequency_ghz  # 使用星座特定頻率
+        )
+
+        # 2. 大氣衰減 (ITU-R P.618)
+        atmospheric_loss_db = calculate_atmospheric_loss(
+            elevation_deg=elevation_deg,
+            frequency_ghz=frequency_ghz  # 使用星座特定頻率
+        )
+
+        # 3. 動態接收增益 (基於仰角)
+        rx_gain_db = calculate_receiver_gain(elevation_deg)
+
+        # 4. 3GPP RSRP 計算 (使用星座特定參數)
+        rsrp_dbm = (
+            tx_power_dbw + 30 +  # Tx power (dBW to dBm, 星座特定)
+            tx_gain_db +         # Tx gain (星座特定)
+            rx_gain_db -         # Rx gain (動態)
+            path_loss_db -
+            atmospheric_loss_db
+        )
+```
+
+#### Stage 4 數據依賴關係
+- **可連線性篩選**: 僅對通過 Stage 4 篩選的衛星進行計算
+  - **效率優化**: 9040 → 2000顆，減少78%計算量
+  - **品質保證**: 所有輸入衛星已滿足基礎可連線條件
+- **仰角精度**: 影響大氣衰減和接收增益計算
+  - 精度要求: ±0.1° (影響 RSRP 約 ±0.5dB)
+  - 低仰角 (<10°) 需要特殊處理 (閃爍效應)
+- **距離精度**: 影響自由空間損耗計算
+  - 精度要求: ±100m (影響 RSRP 約 ±0.2dB)
+  - 距離範圍: 200-2000km (已由 Stage 4 保證)
+
+### 📤 下游使用 (Stage 5 → Stage 6)
+
+#### Stage 6: 研究數據生成層使用的數據
+**使用的輸出**:
+- ✅ `signal_analysis[satellite_id]` - 每顆衛星的信號品質數據
+  - `signal_quality` - 信號品質指標
+    - `rsrp_dbm` - 參考信號接收功率 (dBm) **[A4/A5事件核心]**
+    - `rsrq_db` - 參考信號接收品質 (dB)
+    - `rs_sinr_db` - 信號干擾噪聲比 (dB)
+    - `calculation_standard: '3GPP_TS_38.214'` - 標準確認
+  - `physical_parameters` - 物理參數
+    - `path_loss_db` - 路徑損耗
+    - `atmospheric_loss_db` - 大氣衰減
+    - `doppler_shift_hz` - 都卜勒頻移
+    - `propagation_delay_ms` - 傳播延遲 **[D2事件核心]**
+  - `quality_assessment` - 品質評估
+    - `quality_level` - 品質等級 (excellent/good/fair/poor)
+    - `is_usable` - 可用性標記
+    - `quality_score` - 標準化分數 (0-1)
+    - `link_margin_db` - 鏈路裕度
+
+- ✅ `analysis_summary` - 分析摘要
+  - `total_satellites_analyzed` - 分析衛星總數
+  - `signal_quality_distribution` - 品質分布統計
+  - `usable_satellites` - 可用衛星數量
+  - `average_rsrp_dbm` - 平均 RSRP
+  - `average_sinr_db` - 平均 SINR
+
+**Stage 6 數據流範例**:
+```python
+# Stage 6 處理器接收 Stage 5 輸出
+stage6_processor = Stage6ResearchOptimizationProcessor(config)
+stage6_result = stage6_processor.execute(stage5_result.data)
+
+# Stage 6 使用信號品質數據進行 3GPP 事件檢測
+signal_analysis = stage5_result.data['signal_analysis']
+
+# 假設當前服務衛星
+serving_satellite_id = 'STARLINK-5678'
+serving_rsrp = signal_analysis[serving_satellite_id]['signal_quality']['rsrp_dbm']
+
+# A4 事件檢測: 鄰近衛星變得優於門檻
+a4_threshold = -100.0  # dBm
+hysteresis = 2.0       # dB
+
+for neighbor_id, neighbor_data in signal_analysis.items():
+    if neighbor_id == serving_satellite_id:
+        continue
+
+    neighbor_rsrp = neighbor_data['signal_quality']['rsrp_dbm']
+
+    # 3GPP TS 38.331 A4 觸發條件
+    if neighbor_rsrp - hysteresis > a4_threshold:
+        a4_event = {
+            'event_type': 'A4',
+            'serving_satellite': serving_satellite_id,
+            'neighbor_satellite': neighbor_id,
+            'neighbor_rsrp': neighbor_rsrp,
+            'threshold': a4_threshold,
+            'margin': neighbor_rsrp - a4_threshold
+        }
+        # 記錄 A4 事件...
+
+# A5 事件檢測: 服務衛星劣化且鄰近衛星良好
+a5_threshold1 = -110.0  # 服務門檻
+a5_threshold2 = -95.0   # 鄰近門檻
+
+if serving_rsrp + hysteresis < a5_threshold1:
+    for neighbor_id, neighbor_data in signal_analysis.items():
+        if neighbor_id == serving_satellite_id:
+            continue
+
+        neighbor_rsrp = neighbor_data['signal_quality']['rsrp_dbm']
+
+        if neighbor_rsrp - hysteresis > a5_threshold2:
+            a5_event = {
+                'event_type': 'A5',
+                'serving_satellite': serving_satellite_id,
+                'serving_rsrp': serving_rsrp,
+                'neighbor_satellite': neighbor_id,
+                'neighbor_rsrp': neighbor_rsrp,
+                'dual_threshold_met': True
+            }
+            # 記錄 A5 事件...
+
+# D2 事件: 基於距離測量 (使用 propagation_delay)
+serving_distance_km = signal_analysis[serving_satellite_id]['physical_parameters']['distance_km']
+d2_threshold1 = 1500  # km
+
+for neighbor_id, neighbor_data in signal_analysis.items():
+    if neighbor_id == serving_satellite_id:
+        continue
+
+    neighbor_distance_km = neighbor_data['physical_parameters']['distance_km']
+    d2_threshold2 = 800  # km
+
+    if serving_distance_km > d2_threshold1 and neighbor_distance_km < d2_threshold2:
+        d2_event = {
+            'event_type': 'D2',
+            'serving_satellite': serving_satellite_id,
+            'serving_distance': serving_distance_km,
+            'neighbor_satellite': neighbor_id,
+            'neighbor_distance': neighbor_distance_km
+        }
+        # 記錄 D2 事件...
+
+# ML 訓練數據生成
+ml_state_vector = {
+    'rsrp_dbm': signal_analysis[serving_satellite_id]['signal_quality']['rsrp_dbm'],
+    'rsrq_db': signal_analysis[serving_satellite_id]['signal_quality']['rsrq_db'],
+    'sinr_db': signal_analysis[serving_satellite_id]['signal_quality']['rs_sinr_db'],
+    'quality_score': signal_analysis[serving_satellite_id]['quality_assessment']['quality_score'],
+    'link_margin_db': signal_analysis[serving_satellite_id]['quality_assessment']['link_margin_db']
+}
+# 用於 DQN/A3C/PPO/SAC 算法訓練...
+```
+
+#### Stage 6 間接依賴關係
+**關鍵傳遞鏈**:
+```
+Stage 4 可連線衛星池
+  → Stage 5 3GPP 標準信號計算 (RSRP/RSRQ/SINR)
+    → Stage 6 3GPP NTN 事件檢測 (A4/A5/D2)
+    → Stage 6 ML 訓練數據生成 (狀態空間/獎勵函數)
+```
+
+**數據完整性要求**:
+- **A4 事件**: 需要 RSRP 精度 ±1dBm
+- **A5 事件**: 需要雙門檻 RSRP 比較
+- **D2 事件**: 需要精確距離測量 (±100m)
+- **ML 訓練**: 需要完整的信號品質指標組合
+
+### 🔄 數據完整性保證
+
+✅ **3GPP 標準合規**: 完全符合 3GPP TS 38.214 信號計算標準
+✅ **ITU-R 物理模型**: 使用 ITU-R P.618 完整大氣傳播模型
+✅ **高品質輸入**: 僅對 Stage 4 篩選的可連線衛星計算
+✅ **精確度保證**: RSRP ±1dBm, RSRQ ±0.5dB, SINR ±0.5dB
+✅ **事件檢測就緒**: 為 Stage 6 3GPP 事件提供完整信號指標
+
 ## 📊 標準化輸出格式
 
 ### ProcessingResult 結構
@@ -196,12 +458,19 @@ ProcessingResult(
         'stage_name': 'signal_quality_analysis',
         'signal_analysis': {
             'satellite_id_1': {
-                'signal_quality': {
-                    'rsrp_dbm': -85.2,
-                    'rsrq_db': -12.5,
-                    'rs_sinr_db': 15.3,
-                    'calculation_standard': '3GPP_TS_38.214'
-                },
+                'time_series': [  # ← 時間序列數組
+                    {
+                        'timestamp': '2025-09-27T08:00:00Z',
+                        'signal_quality': {
+                            'rsrp_dbm': -85.2,
+                            'rsrq_db': -12.5,
+                            'rs_sinr_db': 15.3,
+                            'calculation_standard': '3GPP_TS_38.214'
+                        },
+                        'is_connectable': True
+                    },
+                    # ... ~95-220 個時間點
+                ],
                 'physical_parameters': {
                     'path_loss_db': 165.2,
                     'atmospheric_loss_db': 2.1,

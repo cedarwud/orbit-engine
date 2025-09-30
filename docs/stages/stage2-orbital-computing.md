@@ -93,10 +93,15 @@ Stage 2: 軌道狀態傳播 (Skyfield 直接實現)
 
 ### ✅ **Stage 2 專屬職責**
 
-#### 1. **時間序列規劃**
+#### 1. **時間序列規劃與星座分離計算**
 - **目標時間窗口**: 2小時軌道傳播窗口 (基於星座軌道週期優化)
 - **時間步長**: 30秒間隔 (配置優化後)
-- **時間範圍**: 224個時間點 (OneWeb軌道週期: 112分鐘÷30秒)
+- **星座特定軌道週期** ⚠️ **重要**：
+  - **Starlink**: ~90-95分鐘軌道週期 (LEO 低軌 ~550km)
+  - **OneWeb**: ~109-115分鐘軌道週期 (LEO 高軌 ~1200km)
+- **時間範圍**: 動態計算
+  - Starlink: 191個時間點 (95分鐘 ÷ 30秒)
+  - OneWeb: 224個時間點 (112分鐘 ÷ 30秒)
 - **時間來源**: 100% 使用 Stage 1 提供的 epoch_datetime
 
 #### 2. **SGP4/SDP4 軌道傳播**
@@ -167,6 +172,114 @@ for satellite in stage1_output['satellites']:
     epoch_dt = datetime.fromisoformat(satellite['epoch_datetime'])
     # 基於此 epoch 時間進行 SGP4 時間序列計算
 ```
+
+## 🔄 數據流：上游依賴與下游使用
+
+### 📥 上游依賴 (Stage 1 → Stage 2)
+
+#### 從 Stage 1 接收的數據
+**必要輸入數據**:
+- ✅ `satellites[]` - 完整的衛星列表
+  - `satellite_id` - 衛星唯一標識符
+  - `name` - 衛星名稱 (用於星座識別)
+  - `norad_id` - NORAD 目錄編號
+  - `epoch_datetime` - **核心時間基準** (ISO 8601 格式)
+  - `tle_line1` - TLE 第一行 (69字符標準格式)
+  - `tle_line2` - TLE 第二行 (69字符標準格式)
+  - `constellation` - 星座歸屬 (starlink/oneweb)
+
+- ✅ `metadata.constellation_configs` - 星座配置元數據
+  - `orbital_period_range_minutes` - 軌道週期範圍 (用於時間窗口規劃)
+  - `typical_altitude_km` - 典型軌道高度 (參考值)
+
+**數據訪問範例**:
+```python
+from stages.stage1_orbital_calculation.stage1_main_processor import Stage1TLEDataProcessor
+
+# 執行 Stage 1
+stage1_processor = Stage1TLEDataProcessor(config)
+stage1_result = stage1_processor.execute()
+
+# Stage 2 訪問必要數據
+satellites = stage1_result.data['satellites']
+constellation_configs = stage1_result.data['metadata']['constellation_configs']
+
+for satellite in satellites:
+    # 獲取時間基準 (零重複解析)
+    epoch_dt = datetime.fromisoformat(satellite['epoch_datetime'])
+
+    # 獲取 TLE 數據
+    tle_line1 = satellite['tle_line1']
+    tle_line2 = satellite['tle_line2']
+
+    # 獲取星座配置
+    constellation = satellite['constellation']
+    orbital_period = constellation_configs[constellation]['orbital_period_range_minutes']
+
+    # 進行 SGP4 軌道傳播...
+```
+
+#### Stage 1 數據依賴關係
+- **🚨 CRITICAL**: `epoch_datetime` 是唯一的時間基準來源
+  - **禁止**: 重新解析 TLE 中的 epoch 欄位
+  - **必須**: 100% 使用 Stage 1 提供的 ISO 8601 格式時間
+- **星座分離**: `constellation` 欄位用於動態軌道週期計算
+  - Starlink: 90-95分鐘時間窗口
+  - OneWeb: 109-115分鐘時間窗口
+- **學術合規**: Stage 1 已完成 TLE 格式驗證和時間解析
+
+### 📤 下游使用 (Stage 2 → Stage 3/4)
+
+#### Stage 3: 座標轉換層使用的數據
+**使用的輸出**:
+- ✅ `orbital_states[satellite_id].time_series[]` - TEME 座標時間序列
+  - `timestamp` - 時間戳記 (UTC)
+  - `position_teme` - TEME 座標系統位置向量 [x, y, z] (km)
+  - `velocity_teme` - TEME 座標系統速度向量 [vx, vy, vz] (km/s)
+
+- ✅ `orbital_states[satellite_id].propagation_metadata` - 軌道傳播元數據
+  - `epoch_datetime` - 原始 epoch 時間 (傳遞自 Stage 1)
+  - `orbital_period_minutes` - 實際軌道週期
+  - `time_step_seconds` - 時間步長 (30秒)
+
+**Stage 3 數據流範例**:
+```python
+# Stage 3 處理器接收 Stage 2 輸出
+stage3_processor = Stage3CoordinateTransformProcessor(config)
+stage3_result = stage3_processor.execute(stage2_result.data)
+
+# Stage 3 訪問 TEME 座標
+for satellite_id, orbital_data in stage2_result.data['orbital_states'].items():
+    for time_point in orbital_data['time_series']:
+        # TEME 座標 (Stage 2 輸出)
+        position_teme = time_point['position_teme']  # [x, y, z] km
+        velocity_teme = time_point['velocity_teme']  # [vx, vy, vz] km/s
+        timestamp = time_point['timestamp']
+
+        # 進行 TEME → ITRF → WGS84 轉換...
+        wgs84_coords = skyfield_transform(position_teme, velocity_teme, timestamp)
+```
+
+#### Stage 4: 鏈路可行性層間接使用的數據
+**間接依賴** (透過 Stage 3):
+- Stage 2 提供的軌道週期資訊 → Stage 3 → Stage 4
+- Stage 2 的時間步長保證 → 影響 Stage 4 可見性分析的時間解析度
+- 星座分離計算結果 → 確保 Stage 4 能正確應用星座特定門檻
+
+**關鍵傳遞鏈**:
+```
+Stage 1 epoch_datetime
+  → Stage 2 SGP4 傳播 (TEME 座標)
+    → Stage 3 座標轉換 (WGS84)
+      → Stage 4 可見性分析 (仰角/距離)
+```
+
+### 🔄 數據完整性保證
+
+✅ **時間基準繼承**: Stage 1 epoch → Stage 2 時間序列 → Stage 3/4 分析
+✅ **座標系統標準**: TEME 標準輸出，符合 Skyfield/NASA JPL 規範
+✅ **星座感知傳遞**: 星座配置從 Stage 1 → Stage 2 → 後續階段
+✅ **學術合規**: 零重複解析，零自製算法，100% 專業庫實現
 
 ## 📊 標準化輸出格式
 

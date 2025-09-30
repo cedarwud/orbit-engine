@@ -128,18 +128,18 @@ def execute_stage1_unified() -> tuple:
     統一的 Stage 1 執行函數 (消除重複邏輯)
 
     Returns:
-        tuple: (success: bool, stage1_result: ProcessingResult, stage1_data: dict, stage1_processor: Stage1MainProcessor)
+        tuple: (success: bool, stage1_result: ProcessingResult, stage1_data: dict)
     """
     try:
         # 清理舊的輸出
         clean_stage_outputs(1)
 
         # 使用統一的重構版本 (舊版本已破壞，已移除)
-        from stages.stage1_orbital_calculation.stage1_main_processor import create_stage1_processor
-        stage1 = create_stage1_processor(
+        from stages.stage1_orbital_calculation.stage1_main_processor import create_stage1_refactored_processor
+        stage1 = create_stage1_refactored_processor(
             config={'sample_mode': False, 'sample_size': 500}
         )
-        print('✅ 使用 Stage1MainProcessor (唯一處理器，簡化版)')
+        print('✅ 使用重構版本: Stage1RefactoredProcessor (唯一可用版本)')
 
         # 執行 Stage 1
         stage1_result = stage1.execute(input_data=None)
@@ -149,22 +149,22 @@ def execute_stage1_unified() -> tuple:
             if stage1_result.status == ProcessingStatus.SUCCESS:
                 print(f'✅ Stage 1 完成: {len(stage1_result.data.get("satellites", []))} 顆衛星')
                 stage1_data = stage1_result.data
-                return True, stage1_result, stage1_data, stage1
+                return True, stage1_result, stage1_data
             else:
                 print(f'❌ Stage 1 執行失敗: {stage1_result.status}')
-                return False, stage1_result, {}, stage1
+                return False, stage1_result, {}
         else:
             # 不應該發生，但保留兼容性
             print(f'⚠️ Stage 1 返回意外格式: {type(stage1_result)}')
             if isinstance(stage1_result, dict) and stage1_result.get('satellites'):
                 print(f'✅ Stage 1 完成: {len(stage1_result.get("satellites", []))} 顆衛星')
-                return True, stage1_result, stage1_result, stage1
+                return True, stage1_result, stage1_result
             else:
-                return False, stage1_result, {}, stage1
+                return False, stage1_result, {}
 
     except Exception as e:
         print(f'❌ Stage 1 執行異常: {e}')
-        return False, None, {}, None
+        return False, None, {}
 
 
 def validate_stage_immediately(stage_processor, processing_results, stage_num, stage_name):
@@ -193,9 +193,8 @@ def validate_stage_immediately(stage_processor, processing_results, stage_num, s
             # 提取數據部分進行驗證
             data_for_validation = processing_results.data
 
-            # 使用重構後的驗證方法 (優先調用 run_validation_checks)
-            if stage_processor and hasattr(stage_processor, 'run_validation_checks'):
-                print(f"🔧 調用 run_validation_checks() 進行 5 項專用驗證")
+            # 使用重構後的驗證方法
+            if hasattr(stage_processor, 'run_validation_checks'):
                 validation_result = stage_processor.run_validation_checks(data_for_validation)
 
                 validation_status = validation_result.get('validation_status', 'unknown')
@@ -204,13 +203,12 @@ def validate_stage_immediately(stage_processor, processing_results, stage_num, s
 
                 if validation_status == 'passed' and overall_status == 'PASS':
                     print(f"✅ 階段{stage_num}驗證通過 (成功率: {success_rate:.1%})")
-                    return True, f"階段{stage_num}驗證成功 (5項專用驗證: {success_rate:.1%})"
+                    return True, f"階段{stage_num}驗證成功"
                 else:
                     print(f"❌ 階段{stage_num}驗證失敗: {validation_status}/{overall_status}")
                     return False, f"階段{stage_num}驗證失敗: {validation_status}/{overall_status}"
             else:
-                # 回退到快照品質檢查 (當處理器不可用時)
-                print(f"⚠️ 處理器不可用或無 run_validation_checks 方法，回退到快照品質檢查")
+                # 回退到快照品質檢查
                 quality_passed, quality_msg = check_validation_snapshot_quality(stage_num)
                 return quality_passed, quality_msg
 
@@ -267,68 +265,15 @@ def check_validation_snapshot_quality(stage_num):
                 interface_compliance = snapshot_data.get('interface_compliance', False)
 
                 # 修復虛假驗證: 檢查數據完整性而不是僅檢查 > 0
-                # 實際載入: Starlink(8389) + OneWeb(651) = 9040顆衛星
-                expected_total = 9040
+                # 期望值: Starlink(8390) + OneWeb(651) = 9041顆衛星
+                expected_total = 9041
                 min_acceptable = 8000  # 至少80%完整度
-
-                # 獲取 metadata 以供後續檢查使用
-                metadata = snapshot_data.get('metadata', {})
-
-                # ✅ P1: 防禦性檢查 - 確保不存在統一時間基準字段
-                # 依據: academic_standards_clarification.md Line 174-205
-                #       specification.md Line 104-116 (🚨 CRITICAL)
-                forbidden_time_fields = ['calculation_base_time', 'primary_epoch_time', 'unified_time_base']
-                for field in forbidden_time_fields:
-                    if field in metadata:
-                        return False, f"❌ Stage 1 學術標準違規: 檢測到禁止的統一時間基準字段 '{field}'"
-
-                # ✅ P1: 檢查 constellation_configs 存在性
-                constellation_configs = metadata.get('constellation_configs', {})
-                has_starlink_config = 'starlink' in constellation_configs
-                has_oneweb_config = 'oneweb' in constellation_configs
-
-                if not has_starlink_config or not has_oneweb_config:
-                    missing_constellations = []
-                    if not has_starlink_config:
-                        missing_constellations.append('starlink')
-                    if not has_oneweb_config:
-                        missing_constellations.append('oneweb')
-                    return False, f"❌ Stage 1 constellation_configs 缺失: {', '.join(missing_constellations)}"
-
-                # ✅ P2: 檢查 research_configuration 完整性
-                research_config = metadata.get('research_configuration', {})
-                observation_location = research_config.get('observation_location', {})
-
-                required_location_fields = ['name', 'latitude_deg', 'longitude_deg', 'altitude_m']
-                missing_fields = [field for field in required_location_fields if field not in observation_location]
-
-                if missing_fields:
-                    return False, f"❌ Stage 1 research_configuration.observation_location 缺失字段: {', '.join(missing_fields)}"
-
-                # 驗證 NTPU 觀測點數據
-                if observation_location.get('name') != 'NTPU':
-                    return False, f"❌ Stage 1 觀測點名稱錯誤: {observation_location.get('name')} (期望: NTPU)"
-
-                # ✅ P1: 抽樣檢查 epoch_datetime 獨立性（檢查前5顆衛星）
-                satellites = snapshot_data.get('satellites_sample', [])
-                if satellites:
-                    epoch_times = []
-                    for sat in satellites[:5]:
-                        epoch = sat.get('epoch_datetime')
-                        if epoch:
-                            epoch_times.append(epoch)
-
-                    # 檢查是否有多樣性（至少有2個不同的epoch時間）
-                    unique_epochs = len(set(epoch_times))
-                    if unique_epochs < 2 and len(epoch_times) >= 2:
-                        return False, f"❌ Stage 1 時間基準違規: 檢測到統一時間基準（{unique_epochs}個獨立epoch，應有多個）"
 
                 if satellite_count >= min_acceptable and next_stage_ready:
                     completeness = (satellite_count / expected_total * 100) if expected_total > 0 else 0
                     status_msg = f"Stage 1 數據完整性檢查通過: 載入{satellite_count}顆衛星 (完整度:{completeness:.1f}%)"
                     if is_refactored:
                         status_msg += " (重構版本)"
-                    status_msg += f" [constellation_configs✓, research_config✓, epoch獨立性✓]"
                     return True, status_msg
                 elif satellite_count > 0:
                     completeness = (satellite_count / expected_total * 100) if expected_total > 0 else 0
@@ -453,7 +398,7 @@ def run_all_stages_sequential(validation_level='STANDARD'):
         print('\\n📦 階段一：數據載入層 (重構版本)')
         print('-' * 60)
 
-        success, stage1_result, stage1_data, stage1_processor = execute_stage1_unified()
+        success, stage1_result, stage1_data = execute_stage1_unified()
 
         if not success or not stage1_data:
             print('❌ 階段一處理失敗')
@@ -468,9 +413,9 @@ def run_all_stages_sequential(validation_level='STANDARD'):
             print(f'📊 處理時間: {stage1_result.metrics.duration_seconds:.3f}秒')
             print(f'📊 處理衛星: {len(stage1_data.get("satellites", []))}顆')
 
-        # 🔍 階段一立即驗證 (傳入實際處理器以調用 run_validation_checks)
+        # 🔍 階段一立即驗證
         validation_success, validation_msg = validate_stage_immediately(
-            stage1_processor, stage_results['stage1'], 1, "數據載入層"
+            None, stage_results['stage1'], 1, "數據載入層"
         )
 
         if not validation_success:
@@ -587,15 +532,15 @@ def run_all_stages_sequential(validation_level='STANDARD'):
 
         print(f'✅ 階段三完成並驗證通過: {validation_msg}')
 
-        # 階段四：鏈路可行性評估層
-        print('\\n🎯 階段四：鏈路可行性評估層')
+        # 階段四：優化決策層
+        print('\\n🎯 階段四：優化決策層')
         print('-' * 60)
 
         # 清理舊的輸出
         clean_stage_outputs(4)
 
-        from stages.stage4_link_feasibility.stage4_link_feasibility_processor import Stage4LinkFeasibilityProcessor
-        stage4 = Stage4LinkFeasibilityProcessor()
+        from stages.stage4_optimization.stage4_optimization_processor import Stage4OptimizationProcessor
+        stage4 = Stage4OptimizationProcessor()
 
         # 處理Stage 3到Stage 4的數據傳遞
         if isinstance(stage_results['stage3'], ProcessingResult):
@@ -611,7 +556,7 @@ def run_all_stages_sequential(validation_level='STANDARD'):
 
         # 階段四驗證
         validation_success, validation_msg = validate_stage_immediately(
-            stage4, stage_results['stage4'], 4, "鏈路可行性評估層"
+            stage4, stage_results['stage4'], 4, "優化決策層"
         )
 
         if not validation_success:
@@ -620,15 +565,15 @@ def run_all_stages_sequential(validation_level='STANDARD'):
 
         print(f'✅ 階段四完成並驗證通過: {validation_msg}')
 
-        # 階段五：信號品質分析層
-        print('\\n📊 階段五：信號品質分析層')
+        # 階段五：數據整合層
+        print('\\n📊 階段五：數據整合層')
         print('-' * 60)
 
         # 清理舊的輸出
         clean_stage_outputs(5)
 
-        from stages.stage5_signal_analysis.stage5_signal_analysis_processor import Stage5SignalAnalysisProcessor
-        stage5 = Stage5SignalAnalysisProcessor()
+        from stages.stage5_data_integration.data_integration_processor import DataIntegrationProcessor
+        stage5 = DataIntegrationProcessor()
 
         # 處理Stage 4到Stage 5的數據傳遞
         # 嘗試使用增強版Stage 4輸出（包含速度數據）
@@ -652,7 +597,7 @@ def run_all_stages_sequential(validation_level='STANDARD'):
 
         # 階段五驗證
         validation_success, validation_msg = validate_stage_immediately(
-            stage5, stage_results['stage5'], 5, "信號品質分析層"
+            stage5, stage_results['stage5'], 5, "數據整合層"
         )
 
         if not validation_success:
@@ -661,15 +606,15 @@ def run_all_stages_sequential(validation_level='STANDARD'):
 
         print(f'✅ 階段五完成並驗證通過: {validation_msg}')
 
-        # 階段六：研究數據生成層
-        print('\\n💾 階段六：研究數據生成層')
+        # 階段六：持久化與API層
+        print('\\n💾 階段六：持久化與API層')
         print('-' * 60)
 
         # 清理舊的輸出
         clean_stage_outputs(6)
 
-        from stages.stage6_research_optimization.stage6_research_optimization_processor import Stage6ResearchOptimizationProcessor
-        stage6 = Stage6ResearchOptimizationProcessor()
+        from stages.stage6_persistence_api.stage6_main_processor import Stage6PersistenceProcessor
+        stage6 = Stage6PersistenceProcessor()
 
         # 處理Stage 5到Stage 6的數據傳遞
         if isinstance(stage_results['stage5'], ProcessingResult):
@@ -685,7 +630,7 @@ def run_all_stages_sequential(validation_level='STANDARD'):
 
         # 階段六驗證
         validation_success, validation_msg = validate_stage_immediately(
-            stage6, stage_results['stage6'], 6, "研究數據生成層"
+            stage6, stage_results['stage6'], 6, "持久化與API層"
         )
 
         if not validation_success:
@@ -697,13 +642,14 @@ def run_all_stages_sequential(validation_level='STANDARD'):
         print('\\n🎉 六階段處理全部完成!')
         print('=' * 80)
 
-        # Stage 1 重構版本特性摘要（總是顯示，因為舊版本已移除）
-        print('\\n🔧 Stage 1 重構版本特性:')
-        print('   ✅ 100% BaseStageProcessor 接口合規')
-        print('   ✅ 標準化 ProcessingResult 輸出')
-        print('   ✅ 5項專用驗證檢查')
-        print('   ✅ 完整的快照保存功能')
-        print('   ✅ 向後兼容性保證')
+        # 重構版本摘要
+        if use_refactored:
+            print('🔧 Stage 1 重構版本特性:')
+            print('   ✅ 100% BaseStageProcessor 接口合規')
+            print('   ✅ 標準化 ProcessingResult 輸出')
+            print('   ✅ 5項專用驗證檢查')
+            print('   ✅ 完整的快照保存功能')
+            print('   ✅ 向後兼容性保證')
 
         return True, 6, "全部六階段成功完成"
 
@@ -753,15 +699,15 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
             print('-' * 60)
 
             # 🔧 使用統一的 Stage 1 執行函數 (消除重複邏輯)
-            success, result, stage1_data, stage1_processor = execute_stage1_unified()
+            success, result, stage1_data = execute_stage1_unified()
 
             if not success:
                 return False, 1, "Stage 1 執行失敗"
 
-            # 執行驗證 (傳入實際處理器以調用 run_validation_checks)
+            # 執行驗證
             if isinstance(result, ProcessingResult):
                 validation_success, validation_msg = validate_stage_immediately(
-                    stage1_processor, result, 1, "數據載入層"
+                    None, result, 1, "數據載入層"
                 )
 
                 if validation_success:
@@ -867,7 +813,7 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
                 return False, 3, f"Stage 3 驗證失敗: {validation_msg}"
 
         elif target_stage == 4:
-            print('\\n🎯 階段四：鏈路可行性評估層')
+            print('\\n🎯 階段四：優化決策層')
             print('-' * 60)
 
             clean_stage_outputs(4)
@@ -878,8 +824,8 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
                 print('❌ 找不到Stage 3輸出文件，請先執行Stage 3')
                 return False, 4, "需要Stage 3輸出文件"
 
-            from stages.stage4_link_feasibility.stage4_link_feasibility_processor import Stage4LinkFeasibilityProcessor
-            processor = Stage4LinkFeasibilityProcessor()
+            from stages.stage4_optimization.stage4_optimization_processor import Stage4OptimizationProcessor
+            processor = Stage4OptimizationProcessor()
 
             # 載入前階段數據
             import json
@@ -892,7 +838,7 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
                 return False, 4, "Stage 4 執行失敗"
 
             validation_success, validation_msg = validate_stage_immediately(
-                processor, result, 4, "鏈路可行性評估層"
+                processor, result, 4, "優化決策層"
             )
 
             if validation_success:
@@ -901,7 +847,7 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
                 return False, 4, f"Stage 4 驗證失敗: {validation_msg}"
 
         elif target_stage == 5:
-            print('\\n📊 階段五：信號品質分析層')
+            print('\\n📊 階段五：數據整合層')
             print('-' * 60)
 
             clean_stage_outputs(5)
@@ -912,8 +858,8 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
                 print('❌ 找不到Stage 4輸出文件，請先執行Stage 4')
                 return False, 5, "需要Stage 4輸出文件"
 
-            from stages.stage5_signal_analysis.stage5_signal_analysis_processor import Stage5SignalAnalysisProcessor
-            processor = Stage5SignalAnalysisProcessor()
+            from stages.stage5_data_integration.data_integration_processor import DataIntegrationProcessor
+            processor = DataIntegrationProcessor()
 
             # 載入前階段數據
             import json
@@ -926,7 +872,7 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
                 return False, 5, "Stage 5 執行失敗"
 
             validation_success, validation_msg = validate_stage_immediately(
-                processor, result, 5, "信號品質分析層"
+                processor, result, 5, "數據整合層"
             )
 
             if validation_success:
@@ -935,7 +881,7 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
                 return False, 5, f"Stage 5 驗證失敗: {validation_msg}"
 
         elif target_stage == 6:
-            print('\\n💾 階段六：研究數據生成層')
+            print('\\n💾 階段六：持久化與API層')
             print('-' * 60)
 
             clean_stage_outputs(6)
@@ -946,8 +892,8 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
                 print('❌ 找不到Stage 5輸出文件，請先執行Stage 5')
                 return False, 6, "需要Stage 5輸出文件"
 
-            from stages.stage6_research_optimization.stage6_research_optimization_processor import Stage6ResearchOptimizationProcessor
-            processor = Stage6ResearchOptimizationProcessor()
+            from stages.stage6_persistence_api.stage6_main_processor import Stage6PersistenceProcessor
+            processor = Stage6PersistenceProcessor()
 
             # 載入前階段數據
             import json
@@ -960,7 +906,7 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
                 return False, 6, "Stage 6 執行失敗"
 
             validation_success, validation_msg = validate_stage_immediately(
-                processor, result, 6, "研究數據生成層"
+                processor, result, 6, "持久化與API層"
             )
 
             if validation_success:
@@ -1048,12 +994,12 @@ def main():
     print(f'   最終狀態: {"✅ 成功" if success else "❌ 失敗"}')
     print(f'   訊息: {message}')
 
-    # Stage 1 重構版本優勢（總是顯示，因為舊版本已移除）
-    print('\\n🎯 Stage 1 重構版本優勢:')
-    print('   📦 100% BaseStageProcessor 合規')
-    print('   📦 標準化 ProcessingResult 輸出格式')
-    print('   📦 5項專用驗證檢查')
-    print('   📦 完美的向後兼容性')
+    if os.environ.get('USE_REFACTORED_STAGE1') == 'true':
+        print('\\n🎯 重構版本優勢:')
+        print('   📦 Stage 1: 100% BaseStageProcessor 合規')
+        print('   📦 標準化: ProcessingResult 輸出格式')
+        print('   📦 驗證: 5項專用驗證檢查')
+        print('   📦 兼容性: 完美的向後兼容')
 
     print('\\n🚀 Stage 2 v3.0 軌道狀態傳播特性 (統一邏輯):')
     print('   🎯 唯一: Stage2OrbitalPropagationProcessor (v3.0 統一標準)')
