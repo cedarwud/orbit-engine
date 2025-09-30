@@ -127,6 +127,10 @@ class Stage1MainProcessor(BaseStageProcessor):
             )
 
             logger.info(f"✅ Stage 1 Main Processor 處理完成 ({duration:.2f}s)")
+
+            # 保存輸出文件供後續階段使用
+            self._save_output_file(processing_result)
+
             return processing_result
 
         except Exception as e:
@@ -420,6 +424,41 @@ class Stage1MainProcessor(BaseStageProcessor):
 
         except Exception as e:
             self.logger.error(f"❌ 快照保存失敗: {e}")
+            return False
+
+    def _save_output_file(self, processing_result: ProcessingResult) -> bool:
+        """
+        保存 Stage 1 輸出文件供後續階段使用
+
+        Args:
+            processing_result: ProcessingResult 對象
+
+        Returns:
+            bool: 保存成功返回 True
+        """
+        try:
+            # 確保輸出目錄存在
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+
+            # 生成時間戳文件名
+            timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+            output_filename = f'stage1_output_{timestamp}.json'
+            output_path = self.output_dir / output_filename
+
+            # 準備輸出數據（直接使用 processing_result.data）
+            output_data = processing_result.data
+
+            # 保存為 JSON 文件
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(output_data, f, indent=2, ensure_ascii=False, default=str)
+
+            self.logger.info(f"💾 Stage 1 輸出文件已保存: {output_path}")
+            self.logger.info(f"📊 包含 {len(output_data.get('satellites', []))} 顆衛星數據")
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"❌ 輸出文件保存失敗: {e}")
             return False
 
     def _verify_tle_checksums(self, satellites: List[Dict]) -> Dict[str, Any]:

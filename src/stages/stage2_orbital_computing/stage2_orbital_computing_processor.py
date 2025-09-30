@@ -107,13 +107,24 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
                     file_config = yaml.safe_load(f)
                 self.config.update(file_config)
 
-            # 時間序列配置 - 支持動態計算
-            time_config = self.config.get('time_series', {})
-            self.time_interval_seconds = time_config.get('interval_seconds', 30)
-            self.time_window_hours = time_config.get('window_hours', 2)
-            self.dynamic_calculation = time_config.get('dynamic_calculation', True)
-            self.min_positions = time_config.get('min_positions', 60)
-            self.coverage_cycles = time_config.get('coverage_cycles', 1.0)
+            # 時間序列配置 - 必須從配置文件讀取
+            time_config = self.config.get('time_series')
+            if not time_config:
+                raise RuntimeError("配置文件缺少必要的 time_series 設定")
+
+            self.time_interval_seconds = time_config.get('interval_seconds')
+            if self.time_interval_seconds is None:
+                raise RuntimeError("配置文件缺少 time_series.interval_seconds")
+
+            # dynamic_calculation 必須為 True
+            self.dynamic_calculation = time_config.get('dynamic_calculation')
+            if self.dynamic_calculation is None:
+                raise RuntimeError("配置文件缺少 time_series.dynamic_calculation")
+            if not self.dynamic_calculation:
+                raise RuntimeError("Stage 2 要求 dynamic_calculation=True (Grade A 標準)")
+
+            self.min_positions = time_config.get('min_positions', 60)  # 合理的最小值
+            self.coverage_cycles = time_config.get('coverage_cycles', 1.0)  # 合理的預設值
 
             # SGP4 配置
             sgp4_config = self.config.get('sgp4_propagation', {})
@@ -122,21 +133,14 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
 
             logger.info(f"✅ Stage 2 配置加載完成:")
             logger.info(f"   時間間隔: {self.time_interval_seconds}秒")
-            logger.info(f"   時間窗口: {self.time_window_hours}小時")
-            logger.info(f"   動態計算: {self.dynamic_calculation}")
-            logger.info(f"   覆蓋週期: {self.coverage_cycles}x")
+            logger.info(f"   動態計算: {self.dynamic_calculation} (Grade A 要求)")
+            logger.info(f"   覆蓋週期: {self.coverage_cycles}x 軌道週期")
+            logger.info(f"   最小點數: {self.min_positions}")
             logger.info(f"   座標系統: {self.coordinate_system}")
 
         except Exception as e:
-            logger.warning(f"配置文件加載失敗，使用預設值: {e}")
-            # 安全預設值 - Grade A 標準
-            self.time_interval_seconds = 30
-            self.time_window_hours = 2
-            self.dynamic_calculation = True
-            self.min_positions = 60
-            self.coverage_cycles = 1.0
-            self.coordinate_system = 'TEME'
-            self.propagation_method = 'SGP4'
+            logger.error(f"❌ 配置文件加載失敗: {e}")
+            raise RuntimeError(f"Stage 2 配置文件載入失敗，無法繼續: {e}")
 
     def process(self, input_data: Any) -> ProcessingResult:
         """
@@ -381,17 +385,17 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
 
                         logger.debug(f"動態計算: 軌道週期={orbital_period:.1f}min, 覆蓋={coverage_duration:.1f}min, 點數={max_positions}")
                     else:
-                        # 回退到配置值
-                        max_positions = int((self.time_window_hours * 60) / interval_minutes)
-                        max_positions = max(max_positions, self.min_positions)
+                        # TLE Line 2 不存在，無法進行軌道計算
+                        logger.error(f"衛星 {satellite_id} 缺少 TLE Line 2，無法計算軌道週期")
+                        raise ValueError(f"衛星 {satellite_id} TLE 數據不完整")
                 except Exception as calc_error:
-                    logger.warning(f"動態計算失敗，使用預設窗口: {calc_error}")
-                    max_positions = int((self.time_window_hours * 60) / interval_minutes)
-                    max_positions = max(max_positions, self.min_positions)
+                    # 動態計算失敗，拋出錯誤而非回退
+                    logger.error(f"衛星 {satellite_id} 動態軌道週期計算失敗: {calc_error}")
+                    raise RuntimeError(f"動態軌道週期計算失敗: {calc_error}")
             else:
-                # 使用固定時間窗口
-                max_positions = int((self.time_window_hours * 60) / interval_minutes)
-                max_positions = max(max_positions, self.min_positions)
+                # 動態計算被禁用，拋出錯誤（不允許使用固定窗口）
+                logger.error("動態計算已禁用 (dynamic_calculation=False)，這違反 Grade A 標準")
+                raise RuntimeError("Stage 2 要求啟用動態計算 (dynamic_calculation=True)，不允許使用固定時間窗口")
 
             # 生成時間序列
             time_series = []
@@ -549,7 +553,8 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
                 'coordinate_system': self.coordinate_system,
                 'propagation_method': self.propagation_method,
                 'time_interval_seconds': self.time_interval_seconds,
-                'time_window_hours': self.time_window_hours,
+                'dynamic_calculation_enabled': self.dynamic_calculation,
+                'coverage_cycles': self.coverage_cycles,
                 'architecture_version': 'v3.0',
                 'processing_grade': 'A',
                 'stage_concept': 'orbital_state_propagation',  # 新概念標記

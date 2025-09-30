@@ -59,6 +59,11 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
             # 執行主要處理流程
             result = self._process_link_feasibility(wgs84_data)
 
+            # 保存結果到文件
+            output_file = self.save_results(result)
+            self.logger.info(f"💾 Stage 4 結果已保存至: {output_file}")
+            result['output_file'] = output_file
+
             self.logger.info("✅ Stage 4: 鏈路可行性評估完成")
             return result
 
@@ -331,6 +336,29 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
             validation_result['errors'].append(f"驗證過程異常: {str(e)}")
 
         return validation_result
+
+
+    def save_results(self, results: Dict[str, Any]) -> str:
+        """保存 Stage 4 處理結果到文件"""
+        try:
+            output_dir = Path("data/outputs/stage4")
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            output_file = output_dir / f"link_feasibility_output_{timestamp}.json"
+
+            # 導入 json
+            import json
+
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(results, f, ensure_ascii=False, indent=2, default=str)
+
+            self.logger.info(f"💾 Stage 4 輸出已保存: {output_file}")
+            return str(output_file)
+
+        except Exception as e:
+            self.logger.error(f"❌ Stage 4 保存失敗: {e}")
+            raise
 
 
 def create_stage4_processor(config: Optional[Dict[str, Any]] = None) -> Stage4LinkFeasibilityProcessor:
