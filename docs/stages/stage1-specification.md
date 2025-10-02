@@ -125,9 +125,90 @@ processor = create_stage1_refactored_processor(config)  # 舊名稱
 - 可見性分析和篩選
 - 仰角、方位角、距離計算
 
+## 🏗️ 驗證架構設計
+
+### 兩層驗證機制
+
+本系統採用**兩層驗證架構**，確保數據品質的同時避免重複邏輯：
+
+#### **Layer 1: 處理器內部驗證** (生產驗證)
+- **負責模組**: `Stage1MainProcessor.run_validation_checks()`
+- **執行時機**: 處理器執行完成後立即執行
+- **驗證內容**: 詳細的 5 項專用驗證檢查
+- **輸出結果**:
+  ```json
+  {
+    "checks_performed": 5,
+    "checks_passed": 5,
+    "check_details": {
+      "tle_format_validation": {"passed": true, "details": {...}},
+      "tle_checksum_verification": {"passed": true, "details": {...}},
+      "data_completeness_check": {"passed": true, "details": {...}},
+      "time_base_establishment": {"passed": true, "details": {...}},
+      "satellite_data_structure": {"passed": true, "details": {...}}
+    }
+  }
+  ```
+- **保存位置**: `data/validation_snapshots/stage1_validation.json`
+
+#### **Layer 2: 腳本品質檢查** (快照驗證)
+- **負責模組**: `check_validation_snapshot_quality()` in `run_six_stages_with_validation.py`
+- **執行時機**: 讀取驗證快照文件後
+- **設計原則**:
+  - ✅ **信任 Layer 1 的詳細驗證結果**
+  - ✅ 檢查 Layer 1 是否執行完整 (`checks_performed == 5`)
+  - ✅ 檢查 Layer 1 是否通過 (`checks_passed >= 4`)
+  - ✅ 額外的架構合規性檢查（constellation_configs、research_configuration 等）
+- **不應重複**: Layer 1 的詳細檢查邏輯
+
+### 驗證流程圖
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Stage 1 執行                                               │
+├─────────────────────────────────────────────────────────────┤
+│  1. processor.execute() → ProcessingResult                  │
+│     ↓                                                       │
+│  2. processor.run_validation_checks() (Layer 1)             │
+│     → 執行 5 項詳細驗證                                      │
+│     → 生成 validation_checks 對象                           │
+│     ↓                                                       │
+│  3. processor.save_validation_snapshot()                    │
+│     → 保存到 stage1_validation.json                         │
+│     ↓                                                       │
+│  4. check_validation_snapshot_quality() (Layer 2)           │
+│     → 讀取驗證快照                                           │
+│     → 檢查 checks_performed/checks_passed                   │
+│     → 架構合規性檢查                                         │
+│     ↓                                                       │
+│  5. 驗證通過 → 進入 Stage 2                                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 為什麼不在 Layer 2 重複檢查？
+
+**設計哲學**：
+- **單一職責**: Layer 1 負責詳細驗證，Layer 2 負責合理性檢查
+- **避免重複**: 詳細驗證邏輯已在處理器內部實現，無需在腳本中重複
+- **信任機制**: Layer 2 信任 Layer 1 的專業驗證結果
+- **效率考量**: 避免重複讀取大量數據進行二次驗證
+
+**Layer 2 的真正價值**：
+- 確保 Layer 1 確實執行了驗證（防止忘記調用）
+- 架構層面的防禦性檢查（如禁止統一時間基準）
+- 數據摘要的合理性檢查（如衛星數量、處理時間）
+
+**Layer 2 的品質閾值說明**：
+Layer 2 使用的品質閾值（如95%完整度、20顆異常檢測樣本）屬於**工程判斷**，不受「零容忍項目」約束：
+- ✅ **95%完整度**: 允許正常的數據更新延遲（非估算數據值）
+- ✅ **20顆樣本**: 異常檢測（檢測系統性錯誤），非統計推論（非生成模擬數據）
+- ✅ **5個unique epochs**: 基於真實數據分析（非估算時間基準）
+
+這些閾值的目的是**檢測程式錯誤**（如所有TLE都是空字串），而非**估算物理參數**（如估算衛星軌道高度）。
+
 ## 🔍 驗證框架
 
-### 5項專用驗證檢查
+### 5項專用驗證檢查 (Layer 1 處理器內部)
 1. **tle_format_validation** - TLE 格式嚴格驗證
    - 69字符長度檢查
    - 行號正確性 ('1', '2')
@@ -182,11 +263,27 @@ ProcessingResult(
                 'total_individual_epochs': 9040
             },
 
-            # 時間品質度量
+            # 時間品質度量 (詳細度量指標)
             'time_quality_metrics': {
-                'epoch_precision_microseconds': True,
-                'utc_timezone_compliance': True,
-                'iso8601_format': True
+                'total_epochs': 9041,
+                'time_span_days': 5,
+                'time_span_hours': 125.97,
+                'epoch_density': 1808.2,
+                'temporal_distribution_quality': 95.0,
+                'time_continuity_score': 90.0,
+                'precision_assessment': {
+                    'precision_level': 'good',
+                    'calculated_accuracy_seconds': 600.0,
+                    'overall_score': 84.5,
+                    'precision_grade': 'B+',
+                    'detailed_metrics': {
+                        'temporal_resolution': 100.0,
+                        'epoch_distribution_quality': 99.98,
+                        'time_continuity_score': 60.0,
+                        'precision_consistency': 65.0
+                    }
+                },
+                'overall_time_quality_score': 90.85
             },
 
             # 處理統計
@@ -205,20 +302,34 @@ ProcessingResult(
             # ✅ 星座配置 (Stage 2/4 需求) - 2025-09-30 新增
             'constellation_configs': {
                 'starlink': {
+                    # 軌道特性
                     'orbital_period_range_minutes': [90, 95],
                     'typical_altitude_km': 550,
                     'service_elevation_threshold_deg': 5.0,
                     'expected_visible_satellites': [10, 15],
                     'candidate_pool_size': [200, 500],
-                    'orbital_characteristics': 'LEO_low'
+                    'orbital_characteristics': 'LEO_low',
+                    # 信號傳輸參數（Stage 5 需求）
+                    'tx_power_dbw': 40.0,              # 發射功率 (dBW)
+                    'tx_antenna_gain_db': 35.0,        # 發射天線增益 (dB)
+                    'frequency_ghz': 12.5,             # 工作頻率 (GHz)
+                    'rx_antenna_diameter_m': 1.2,      # 接收天線直徑 (m)
+                    'rx_antenna_efficiency': 0.65      # 接收天線效率 (0-1)
                 },
                 'oneweb': {
+                    # 軌道特性
                     'orbital_period_range_minutes': [109, 115],
                     'typical_altitude_km': 1200,
                     'service_elevation_threshold_deg': 10.0,
                     'expected_visible_satellites': [3, 6],
                     'candidate_pool_size': [50, 100],
-                    'orbital_characteristics': 'LEO_high'
+                    'orbital_characteristics': 'LEO_high',
+                    # 信號傳輸參數（Stage 5 需求）
+                    'tx_power_dbw': 38.0,              # 發射功率 (dBW)
+                    'tx_antenna_gain_db': 33.0,        # 發射天線增益 (dB)
+                    'frequency_ghz': 12.75,            # 工作頻率 (GHz)
+                    'rx_antenna_diameter_m': 1.0,      # 接收天線直徑 (m)
+                    'rx_antenna_efficiency': 0.60      # 接收天線效率 (0-1)
                 }
             },
 
@@ -241,10 +352,20 @@ ProcessingResult(
                 ]
             },
 
-            # ✅ 星座統計 - 2025-09-30 新增
+            # ✅ 星座統計 - 2025-09-30 新增 (包含額外元數據)
             'constellation_statistics': {
-                'starlink': {'count': 8389},
-                'oneweb': {'count': 651}
+                'starlink': {
+                    'count': 8389,                    # 主字段
+                    'total_loaded': 8389,             # 向後兼容
+                    'data_source': 'Space-Track.org TLE',
+                    'latest_epoch': '2025-09-30T09:25:53.732928+00:00'
+                },
+                'oneweb': {
+                    'count': 651,                     # 主字段
+                    'total_loaded': 651,              # 向後兼容
+                    'data_source': 'Space-Track.org TLE',
+                    'latest_epoch': '2025-09-30T08:15:22.123456+00:00'
+                }
             },
 
             # 重構標記
@@ -329,11 +450,13 @@ observer = wgs84.latlon(
 - ✅ `metadata.constellation_configs[].service_elevation_threshold_deg` - 星座特定仰角門檻
   - Starlink: 5.0° (LEO_low 特性)
   - OneWeb: 10.0° (LEO_high 特性)
-- ✅ `metadata.constellation_configs[].typical_altitude_km` - 鏈路預算計算
+  - 實際使用位置: `stage4_link_feasibility_processor.py:168`
 - ✅ `metadata.constellation_configs[].expected_visible_satellites` - 候選池規劃
+  - 實際使用位置: `pool_optimizer.py:493`
 
 **數據流範例**:
 ```python
+# stage4_link_feasibility_processor.py:165-171
 constellation_config = stage1_result.metadata['constellation_configs']['starlink']
 elevation_threshold = constellation_config['service_elevation_threshold_deg']  # 5.0°
 
@@ -346,25 +469,32 @@ elif satellite['constellation'] == 'oneweb':
 
 #### Stage 5: 信號品質分析層
 **使用的數據**:
-- ✅ 間接使用 `metadata.constellation_configs` - 星座特定配置影響信號模型
-  - `typical_altitude_km` - 用於路徑損耗計算基準
-  - `service_elevation_threshold_deg` - 影響大氣衰減模型選擇
-- Stage 5 主要依賴 Stage 4 的可連線衛星池，Stage 1 配置透過前階段傳遞
+- ✅ `metadata.constellation_configs[].tx_power_dbw` - 衛星發射功率
+  - 實際使用位置: `stage5_signal_analysis_processor.py:467`
+- ✅ `metadata.constellation_configs[].tx_antenna_gain_db` - 衛星天線增益
+  - 實際使用位置: `stage5_signal_analysis_processor.py:468`
+- ✅ `metadata.constellation_configs[].frequency_ghz` - 工作頻率
+  - 實際使用位置: `stage5_signal_analysis_processor.py:469`
+- ✅ `metadata.constellation_configs[].rx_antenna_diameter_m` - 接收天線直徑
+- ✅ `metadata.constellation_configs[].rx_antenna_efficiency` - 接收天線效率
 
 **數據流範例**:
 ```python
-# Stage 5 透過 Stage 4 間接使用 Stage 1 配置
-constellation_configs = stage1_result.metadata['constellation_configs']
+# stage5_signal_analysis_processor.py:455-510
+constellation_config = stage1_result.metadata['constellation_configs']['starlink']
 
-for satellite in connectable_satellites:
-    constellation = satellite['constellation']
-    typical_altitude = constellation_configs[constellation]['typical_altitude_km']
+# 嚴格模式：必須從 Stage 1 獲取射頻參數（禁止硬編碼回退）
+tx_power_dbw = constellation_config['tx_power_dbw']        # 40.0 dBW
+tx_gain_db = constellation_config['tx_antenna_gain_db']    # 35.0 dB
+frequency_ghz = constellation_config['frequency_ghz']      # 12.5 GHz
 
-    # 基於星座特定高度優化信號計算
-    if typical_altitude < 600:  # Starlink LEO_low
-        atmospheric_model = 'low_orbit_optimized'
-    elif typical_altitude > 1000:  # OneWeb LEO_high
-        atmospheric_model = 'mid_orbit_standard'
+# 用於 Friis 公式計算信號強度
+system_config = {
+    'frequency_ghz': frequency_ghz,
+    'tx_power_dbm': tx_power_dbw + 30,  # dBW to dBm
+    'tx_gain_db': tx_gain_db,
+    'rx_gain_db': rx_gain_db
+}
 ```
 
 #### Stage 6: 研究數據生成與優化層
@@ -607,13 +737,50 @@ with open('data/validation_snapshots/stage1_validation.json', 'r') as f:
 - **✅ 精度保證**: 微秒級時間精度
 - **✅ 獨立時間**: 每筆記錄保持獨立的 epoch_datetime
 
-### 零容忍項目
-- **❌ 簡化算法**: 絕不允許回退到簡化實現
-- **❌ 估算值**: 禁止使用任何估算或假設值
-- **❌ 模擬數據**: 必須使用真實 TLE 數據
-- **❌ 當前時間**: 禁止使用系統當前時間作為計算基準
+### 零容忍項目（數據處理與算法層面）
+
+**⚠️ 適用範圍說明**：
+以下規則僅適用於**數據處理和算法實現**，不適用於**品質控制和驗證邏輯**。
+
+**數據處理層面（零容忍）**：
+- **❌ 簡化算法**: 絕不允許回退到簡化實現（如用簡化公式替代SGP4）
+- **❌ 估算數據值**: 禁止估算或假設物理數據（如估算衛星軌道高度、epoch時間）
+- **❌ 模擬數據**: 必須使用真實 TLE 數據（禁止用 `np.random()` 生成假數據）
+- **❌ 當前時間**: 禁止使用系統當前時間作為計算基準（必須用TLE的epoch）
 - **❌ 統一時間基準**: 禁止為不同 epoch 的 TLE 創建統一時間基準
 - **❌ 文件時間**: 禁止使用文件日期替代記錄內部 epoch 時間
+
+**數據溯源要求（Data Provenance）**：
+- **⚠️ 系統參數**: 用於物理計算的參數（如射頻規格）必須有可驗證來源
+  - ✅ 允許：基於公開文獻的研究估計值（需明確標註不確定性和引用）
+  - ❌ 禁止：無來源說明的「典型值」或「經驗值」
+  - 📚 參考：`docs/data_sources/RF_PARAMETERS.md` - 射頻參數完整引用
+- **✅ 配置參數**: 不直接用於計算的配置值（如 `typical_altitude_km`）
+  - 允許：作為文檔說明或規劃參考
+  - 要求：若被計算使用，需升級為「系統參數」並提供引用
+
+**品質控制層面（允許工程判斷）**：
+- **✅ 品質閾值**: 允許設定品質標準（如95%數據完整度要求）
+- **✅ 驗證樣本**: 允許使用合理樣本進行異常檢測（如20顆樣本檢測系統性錯誤）
+- **✅ 超時設定**: 允許設定合理的超時時間（如API請求30秒超時）
+- **✅ 錯誤容忍**: 允許定義可接受的錯誤率（如允許5%數據更新延遲）
+
+**關鍵區別**：
+```python
+# ❌ 禁止：估算數據值（違反零容忍）
+satellite_altitude = 550  # 估算 Starlink 高度用於計算
+epoch_time = datetime.now()  # 用當前時間替代 TLE epoch
+
+# ⚠️ 需要引用：系統參數用於計算（見 RF_PARAMETERS.md）
+tx_power_dbw = 40.0  # 需標註：基於FCC DA-24-222推算，±3dB不確定性
+
+# ✅ 允許：品質閾值（工程判斷）
+min_data_completeness = 0.95  # 95% 數據完整度標準
+sample_size = 20  # 異常檢測樣本量
+
+# ✅ 允許：配置文檔（未用於計算）
+typical_altitude_km = 550  # 僅作為星座描述，非計算輸入
+```
 
 ---
 

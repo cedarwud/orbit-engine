@@ -44,6 +44,9 @@ class TimeReferenceManager:
         self.time_utils = TimeUtils()
         self.system_constants = OrbitEngineConstantsManager()
 
+        # 🎓 離線歷史分析：記錄處理開始時間作為固定參考點（確保可重現性）
+        self.processing_start_time = datetime.now(timezone.utc)
+
         # 時間精度配置 (基於學術標準)
         from shared.constants.tle_constants import TLEConstants
         from shared.constants.academic_standards import AcademicValidationStandards
@@ -219,27 +222,22 @@ class TimeReferenceManager:
             # - 大氣阻力變化的不可預測性
             # - 太陽輻射壓力變化
 
-            # 根據學術標準，TLE的實際時間精度約為1分鐘級別
+            # 🎓 學術標準：TLE時間精度由格式決定，不隨數據年齡變化
+            # 根據 TLE 格式規範，epoch 時間精度約為 1 分鐘級別
+            # 參考：Vallado & Crawford (2008), Hoots & Roehrich (1980)
             precision_seconds = TLEConstants.TLE_REALISTIC_TIME_PRECISION_SECONDS
 
-            # 3. 基於實際軌道力學原理的精度計算
-            current_time = datetime.now(timezone.utc)
-            data_age_days = (current_time - epoch_datetime).days
-
-            # 基於軌道力學理論，預測誤差隨時間非線性增長
-            # 使用實際物理模型而非估計值
-            from shared.constants.physics_constants import PhysicsConstants
-            orbit_uncertainty_growth = PhysicsConstants.calculate_orbit_prediction_error_growth(data_age_days)
-
-            # 使用實際計算的精度，而非預設因子
-            precision_seconds = max(precision_seconds, orbit_uncertainty_growth)
+            # ⚠️ 注意：軌道「位置誤差」會隨時間增長（~1-3 km/day）
+            # 但 TLE epoch 的「時間精度」是固定的，由 TLE 格式決定
+            # 這兩者不應混淆
 
             # 時間品質評估
             quality_grade = self._assess_time_quality(epoch_datetime, precision_seconds)
 
             # 基於學術標準評估數據新鮮度對品質的影響
-            current_time = datetime.now(timezone.utc)
-            age_days = (current_time - epoch_datetime).days
+            # 🎓 離線歷史分析：使用處理開始時間作為參考點（確保可重現性）
+            reference_time = self.processing_start_time
+            age_days = (reference_time - epoch_datetime).days
 
             from shared.constants.academic_standards import assess_tle_data_quality
             freshness_assessment = assess_tle_data_quality(age_days)
@@ -475,8 +473,9 @@ class TimeReferenceManager:
             precision_metrics['temporal_resolution'] = 75.0  # 單個epoch的默認分數
         
         # 2. Epoch分佈品質分析
-        current_time = datetime.now(timezone.utc)
-        epoch_ages = [(current_time - epoch).total_seconds() for epoch in epoch_times]
+        # 🎓 離線歷史分析：使用處理開始時間作為參考點（確保可重現性）
+        reference_time = self.processing_start_time
+        epoch_ages = [(reference_time - epoch).total_seconds() for epoch in epoch_times]
         
         # 🎓 學術級新鮮度評分 - 針對實際TLE數據可用性調整
         freshness_scores = []
@@ -628,11 +627,12 @@ class TimeReferenceManager:
             return {'total_valid_epochs': 0, 'quality_grade': 'F'}
 
         epoch_qualities = []
-        current_time = datetime.now(timezone.utc)
+        # 🎓 離線歷史分析：使用處理開始時間作為參考點（確保可重現性）
+        reference_time = self.processing_start_time
 
         for epoch_dt, data in valid_epochs:
             # 基於個別epoch的品質評估
-            age_days = (current_time - epoch_dt).days
+            age_days = (reference_time - epoch_dt).days
 
             if age_days <= 3:
                 quality_score = 95

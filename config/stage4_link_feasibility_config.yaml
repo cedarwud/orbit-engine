@@ -1,0 +1,95 @@
+# Stage 4 鏈路可行性評估配置
+# 符合計劃 A + 計劃 B 學術標準要求
+
+# 學術標準模式 (計劃 B)
+# 預先執行，精度優先，不考慮速度
+use_iau_standards: true  # 使用 Skyfield IAU 標準計算器 (研究級精度)
+validate_epochs: true     # 啟用 Epoch 時間基準驗證 (Vallado 標準)
+
+# 階段 4.2 時空錯置池規劃優化 (NEW)
+enable_pool_optimization: true  # 啟用時空錯置池規劃優化
+
+# 鏈路預算約束 (計劃 A)
+link_budget:
+  min_distance_km: 200      # 最小距離約束 (200 km)
+  max_distance_km: 2000     # 最大距離約束 (2000 km)
+  reason: "符合 Kodheli et al. (2021) 衛星通信鏈路預算建議"
+
+# 星座特定門檻 (計劃 A)
+constellation_thresholds:
+  starlink:
+    elevation_deg: 5.0      # Starlink 最小仰角
+    reason: "Starlink 官方規格"
+  oneweb:
+    elevation_deg: 10.0     # OneWeb 最小仰角
+    reason: "OneWeb 官方規格"
+  default:
+    elevation_deg: 10.0     # 其他星座預設值
+
+# 可見性計算方法
+visibility:
+  method: "skyfield_iau"    # skyfield_iau (IAU 標準) 或 manual_geometric (快速)
+  coordinate_system: "WGS84 Ellipsoid"
+  precision_level: "Research Grade"
+  nutation_model: "IAU 2000A/2006"
+  polar_motion_correction: true
+  atmospheric_refraction: true  # Skyfield 自動處理
+
+# NTPU 地面站座標
+ground_station:
+  name: "National Taipei University of Technology"
+  latitude_deg: 24.9441
+  longitude_deg: 121.3714
+  altitude_m: 200.0
+
+# Epoch 驗證設置 (計劃 B)
+epoch_validation:
+  enabled: true
+  min_diversity_ratio: 0.5       # 要求至少 50% epoch 多樣性
+  min_diversity_count: 3         # 或至少 3 個不同 epoch
+  max_time_diff_days: 7          # 時間戳記與 epoch 最大差距 (天)
+  min_distribution_hours: 24     # epoch 分布最小時間跨度 (小時)
+  forbidden_fields:              # 禁止的統一時間基準字段
+    - "calculation_base_time"
+    - "primary_epoch_time"
+    - "unified_time_base"
+
+# 輸出格式 (計劃 A)
+output:
+  format: "complete_time_series_with_optimization"  # 完整時間序列 + 階段 4.2 優化
+  version: "plan_a_b_integrated_v1.0"  # 計劃 A+B 整合版本 (含階段 4.2)
+  include_time_series: true       # 包含完整時間序列
+  include_service_window: true    # 包含服務窗口摘要
+  include_is_connectable: true    # 包含每個時間點的 is_connectable 標記
+  include_link_quality: true      # 包含鏈路品質估計
+  include_epoch_report: true      # 包含 epoch 驗證報告
+  include_optimization_metrics: true  # 包含階段 4.2 優化指標 (NEW)
+
+# 日誌設置
+logging:
+  level: "INFO"
+  enable_progress: true           # 顯示處理進度
+  enable_epoch_validation: true   # 顯示 epoch 驗證詳情
+  enable_iau_standard_info: true  # 顯示 IAU 標準信息
+
+# 性能設置
+performance:
+  # 預先執行模式，不需要優化速度
+  batch_size: null                # 無批次限制
+  parallel_processing: false      # 精度優先，不使用並行處理
+  memory_limit_mb: null           # 無記憶體限制
+
+# 學術合規聲明
+academic_compliance:
+  iau_standards: true
+  vallado_epoch_requirements: true
+  kodheli_link_budget: true
+  research_grade_precision: true
+  peer_review_ready: true
+
+# 引用文獻
+references:
+  - "Vallado, D. A. (2013). Fundamentals of Astrodynamics and Applications (4th ed.). Microcosm Press."
+  - "Rhodes, B. (2019). Skyfield: High precision research-grade positions for planets and Earth satellites."
+  - "Kodheli, O., et al. (2021). Satellite Communications in the New Space Era. IEEE Communications Surveys & Tutorials."
+  - "IAU SOFA (2021). IAU Standards of Fundamental Astronomy."

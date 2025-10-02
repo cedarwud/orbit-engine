@@ -1,0 +1,48 @@
+# Academic Research Code Compliance Rules
+# 學術研究代碼合規規則
+#
+# 用途: 強制要求所有硬編碼數值、門檻、參數有明確來源標記
+# 使用: pylint --rcfile=.pylintrc-academic src/
+
+[MASTER]
+# 自定義檢查器
+load-plugins=pylint.extensions.check_elif,
+             pylint.extensions.bad_builtin
+
+[MESSAGES CONTROL]
+# 啟用所有警告
+enable=all
+
+# 自定義錯誤訊息
+# (需要配合自定義 linter 插件)
+
+[ACADEMIC-COMPLIANCE]
+# 學術合規性檢查規則
+
+# 規則 1: 所有硬編碼數值必須有來源標記
+# 違規示例: altitude_m = 200.0
+# 合規示例: altitude_m = 36.0  # SOURCE: GPS Survey 2025-10-02
+require-source-tag=yes
+source-tag-pattern=# SOURCE:|# 來源:|# 依據:
+
+# 規則 2: 所有算法必須有學術引用
+# 違規示例: contribution += 10
+# 合規示例: # 算法依據: Chvátal (1979)
+require-algorithm-citation=yes
+algorithm-keywords=algorithm,策略,權重,門檻,threshold
+
+# 規則 3: 禁止的關鍵字
+# 違規關鍵字列表
+forbidden-keywords=估計,假設,約,大約,roughly,estimated,assumed,approximately
+
+# 規則 4: 數值範圍檢查
+# 所有 magic number 必須有註釋
+max-magic-numbers=0
+
+[FORMAT]
+# 強制註釋格式
+# 每個常數定義必須有說明
+
+[COMMENTS]
+# 最小註釋率
+min-comment-ratio=30

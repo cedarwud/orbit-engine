@@ -1,13 +1,25 @@
 #!/usr/bin/env python3
 """
-真正的SGP4軌道計算引擎
-實現@docs要求的192點時間序列軌道預測和軌道相位分析
+⚠️ DEPRECATED: SGP4OrbitalEngine - 已棄用
+
+此模組已被 src/stages/stage2_orbital_computing/sgp4_calculator.py 中的
+SGP4Calculator 取代，後者提供更簡潔、高效的實現。
+
+棄用日期: 2025-10-01
+移除計劃: 2025-12-01 (給予 2 個月過渡期)
+
+建議遷移:
+  舊: from shared.engines.sgp4_orbital_engine import SGP4OrbitalEngine
+  新: from stages.stage2_orbital_computing.sgp4_calculator import SGP4Calculator
+
+保留原因: 向後兼容性，供舊測試和模組使用
 """
 
 import os
 import json
 import logging
 import math
+import warnings
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, List, Any, Tuple, Optional
@@ -20,6 +32,14 @@ from sgp4.api import Satrec, jday
 from sgp4 import omm
 
 logger = logging.getLogger(__name__)
+
+# 發出棄用警告
+warnings.warn(
+    "SGP4OrbitalEngine is deprecated and will be removed in version 2.0. "
+    "Please use SGP4Calculator from stages.stage2_orbital_computing.sgp4_calculator instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class SGP4Position:

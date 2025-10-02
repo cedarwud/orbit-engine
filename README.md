@@ -4,6 +4,34 @@
 
 > 📚 **學術研究專用** - 此系統專為學術論文撰寫與研究而設計，符合 NASA JPL、IAU 和 3GPP 學術標準。
 
+---
+
+## ⚠️ 開發者必讀：學術合規性標準
+
+**本專案遵循嚴格的學術研究標準**，確保所有代碼符合同行審查要求。
+
+### 📚 全局標準指南
+
+**📖 [學術合規性標準指南](docs/ACADEMIC_STANDARDS.md)** - 適用所有六個階段
+
+**核心原則**：
+- ❌ 禁止：估計值、假設參數、模擬數據、簡化算法
+- ✅ 要求：實測數據、學術引用、官方來源、完整實現
+
+### 🔍 需要檢查時
+
+```bash
+# 檢查整個專案
+make compliance
+
+# 檢查特定階段
+python tools/academic_compliance_checker.py src/stages/stage4_link_feasibility/
+```
+
+詳見：[學術合規性標準指南](docs/ACADEMIC_STANDARDS.md)
+
+---
+
 ## 🎯 研究目標
 
 - **LEO衛星動態池規劃** - 支援時空錯位理論研究

@@ -30,8 +30,10 @@ from .validation_engine import (
 )
 
 from .stage2_validator import Stage2VisibilityValidator
-from .stage3_validator import Stage3SignalValidator
 from .stage4_validator import Stage4TimeseriesValidator
+
+# Stage3Validator 已移除（重構中）
+# from .stage3_validator import Stage3SignalValidator
 
 # 學術標準驗證框架（新增）
 try:
@@ -55,7 +57,7 @@ __all__ = [
     'FailureCriteria',
     'ValidationRegistry',
     'Stage2VisibilityValidator',
-    'Stage3SignalValidator',
+    # 'Stage3SignalValidator',  # 已移除（重構中）
     'Stage4TimeseriesValidator'
 ]
 

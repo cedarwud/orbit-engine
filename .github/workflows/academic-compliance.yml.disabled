@@ -1,0 +1,78 @@
+# GitHub Actions - 學術合規性自動檢查
+#
+# 觸發條件:
+#   - 每次 push
+#   - 每次 pull request
+#
+# 功能:
+#   - 自動運行學術合規性檢查
+#   - 發現 CRITICAL 違規時阻止合併
+#   - 生成詳細報告
+
+name: Academic Compliance Check
+
+on:
+  push:
+    branches: [ main, develop, stage-* ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  compliance-check:
+    name: 學術合規性檢查
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout 代碼
+        uses: actions/checkout@v3
+
+      - name: 設置 Python 環境
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 安裝依賴
+        run: |
+          pip install pytest pylint
+
+      - name: 運行學術合規性檢查
+        id: compliance
+        run: |
+          python tools/academic_compliance_checker.py src/ | tee compliance_report.txt
+          exit_code=${PIPESTATUS[0]}
+          echo "exit_code=$exit_code" >> $GITHUB_OUTPUT
+          exit $exit_code
+        continue-on-error: true
+
+      - name: 上傳檢查報告
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: compliance-report
+          path: compliance_report.txt
+
+      - name: 評論 PR (如果有違規)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('compliance_report.txt', 'utf8');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## ❌ 學術合規性檢查失敗\n\n\`\`\`\n${report}\n\`\`\`\n\n🔧 請參考 [學術合規性開發指南](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/docs/ACADEMIC_COMPLIANCE_GUIDE.md) 修正違規項目。`
+            });
+
+      - name: 檢查結果
+        if: steps.compliance.outputs.exit_code != '0'
+        run: |
+          echo "::error::發現學術合規性違規，請修正後再提交"
+          exit 1
+
+      - name: 成功通知
+        if: success()
+        run: |
+          echo "✅ 學術合規性檢查通過"

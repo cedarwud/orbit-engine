@@ -1,0 +1,51 @@
+{
+  "source": "IAU_2012_Resolution_B2",
+  "official_document": "IAU 2012 (XXVIII) General Assembly Resolution B2",
+  "reference_url": "https://www.iau.org/static/resolutions/IAU2012_English.pdf",
+  "last_updated": "2012-08-31T00:00:00Z",
+  "note": "IAU 天文常數是精確定義值，類似於 SI 基本常數定義",
+
+  "astronomical_unit": {
+    "symbol": "au",
+    "value_meters": 149597870700,
+    "value_kilometers": 149597870.7,
+    "precision": "exact_definition",
+    "resolution": "IAU 2012 Resolution B2",
+    "description": "天文單位精確定義值 (2012年起生效)",
+    "note": "此為精確定義，非測量值，1 au = 149597870700 m (exact)"
+  },
+
+  "speed_of_light": {
+    "symbol": "c",
+    "value_m_s": 299792458,
+    "precision": "exact_definition",
+    "source": "SI definition",
+    "description": "真空光速精確定義值"
+  },
+
+  "gaussian_gravitational_constant": {
+    "symbol": "k",
+    "value": 0.01720209895,
+    "unit": "au^(3/2) d^(-1) M_sun^(-1/2)",
+    "precision": "exact_definition",
+    "description": "高斯重力常數"
+  },
+
+  "solar_mass_parameter": {
+    "symbol": "GM_sun",
+    "value": 1.32712440018e20,
+    "unit": "m³/s²",
+    "uncertainty": "8e9",
+    "source": "IAU 2015",
+    "description": "太陽質量參數"
+  },
+
+  "earth_mass_parameter": {
+    "symbol": "GM_earth",
+    "value": 3.986004418e14,
+    "unit": "m³/s²",
+    "uncertainty": "8e5",
+    "source": "IERS Conventions 2010",
+    "description": "地球質量參數 (與 WGS84 一致)"
+  }
+}

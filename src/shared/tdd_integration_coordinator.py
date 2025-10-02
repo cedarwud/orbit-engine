@@ -3,9 +3,26 @@
 🧪 TDD整合協調器 - TDD Integration Coordinator
 ==================================================
 
-Purpose: 
+⚠️ REFACTORING NOTICE - 重構通知
+=================================
+此文件已被重構為模組化結構 (2025-10-02)
+原始 2,737 行代碼已拆分至 src/shared/tdd_integration/ 模組
+
+新模組結構：
+- tdd_integration/tdd_types.py - 類型定義
+- tdd_integration/tdd_config_manager.py - 配置管理
+- tdd_integration/tdd_test_executor.py - 測試執行
+- tdd_integration/tdd_results_integrator.py - 結果整合
+- tdd_integration/tdd_failure_handler.py - 故障處理
+- tdd_integration/tdd_coordinator.py - 主協調器
+
+此文件保留用於向後兼容性，實際實現已遷移至新模組。
+
+=====================================
+
+Purpose:
     核心TDD整合協調器，負責管理所有階段的TDD測試自動觸發機制
-    
+
 Key Features:
     - 後置鉤子模式：驗證快照生成後自動觸發TDD測試
     - 多環境支援：開發/測試/生產環境不同執行策略
@@ -20,8 +37,13 @@ Architecture:
     └── FailureHandler (故障處理器)
 
 Author: Claude Code
-Version: 5.0.0 (Phase 5.0 TDD整合自動化)
+Version: 6.0.0 (Phase 6.0 - 模組化重構)
+Refactored: 2025-10-02
 """
+
+# ==============================================
+# STANDARD IMPORTS - 標準導入
+# ==============================================
 
 import asyncio
 import json
@@ -33,9 +55,12 @@ from pathlib import Path
 from dataclasses import dataclass
 from enum import Enum
 
-# ValidationSnapshotBase import removed - module not needed
-import logging
 
+# ==============================================
+# ORIGINAL IMPLEMENTATION - 原始實現
+# ==============================================
+# 保留原始實現以支持 TestExecutionEngine
+# 新模組導入會在文件末尾覆蓋部分定義
 
 class ExecutionMode(Enum):
     """TDD執行模式"""
@@ -2693,46 +2718,89 @@ def reset_tdd_coordinator():
     _tdd_coordinator_instance = None
 
 
+# ==============================================
+# REFACTORED MODULE IMPORTS - 重構模組導入
+# ==============================================
+# 優先使用重構後的模組實現
+# 如果導入成功，會覆蓋上述原始定義（TestExecutionEngine除外）
+
+try:
+    from .tdd_integration import (
+        ExecutionMode as _RefactoredExecutionMode,
+        TestType as _RefactoredTestType,
+        TDDTestResult as _RefactoredTDDTestResult,
+        TDDIntegrationResults as _RefactoredTDDIntegrationResults,
+        TDDConfigurationManager as _RefactoredTDDConfigurationManager,
+        ResultsIntegrator as _RefactoredResultsIntegrator,
+        FailureHandler as _RefactoredFailureHandler,
+        TDDIntegrationCoordinator as _RefactoredTDDIntegrationCoordinator,
+        get_tdd_coordinator as _refactored_get_tdd_coordinator,
+        reset_tdd_coordinator as _refactored_reset_tdd_coordinator
+    )
+
+    # 覆蓋原始定義為重構版本
+    ExecutionMode = _RefactoredExecutionMode
+    TestType = _RefactoredTestType
+    TDDTestResult = _RefactoredTDDTestResult
+    TDDIntegrationResults = _RefactoredTDDIntegrationResults
+    TDDConfigurationManager = _RefactoredTDDConfigurationManager
+    ResultsIntegrator = _RefactoredResultsIntegrator
+    FailureHandler = _RefactoredFailureHandler
+    TDDIntegrationCoordinator = _RefactoredTDDIntegrationCoordinator
+    get_tdd_coordinator = _refactored_get_tdd_coordinator
+    reset_tdd_coordinator = _refactored_reset_tdd_coordinator
+
+    logging.getLogger(__name__).info("成功載入重構後的TDD模組")
+
+except ImportError as e:
+    # 重構模組不可用，使用原始實現
+    logging.getLogger(__name__).debug(f"使用原始TDD實現 (重構模組未找到): {e}")
+
+
+# ==============================================
+# TEST CASES - 測試用例
+# ==============================================
+
 if __name__ == "__main__":
     # 測試用例
     import asyncio
-    
+
     async def test_tdd_coordinator():
         coordinator = get_tdd_coordinator()
-        
+
         # 模擬階段結果
         test_stage_results = {
             "total_satellites": 8837,
             "processed_satellites": 8837,
             "execution_time": 3.5
         }
-        
+
         # 模擬驗證快照
         test_validation_snapshot = {
             "stage": "stage1",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "validation": {"passed": True}
         }
-        
+
         # 執行TDD測試
         results = await coordinator.execute_post_hook_tests(
-            "stage1", 
-            test_stage_results, 
+            "stage1",
+            test_stage_results,
             test_validation_snapshot
         )
-        
+
         print(f"TDD整合測試結果:")
         print(f"  階段: {results.stage}")
         print(f"  品質分數: {results.overall_quality_score:.2f}")
         print(f"  執行時間: {results.total_execution_time_ms}ms")
         print(f"  測試類型: {list(results.test_results.keys())}")
-        
+
         # 增強驗證快照
         enhanced_snapshot = coordinator.enhance_validation_snapshot(
             test_validation_snapshot, results
         )
-        
+
         print(f"\n增強驗證快照包含TDD結果: {enhanced_snapshot.get('tdd_integration', {}).get('enabled', False)}")
-    
+
     # 運行測試
     asyncio.run(test_tdd_coordinator())

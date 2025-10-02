@@ -19,14 +19,16 @@
 ### 📚 專業標準文檔
 
 #### 學術標準與合規
-- **[學術標準澄清](academic_standards_clarification.md)** - Grade A標準定義
-- **[學術數據標準](academic_data_standards.md)** - 數據品質要求
+- **[學術合規性標準指南](ACADEMIC_STANDARDS.md)** - 全局學術標準規範 ⭐⭐⭐
+- **[代碼註釋範本](CODE_COMMENT_TEMPLATES.md)** - 標準化註釋規範
+- **[失誤分析與防護](WHY_I_MISSED_ISSUES.md)** - 學術合規經驗教訓
 - **[距離計算驗證](distance_calculation_validation.md)** - 計算精度標準
+- **[池概念澄清](POOL_CONCEPT_CLARIFICATION.md)** - 動態衛星池概念說明
 
 #### 技術標準規範
 - **[衛星換手標準](satellite_handover_standards.md)** - 3GPP NTN標準實現
 - **[軌道週期分析標準](orbital_period_analysis_standards.md)** - 軌道分析標準
-- **[數據處理流程](data_processing_flow.md)** - 系統數據流設計
+- **[文檔同步指南](DOCUMENTATION_SYNC_GUIDE.md)** - 防止文檔與代碼脫鉤
 
 ### 🔧 技術規格
 - **[3GPP技術規格](ts.md)** - 3GPP TS 38.331標準實現
@@ -56,7 +58,8 @@
 ## 📂 文檔歷史歸檔
 
 ### 歷史文檔位置
-- **[歷史歸檔區](archives/README.md)** - v2.0文檔和廢棄文檔
+- **[重構文檔歸檔](archives/refactoring_completed_2025-09/README.md)** - Stage 4/6 重構過程文檔 (已完成)
+- **[審計報告歸檔](archives/audits_2025-10/README.md)** - 2025-10-02 學術合規性審計報告
 - **注意**: 歷史文檔僅供參考，請勿用於開發！
 
 ## ⚠️ 開發者重要提醒
@@ -74,11 +77,22 @@
 ### 🔍 快速查找
 - **概念問題**: `stages/STAGES_OVERVIEW.md`
 - **實現細節**: 對應階段的詳細規格文檔
-- **標準合規**: `academic_standards_clarification.md`
+- **標準合規**: `ACADEMIC_STANDARDS.md`
 - **技術標準**: 對應的專業標準文檔
+- **開發工具**: `../tools/` - 學術合規檢查器等工具
 
 ---
 
 **文檔版本**: v3.0
-**最後更新**: 2025-09-28
+**最後更新**: 2025-10-02 (文檔整理完成)
 **維護狀態**: ✅ 當前版本，積極維護
+
+## 📋 最近更新
+
+### 2025-10-02 - 文檔整理
+- ✅ 移除重複的學術標準文件 (已整合至 `ACADEMIC_STANDARDS.md`)
+- ✅ 合併重複的架構文檔 (`data_processing_flow.md` → `stages/STAGES_OVERVIEW.md`)
+- ✅ 歸檔 Stage 4/6 重構文檔 (重構已於 2025-09-30 完成)
+- ✅ 歸檔學術合規性審計報告 (問題已全部修復)
+- ✅ 更新文檔索引，移除已歸檔文件引用
+- ✅ 整理結果: 根目錄減少 11 個文件，docs/ 減少 3 個文件

@@ -1,9 +1,35 @@
 """
-Physics Calculator for Stage 3 Signal Analysis
+Physics Calculator for Stage 5 Signal Analysis
 
-Implements accurate physics-based calculations for signal propagation
-according to Stage 3 documentation requirements.
+⚠️⚠️⚠️ DEPRECATED - 請勿使用此模組 ⚠️⚠️⚠️
+
+❌ 違反 Grade A 學術標準:
+1. 氧氣吸收使用簡化版本（12條譜線，標準要求44條）
+2. 水蒸氣吸收使用簡化版本（28條譜線，標準要求35條）
+3. 多處硬編碼係數缺乏學術引用
+
+✅ 請使用以下替代模組:
+- 大氣衰減: itur_p676_atmospheric_model.py (完整ITU-R P.676-13實現)
+- 都卜勒計算: doppler_calculator.py (使用Stage 2實際速度)
+- 自由空間損耗: 直接使用Friis公式 (20*log10(d) + 20*log10(f) + 92.45)
+
+依據: docs/ACADEMIC_STANDARDS.md Line 234-244
+
+Deprecated since: 2025-10-02
+Will be removed in: v2.0.0
 """
+
+import warnings
+
+# 發出棄用警告
+warnings.warn(
+    "physics_calculator.py 已被標記為 DEPRECATED。\n"
+    "原因: 使用簡化算法（12+28條譜線），違反Grade A標準。\n"
+    "請使用 itur_p676_atmospheric_model.py（完整44+35條譜線實現）。\n"
+    "參考: docs/ACADEMIC_STANDARDS.md",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 import math
 import logging

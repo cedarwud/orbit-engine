@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Stage 3 信號分析驗證器
+Stage 5 信號分析驗證器
 
 移除虛假驗證，建立真實的業務邏輯驗證：
 - RSRP 值範圍驗證 (-40dBm 到 -120dBm)
@@ -9,7 +9,7 @@ Stage 3 信號分析驗證器
 - 0 顆衛星處理 → FAILURE
 
 作者: Claude & Human
-版本: v1.0 - 真實驗證系統
+版本: v1.1 - 真實驗證系統 (修正命名錯誤: Stage3→Stage5)
 """
 
 import logging
@@ -18,14 +18,14 @@ from .validation_engine import BaseValidator, ValidationResult, CheckResult, Val
 
 logger = logging.getLogger(__name__)
 
-class Stage3SignalValidator(BaseValidator):
-    """Stage 3 信號分析專用驗證器"""
+class Stage5SignalValidator(BaseValidator):
+    """Stage 5 信號分析專用驗證器"""
 
     def __init__(self):
-        super().__init__("stage3_signal_analysis")
+        super().__init__("stage5_signal_analysis")
 
     def validate(self, input_data: Dict[str, Any], output_data: Dict[str, Any]) -> ValidationResult:
-        """執行 Stage 3 驗證邏輯"""
+        """執行 Stage 5 驗證邏輯"""
         result = ValidationResult()
 
         # 1. 信號品質計算驗證

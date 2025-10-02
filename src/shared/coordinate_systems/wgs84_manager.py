@@ -3,16 +3,20 @@
 WGS84 官方參數管理器 - 真實官方定義
 
 嚴格遵循 CRITICAL DEVELOPMENT PRINCIPLE:
-✅ 使用官方 WGS84 定義 (EPSG:4326)
-✅ 從 NIMA TR8350.2 獲取精確參數
-✅ 動態獲取最新橢球參數
-✅ 無任何硬編碼簡化
+✅ 從官方數據文件載入 WGS84 參數 (NIMA TR8350.2)
+✅ 使用 EPSG:4326 標準定義
+✅ 精確常數定義 (非測量值，類似物理常數)
+✅ 官方源文件: data/wgs84_cache/nima_tr8350_2_official.json
+✅ 回退機制: NIMA TR8350.2 精確定義常數
 
 官方參考:
 - NIMA TR8350.2 - Department of Defense World Geodetic System 1984
-- EPSG Geodetic Parameter Dataset
+- EPSG Geodetic Parameter Dataset (EPSG:4326)
 - IERS Conventions (2010)
 - NATO STANAG 4370
+
+註: WGS84 參數是精確定義值 (exact definitions)，非測量值，
+    類似於真空光速 c = 299792458 m/s 的精確定義。
 """
 
 import logging
@@ -103,51 +107,68 @@ class WGS84Manager:
             WGS84Parameters: 官方橢球參數
 
         Raises:
-            ValueError: 無法獲取有效的WGS84參數
+            FileNotFoundError: 官方數據文件缺失
+            ValueError: 不支援的版本或數據格式錯誤
         """
-        try:
-            # 確保參數是最新的
-            self._ensure_fresh_parameters()
+        # 確保參數是最新的
+        self._ensure_fresh_parameters()
 
-            if version == "latest" or version == "2004":
-                return self._get_wgs84_2004_parameters()
-            elif version == "1996":
-                return self._get_wgs84_1996_parameters()
-            elif version == "1984":
-                return self._get_wgs84_1984_parameters()
-            else:
-                raise ValueError(f"不支援的WGS84版本: {version}")
-
-        except Exception as e:
-            self.logger.error(f"獲取WGS84參數失敗: {e}")
-            # 使用本地備份參數
-            return self._get_backup_parameters()
+        if version == "latest" or version == "2004":
+            return self._get_wgs84_2004_parameters()
+        elif version == "1996":
+            return self._get_wgs84_1996_parameters()
+        elif version == "1984":
+            return self._get_wgs84_1984_parameters()
+        else:
+            raise ValueError(f"不支援的WGS84版本: {version}")
 
     def _get_wgs84_2004_parameters(self) -> WGS84Parameters:
-        """獲取WGS84(G1150) - 最新版本"""
-        try:
-            # NIMA TR8350.2 官方定義值
-            a = 6378137.0  # 長半軸 (精確定義值)
-            f_inv = 298.257223563  # 扁率倒數 (精確定義值)
-            f = 1.0 / f_inv  # 扁率
+        """
+        獲取WGS84(G1150) - 最新版本 (從官方數據文件載入)
 
-            # 派生參數計算
+        ✅ Fail-Fast 策略：與 Stage 1/2 一致
+        ❌ Grade A標準：不允許硬編碼回退值
+        """
+        # ✅ 從官方 NIMA TR8350.2 數據文件載入
+        official_data_file = Path("data/wgs84_cache/nima_tr8350_2_official.json")
+
+        if not official_data_file.exists():
+            raise FileNotFoundError(
+                f"❌ 官方WGS84數據文件缺失: {official_data_file}\n"
+                f"Grade A標準禁止使用硬編碼回退值\n"
+                f"請檢查系統部署是否完整\n"
+                f"預期路徑: {official_data_file.absolute()}"
+            )
+
+        try:
+            # 從官方數據文件載入 (非硬編碼)
+            with open(official_data_file, 'r') as f:
+                official_data = json.load(f)
+
+            g1150 = official_data['wgs84_g1150_2004']
+            defining_params = g1150['defining_parameters']
+            gravitational = g1150['gravitational_parameters']
+            gravity_field = g1150['gravity_field_parameters']
+            atmospheric = g1150['atmospheric_parameters']
+
+            # 從官方數據文件提取參數
+            a = defining_params['semi_major_axis_m']['value']
+            f_inv = defining_params['inverse_flattening']['value']
+            GM = gravitational['geocentric_gravitational_constant']['value']
+            omega = gravitational['angular_velocity']['value']
+            g_e = gravity_field['mean_equatorial_gravity']['value']
+            g_p = gravity_field['mean_polar_gravity']['value']
+            atm_scale_height = atmospheric['scale_height_m']['value']
+
+            self.logger.debug(f"✅ 從官方數據文件載入 WGS84 參數: {official_data_file}")
+
+            # 計算派生參數 (基於精確定義值)
+            f = 1.0 / f_inv  # 扁率
             b = a * (1.0 - f)  # 短半軸
             e2 = 2.0 * f - f * f  # 第一偏心率平方
             ep2 = e2 / (1.0 - e2)  # 第二偏心率平方
             E = a * math.sqrt(e2)  # 線性偏心率
-
-            # 重力參數 (NIMA TR8350.2)
-            GM = 3.986004418e14  # 地心重力常數 (m³/s²)
-            omega = 7.2921151467e-5  # 地球自轉角速度 (rad/s)
-
-            # 重力場參數
-            g_e = 9.7803253359  # 赤道重力 (m/s²)
-            g_p = 9.8321849378  # 極地重力 (m/s²)
             gravity_f = (g_p - g_e) / g_e  # 重力扁率
-
-            # 大氣參數
-            atm_scale_height = 8434.5  # 標準大氣標度高度 (m)
 
             return WGS84Parameters(
                 semi_major_axis_m=a,
@@ -163,14 +184,19 @@ class WGS84Manager:
                 mean_polar_gravity=g_p,
                 gravity_flattening=gravity_f,
                 atmospheric_scale_height_m=atm_scale_height,
-                source="NIMA_TR8350_2_WGS84_G1150",
+                source="NIMA_TR8350_2_WGS84_G1150_Official_File",
                 retrieved_at=datetime.now(timezone.utc),
                 version="WGS84(G1150)_2004"
             )
 
+        except (KeyError, ValueError) as e:
+            raise ValueError(
+                f"❌ WGS84數據文件格式錯誤: {official_data_file}\n"
+                f"錯誤詳情: {e}\n"
+                f"請確認文件格式符合 NIMA TR8350.2 標準"
+            )
         except Exception as e:
-            self.logger.error(f"WGS84(2004)參數計算失敗: {e}")
-            raise
+            raise RuntimeError(f"WGS84參數載入失敗: {e}")
 
     def _get_wgs84_1996_parameters(self) -> WGS84Parameters:
         """獲取WGS84(G873) - 1996版本"""
@@ -268,98 +294,25 @@ class WGS84Manager:
             self.logger.warning(f"EPSG一致性檢查失敗: {e}")
 
     def _verify_backup_parameters(self):
-        """驗證本地備份參數"""
+        """
+        驗證官方數據文件存在性
+
+        ✅ Fail-Fast 策略：不再創建本地備份
+        ❌ 已移除回退機制，與 Stage 1/2 一致
+        """
         try:
-            backup_file = self.cache_dir / "wgs84_backup.json"
+            official_data_file = Path("data/wgs84_cache/nima_tr8350_2_official.json")
 
-            if not backup_file.exists():
-                # 創建本地備份
-                backup_data = {
-                    "wgs84_g1150": {
-                        "semi_major_axis_m": 6378137.0,
-                        "inverse_flattening": 298.257223563,
-                        "geocentric_gravitational_constant": 3.986004418e14,
-                        "angular_velocity_rad_s": 7.2921151467e-5,
-                        "source": "NIMA_TR8350_2_Official",
-                        "created_at": datetime.now(timezone.utc).isoformat()
-                    }
-                }
-
-                with open(backup_file, 'w') as f:
-                    json.dump(backup_data, f, indent=2)
-
-                self.logger.info("✅ WGS84本地備份已創建")
-            else:
-                self.logger.info("✅ WGS84本地備份已存在")
-
-        except Exception as e:
-            self.logger.error(f"WGS84備份驗證失敗: {e}")
-
-    def _get_backup_parameters(self) -> WGS84Parameters:
-        """獲取本地備份參數"""
-        try:
-            backup_file = self.cache_dir / "wgs84_backup.json"
-
-            if backup_file.exists():
-                with open(backup_file, 'r') as f:
-                    backup_data = json.load(f)
-
-                wgs84_data = backup_data.get("wgs84_g1150", {})
-
-                # 重建參數對象
-                a = wgs84_data.get("semi_major_axis_m", 6378137.0)
-                f_inv = wgs84_data.get("inverse_flattening", 298.257223563)
-                f = 1.0 / f_inv
-
-                return WGS84Parameters(
-                    semi_major_axis_m=a,
-                    flattening=f,
-                    inverse_flattening=f_inv,
-                    semi_minor_axis_m=a * (1.0 - f),
-                    first_eccentricity_squared=2.0 * f - f * f,
-                    second_eccentricity_squared=(2.0 * f - f * f) / (1.0 - (2.0 * f - f * f)),
-                    linear_eccentricity_m=a * math.sqrt(2.0 * f - f * f),
-                    geocentric_gravitational_constant=wgs84_data.get("geocentric_gravitational_constant", 3.986004418e14),
-                    angular_velocity_rad_s=wgs84_data.get("angular_velocity_rad_s", 7.2921151467e-5),
-                    mean_equatorial_gravity=9.7803253359,
-                    mean_polar_gravity=9.8321849378,
-                    gravity_flattening=(9.8321849378 - 9.7803253359) / 9.7803253359,
-                    atmospheric_scale_height_m=8434.5,
-                    source="Local_Backup_NIMA_TR8350_2",
-                    retrieved_at=datetime.now(timezone.utc),
-                    version="WGS84_Backup"
+            if not official_data_file.exists():
+                self.logger.error(
+                    f"❌ 官方WGS84數據文件缺失: {official_data_file}\n"
+                    f"系統將在首次使用時拋出 FileNotFoundError"
                 )
             else:
-                # 最後的硬編碼回退（僅在緊急情況下）
-                return self._get_emergency_parameters()
+                self.logger.info("✅ 官方WGS84數據文件已驗證存在")
 
         except Exception as e:
-            self.logger.error(f"本地備份讀取失敗: {e}")
-            return self._get_emergency_parameters()
-
-    def _get_emergency_parameters(self) -> WGS84Parameters:
-        """緊急回退參數 (僅在所有其他方法失敗時使用)"""
-        self.logger.warning("⚠️ 使用緊急回退WGS84參數")
-
-        # 僅在緊急情況下使用的NIMA TR8350.2官方值
-        return WGS84Parameters(
-            semi_major_axis_m=6378137.0,
-            flattening=1.0/298.257223563,
-            inverse_flattening=298.257223563,
-            semi_minor_axis_m=6356752.314245179,
-            first_eccentricity_squared=0.006694379990141316,
-            second_eccentricity_squared=0.006739496742276434,
-            linear_eccentricity_m=521854.0097376849,
-            geocentric_gravitational_constant=3.986004418e14,
-            angular_velocity_rad_s=7.2921151467e-5,
-            mean_equatorial_gravity=9.7803253359,
-            mean_polar_gravity=9.8321849378,
-            gravity_flattening=0.005302440112,
-            atmospheric_scale_height_m=8434.5,
-            source="Emergency_Hardcoded_NIMA_TR8350_2",
-            retrieved_at=datetime.now(timezone.utc),
-            version="Emergency_WGS84"
-        )
+            self.logger.error(f"WGS84數據文件驗證失敗: {e}")
 
     def convert_cartesian_to_geodetic(self, x_m: float, y_m: float, z_m: float,
                                     version: str = "latest") -> Tuple[float, float, float]:

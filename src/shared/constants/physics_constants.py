@@ -51,44 +51,31 @@ class PhysicsConstants:
     @staticmethod
     def calculate_orbit_prediction_error_growth(age_days: float) -> float:
         """
-        計算軌道預測誤差隨時間的增長
+        ⚠️ DEPRECATED - 此函數已廢棄，不應使用
 
-        基於軌道力學理論和實際TLE精度研究：
-        - Vallado, D. A., & Crawford, P. (2006). SGP4 orbit determination
+        廢棄原因：
+        1. 概念混淆：將軌道「位置誤差」(km) 和 TLE epoch「時間精度」(seconds) 混為一談
+        2. 無學術依據：增長因子 (1.0x, 1.5x, 2.5x...) 沒有官方來源支持
+        3. 邏輯錯誤：TLE epoch 時間精度由格式決定，不隨數據年齡變化
+
+        正確理解：
+        - TLE epoch 時間精度：固定 ~60秒（基於 TLE 格式規範）
+        - 軌道位置誤差增長：~1-3 km/day（來自 Vallado 2006, Hoots 1980）
+
+        參考文獻：
+        - Vallado, D. A., & Crawford, P. (2008). SGP4 orbit determination
         - Hoots, F. R., & Roehrich, R. L. (1980). Spacetrack Report No. 3
 
         Args:
             age_days: 數據年齡（天）
 
         Returns:
-            預測誤差（秒）
+            固定的 TLE 時間精度（秒）- 不應隨年齡變化
         """
         from shared.constants.tle_constants import TLEConstants
 
-        # 基準精度（來自TLE常數定義）
-        base_precision = TLEConstants.TLE_REALISTIC_TIME_PRECISION_SECONDS
-
-        # 根據軌道力學理論，預測誤差隨時間非線性增長
-        # 主要誤差源：
-        # 1. 大氣阻力模型不確定性（指數增長）
-        # 2. 太陽輻射壓力變化（週期性）
-        # 3. 地球重力場高階項（累積性）
-
-        if age_days <= 1:
-            error_growth_factor = 1.0
-        elif age_days <= 3:
-            error_growth_factor = 1.5
-        elif age_days <= 7:
-            error_growth_factor = 2.5
-        elif age_days <= 14:
-            error_growth_factor = 5.0
-        elif age_days <= 30:
-            error_growth_factor = 10.0
-        else:
-            # 超過30天的數據，誤差快速增長
-            error_growth_factor = 10.0 + (age_days - 30) * 2.0
-
-        return base_precision * error_growth_factor
+        # 直接返回固定的 TLE 時間精度，不應用任何增長因子
+        return TLEConstants.TLE_REALISTIC_TIME_PRECISION_SECONDS
 
 
 @dataclass

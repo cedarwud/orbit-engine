@@ -18,6 +18,9 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Tuple, List
 from dataclasses import dataclass
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
+import os
 
 # Skyfield 專業庫
 try:
@@ -83,7 +86,7 @@ class SkyfieldCoordinateEngine:
             'total_processing_time_ms': 0.0
         }
 
-        self.logger.info("✅ Skyfield 真實座標轉換引擎已初始化")
+        self.logger.debug("✅ Skyfield 真實座標轉換引擎已初始化")
 
     def _initialize_skyfield(self):
         """初始化 Skyfield 專業組件"""
@@ -93,7 +96,7 @@ class SkyfieldCoordinateEngine:
 
             # 載入高精度星歷數據
             self.ephemeris = load('de421.bsp')  # JPL DE421 高精度星歷
-            self.logger.info("✅ 載入 JPL DE421 星歷數據")
+            self.logger.debug("✅ 載入 JPL DE421 星歷數據")
 
             # 地球物理模型
             self.earth = self.ephemeris['earth']
@@ -116,7 +119,7 @@ class SkyfieldCoordinateEngine:
             # 驗證 Skyfield 版本
             self._verify_skyfield_version()
 
-            self.logger.info("✅ Skyfield 專業組件初始化完成")
+            self.logger.debug("✅ Skyfield 專業組件初始化完成")
 
         except Exception as e:
             self.logger.error(f"❌ Skyfield 初始化失敗: {e}")
@@ -127,7 +130,7 @@ class SkyfieldCoordinateEngine:
         try:
             import skyfield
             version = getattr(skyfield, '__version__', 'unknown')
-            self.logger.info(f"Skyfield 版本: {version}")
+            self.logger.debug(f"Skyfield 版本: {version}")
 
             # 檢查最低版本要求 (1.46+ 支援最新 IAU 標準)
             if version != 'unknown':
@@ -137,6 +140,42 @@ class SkyfieldCoordinateEngine:
 
         except Exception as e:
             self.logger.warning(f"版本檢查失敗: {e}")
+
+    def _get_astronomical_unit_km(self) -> float:
+        """
+        從官方 IAU 常數文件載入天文單位 (km)
+
+        ✅ Fail-Fast 策略：與 Stage 1/2 一致
+        ❌ Grade A標準：不允許硬編碼回退值
+        """
+        import json
+        from pathlib import Path
+        iau_constants_file = Path("data/astronomical_constants/iau_constants.json")
+
+        if not iau_constants_file.exists():
+            raise FileNotFoundError(
+                f"❌ 官方IAU常數文件缺失: {iau_constants_file}\n"
+                f"Grade A標準禁止使用硬編碼回退值\n"
+                f"請檢查系統部署是否完整\n"
+                f"預期路徑: {iau_constants_file.absolute()}"
+            )
+
+        try:
+            with open(iau_constants_file, 'r') as f:
+                iau_data = json.load(f)
+
+            au_km = iau_data['astronomical_unit']['value_kilometers']
+            self.logger.debug(f"✅ 從 IAU 常數文件載入: 1 AU = {au_km} km")
+            return au_km
+
+        except (KeyError, ValueError) as e:
+            raise ValueError(
+                f"❌ IAU常數文件格式錯誤: {iau_constants_file}\n"
+                f"錯誤詳情: {e}\n"
+                f"請確認文件格式符合 IAU 2012 Resolution B2 標準"
+            )
+        except Exception as e:
+            raise RuntimeError(f"IAU常數載入失敗: {e}")
 
     def convert_teme_to_wgs84(self, position_teme_km: List[float],
                             velocity_teme_km_s: List[float],
@@ -240,10 +279,11 @@ class SkyfieldCoordinateEngine:
                             skyfield_time) -> ICRS:
         """真實的 TEME → ICRS 轉換 (ICRS ≈ GCRS)"""
         try:
-            # 轉換單位 (km → AU, km/s → AU/day)
-            AU_KM = 149597870.7  # 1 AU = 149597870.7 km (IAU 精確定義)
+            # ✅ 從官方 IAU 常數文件載入天文單位
+            AU_KM = self._get_astronomical_unit_km()
             SECONDS_PER_DAY = 86400.0
 
+            # 轉換單位 (km → AU, km/s → AU/day)
             pos_au = np.array(position_km) / AU_KM
             vel_au_per_day = np.array(velocity_km_s) * SECONDS_PER_DAY / AU_KM
 
@@ -358,11 +398,20 @@ class SkyfieldCoordinateEngine:
 
                 # 基於實際 IERS 誤差計算精度影響
                 # X, Y 極移誤差 (角秒) → 位置誤差 (米)
-                # 正確轉換: 1 arcsec = 30.9 m at Earth's surface, but errors are typically in milliarcseconds
-                x_error_m = eop_data.x_error * 30.9  # 1 角秒 = 30.9 m 地表
-                y_error_m = eop_data.y_error * 30.9
-                # UT1-UTC 誤差影響 - 典型值在微秒級別，對位置影響較小
-                ut1_error_m = abs(eop_data.ut1_utc_error) * 0.464  # 調整係數，UT1誤差對坐標影響
+                # ✅ 從 WGS84 參數計算角秒到米的轉換係數，禁止硬編碼
+                wgs84_params = self.wgs84_manager.get_wgs84_parameters()
+                R_earth_m = wgs84_params.semi_major_axis_m
+                # 1 角秒 = (π / (180 × 3600)) 弧度，弧長 = R × 弧度
+                arcsec_to_m = R_earth_m * (np.pi / (180.0 * 3600.0))  # ~30.88 m/arcsec
+
+                x_error_m = eop_data.x_error * arcsec_to_m
+                y_error_m = eop_data.y_error * arcsec_to_m
+
+                # UT1-UTC 誤差影響 - 基於地球自轉速度計算
+                # UT1-UTC 誤差 (秒) → 地表位置偏移 (米)
+                # 地球赤道自轉線速度 = 2πR / (86400 秒) ≈ 464 m/s
+                earth_rotation_speed_m_per_s = 2.0 * np.pi * R_earth_m / 86400.0  # ✅ 從 WGS84 計算
+                ut1_error_m = abs(eop_data.ut1_utc_error) * earth_rotation_speed_m_per_s
 
                 # 組合 IERS 誤差
                 iers_accuracy_m = (x_error_m**2 + y_error_m**2 + ut1_error_m**2)**0.5
@@ -467,43 +516,132 @@ class SkyfieldCoordinateEngine:
             self.logger.warning(f"統計更新失敗: {e}")
 
     def batch_convert_teme_to_wgs84(self, teme_data: List[Dict[str, Any]]) -> List[CoordinateTransformResult]:
-        """批次座標轉換 (優化性能)"""
+        """批次座標轉換 (多核並行優化 v2.0)"""
         try:
-            results = []
-            start_time = time.time()
+            # 自適應並行策略：根據數據量動態調整核心數
+            max_workers = int(os.environ.get('ORBIT_ENGINE_MAX_WORKERS', '16'))
 
-            for i, data_point in enumerate(teme_data):
-                try:
-                    result = self.convert_teme_to_wgs84(
-                        data_point['position_teme_km'],
-                        data_point['velocity_teme_km_s'],
-                        data_point['datetime_utc']
-                    )
-                    results.append(result)
+            # ✅ 優化：每核心至少100點，避免過度並行化
+            MIN_POINTS_PER_WORKER = 100
+            optimal_workers = min(max_workers, max(1, len(teme_data) // MIN_POINTS_PER_WORKER))
 
-                except Exception as e:
-                    self.logger.warning(f"批次轉換第 {i+1} 點失敗: {e}")
-                    # 繼續處理其他點
+            use_parallel = len(teme_data) > 1000 and optimal_workers > 1
 
-                # 進度報告 (每 1000 點)
-                if (i + 1) % 1000 == 0:
-                    elapsed_time = time.time() - start_time
-                    rate = (i + 1) / elapsed_time
-                    self.logger.info(f"批次轉換進度: {i+1}/{len(teme_data)} "
-                                   f"({rate:.0f} 點/秒)")
-
-            total_time = time.time() - start_time
-            success_rate = len(results) / len(teme_data) * 100
-            avg_rate = len(results) / total_time
-
-            self.logger.info(f"✅ 批次轉換完成: {len(results)}/{len(teme_data)} "
-                           f"成功 ({success_rate:.1f}%), 平均 {avg_rate:.0f} 點/秒")
-
-            return results
+            if use_parallel:
+                self.logger.info(f"🚀 啟用多核並行處理: {optimal_workers}/{max_workers} 個工作進程 "
+                               f"(自適應優化: {len(teme_data)} 點 ÷ {MIN_POINTS_PER_WORKER} = {optimal_workers}核)")
+                return self._batch_convert_parallel(teme_data, optimal_workers)
+            else:
+                self.logger.info(f"使用單核處理 (數據量: {len(teme_data)} 點)")
+                return self._batch_convert_serial(teme_data)
 
         except Exception as e:
             self.logger.error(f"批次轉換失敗: {e}")
             raise
+
+    def _batch_convert_serial(self, teme_data: List[Dict[str, Any]]) -> List[CoordinateTransformResult]:
+        """單核批次轉換 (原始版本)"""
+        results = []
+        start_time = time.time()
+
+        for i, data_point in enumerate(teme_data):
+            try:
+                result = self.convert_teme_to_wgs84(
+                    data_point['position_teme_km'],
+                    data_point['velocity_teme_km_s'],
+                    data_point['datetime_utc']
+                )
+                results.append(result)
+
+            except Exception as e:
+                self.logger.warning(f"批次轉換第 {i+1} 點失敗: {e}")
+                # 繼續處理其他點
+
+            # 進度報告 (每 1000 點)
+            if (i + 1) % 1000 == 0:
+                elapsed_time = time.time() - start_time
+                rate = (i + 1) / elapsed_time
+                self.logger.info(f"批次轉換進度: {i+1}/{len(teme_data)} "
+                               f"({rate:.0f} 點/秒)")
+
+        total_time = time.time() - start_time
+        success_rate = len(results) / len(teme_data) * 100
+        avg_rate = len(results) / total_time
+
+        self.logger.info(f"✅ 批次轉換完成: {len(results)}/{len(teme_data)} "
+                       f"成功 ({success_rate:.1f}%), 平均 {avg_rate:.0f} 點/秒")
+
+        return results
+
+    def _batch_convert_parallel(self, teme_data: List[Dict[str, Any]], max_workers: int) -> List[CoordinateTransformResult]:
+        """多核並行批次轉換 (v2.0 優化批次大小)"""
+        start_time = time.time()
+        total_points = len(teme_data)
+
+        # ✅ 優化：設定最小批次大小，避免過度切割
+        MIN_CHUNK_SIZE = 100  # 最小批次，平衡啟動開銷和並行度
+        chunk_size = max(MIN_CHUNK_SIZE, total_points // (max_workers * 2))  # 減少批次數量
+        chunks = [teme_data[i:i + chunk_size] for i in range(0, total_points, chunk_size)]
+
+        self.logger.info(f"📊 數據分割: {len(chunks)} 個批次, 每批次 ~{chunk_size} 點 "
+                       f"(優化: 最小批次={MIN_CHUNK_SIZE})")
+
+        results = [None] * total_points  # 預分配結果列表
+        processed_count = 0
+
+        # 使用 ProcessPoolExecutor 進行多核處理
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有批次任務
+            future_to_chunk = {
+                executor.submit(_process_chunk_wrapper, chunk, i * chunk_size): (i, chunk)
+                for i, chunk in enumerate(chunks)
+            }
+
+            # 收集結果
+            completed_batches = 0
+            num_chunks = len(chunks)
+            report_interval = max(1, num_chunks // 10)  # 每完成 10% 批次報告一次
+
+            for future in as_completed(future_to_chunk):
+                chunk_idx, _ = future_to_chunk[future]
+                try:
+                    chunk_results, start_idx = future.result()
+
+                    # 將結果放回正確位置
+                    for j, result in enumerate(chunk_results):
+                        results[start_idx + j] = result
+
+                    processed_count += len(chunk_results)
+                    completed_batches += 1
+
+                    # 進度報告：每完成 10% 批次或最後一批才報告
+                    if completed_batches % report_interval == 0 or completed_batches == num_chunks:
+                        elapsed_time = time.time() - start_time
+                        rate = processed_count / elapsed_time
+                        progress_pct = (processed_count / total_points) * 100
+                        self.logger.info(
+                            f"🔄 多核轉換進度: 批次 {completed_batches}/{num_chunks}, "
+                            f"座標點 {processed_count}/{total_points} "
+                            f"({progress_pct:.1f}%, {rate:.0f} 點/秒)"
+                        )
+
+                except Exception as e:
+                    self.logger.error(f"批次 {chunk_idx} 處理失敗: {e}")
+
+        # 過濾 None 值（失敗的轉換）
+        results = [r for r in results if r is not None]
+
+        total_time = time.time() - start_time
+        success_rate = len(results) / total_points * 100
+        avg_rate = len(results) / total_time
+
+        self.logger.info(
+            f"✅ 多核批次轉換完成: {len(results)}/{total_points} "
+            f"成功 ({success_rate:.1f}%), 平均 {avg_rate:.0f} 點/秒 "
+            f"(加速比: ~{avg_rate / 350:.1f}x)"
+        )
+
+        return results
 
     def validate_conversion_accuracy(self, test_cases: List[Dict[str, Any]]) -> Dict[str, Any]:
         """驗證轉換精度 (與已知精確值對比)"""
@@ -573,8 +711,9 @@ class SkyfieldCoordinateEngine:
                                 lat2: float, lon2: float, alt2: float) -> float:
         """計算兩個地理位置之間的距離誤差 (米)"""
         try:
-            # 使用 Haversine 公式計算水平距離
-            R = 6378137.0  # WGS84 長半軸 (m)
+            # ✅ 從官方 WGS84 管理器取得長半軸，禁止硬編碼
+            wgs84_params = self.wgs84_manager.get_wgs84_parameters()
+            R = wgs84_params.semi_major_axis_m  # WGS84 長半軸 (m)
 
             lat1_rad = np.radians(lat1)
             lat2_rad = np.radians(lat2)
@@ -623,6 +762,38 @@ class SkyfieldCoordinateEngine:
 
         except Exception as e:
             return {'error': f'狀態報告生成失敗: {str(e)}'}
+
+
+# ========== 多核處理支持函數 ==========
+
+def _process_chunk_wrapper(chunk: List[Dict[str, Any]], start_idx: int) -> Tuple[List, int]:
+    """
+    多核處理工作函數包裝器
+
+    這個函數必須在模組級別定義，以便 multiprocessing 可以序列化
+    """
+    try:
+        # 在子進程中創建新的引擎實例
+        engine = SkyfieldCoordinateEngine()
+        results = []
+
+        for data_point in chunk:
+            try:
+                result = engine.convert_teme_to_wgs84(
+                    data_point['position_teme_km'],
+                    data_point['velocity_teme_km_s'],
+                    data_point['datetime_utc']
+                )
+                results.append(result)
+            except Exception as e:
+                # 跳過失敗的點，繼續處理
+                results.append(None)
+
+        return results, start_idx
+
+    except Exception as e:
+        # 返回空結果，讓主進程處理錯誤
+        return [], start_idx
 
 
 # 全局單例

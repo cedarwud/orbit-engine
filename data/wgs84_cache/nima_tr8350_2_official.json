@@ -1,0 +1,132 @@
+{
+  "source": "NIMA_TR8350_2_Department_of_Defense_World_Geodetic_System_1984",
+  "official_document": "NIMA TR8350.2 Third Edition, Amendment 1, 3 January 2000",
+  "reference_url": "https://earth-info.nga.mil/php/download.php?file=coord-wgs84",
+  "iers_reference": "IERS Conventions (2010)",
+  "epsg_code": "EPSG:4326",
+  "last_updated": "2004-01-01T00:00:00Z",
+  "note": "WGS84參數是精確定義值，非測量值，類似於物理常數定義",
+
+  "wgs84_g1150_2004": {
+    "version": "WGS84(G1150)",
+    "realization_date": "2004-01-01",
+    "description": "最新WGS84實現，最高精度版本",
+
+    "defining_parameters": {
+      "semi_major_axis_m": {
+        "value": 6378137.0,
+        "unit": "meters",
+        "precision": "exact_definition",
+        "description": "長半軸 a - NIMA TR8350.2 精確定義值"
+      },
+      "inverse_flattening": {
+        "value": 298.257223563,
+        "unit": "dimensionless",
+        "precision": "exact_definition",
+        "description": "扁率倒數 1/f - NIMA TR8350.2 精確定義值"
+      }
+    },
+
+    "derived_parameters": {
+      "flattening": {
+        "value": 0.0033528106647474805,
+        "formula": "f = 1 / inverse_flattening",
+        "description": "扁率 f"
+      },
+      "semi_minor_axis_m": {
+        "value": 6356752.314245179,
+        "formula": "b = a * (1 - f)",
+        "description": "短半軸 b"
+      },
+      "first_eccentricity_squared": {
+        "value": 0.006694379990141316,
+        "formula": "e² = 2f - f²",
+        "description": "第一偏心率平方 e²"
+      },
+      "second_eccentricity_squared": {
+        "value": 0.006739496742276434,
+        "formula": "e'² = e² / (1 - e²)",
+        "description": "第二偏心率平方 e'²"
+      },
+      "linear_eccentricity_m": {
+        "value": 521854.0097376849,
+        "formula": "E = a * sqrt(e²)",
+        "description": "線性偏心率 E"
+      }
+    },
+
+    "gravitational_parameters": {
+      "geocentric_gravitational_constant": {
+        "value": 3.986004418e14,
+        "unit": "m³/s²",
+        "uncertainty": "8e5",
+        "source": "IERS Conventions 2010",
+        "description": "地心重力常數 GM - WGS84官方值"
+      },
+      "angular_velocity": {
+        "value": 7.2921151467e-5,
+        "unit": "rad/s",
+        "source": "IERS Conventions 2010",
+        "description": "地球自轉角速度 ω - WGS84官方值"
+      }
+    },
+
+    "gravity_field_parameters": {
+      "mean_equatorial_gravity": {
+        "value": 9.7803253359,
+        "unit": "m/s²",
+        "description": "赤道重力加速度 g_e"
+      },
+      "mean_polar_gravity": {
+        "value": 9.8321849378,
+        "unit": "m/s²",
+        "description": "極地重力加速度 g_p"
+      },
+      "gravity_flattening": {
+        "value": 0.005302440112,
+        "formula": "(g_p - g_e) / g_e",
+        "description": "重力扁率"
+      }
+    },
+
+    "atmospheric_parameters": {
+      "scale_height_m": {
+        "value": 8434.5,
+        "unit": "meters",
+        "description": "標準大氣標度高度"
+      }
+    }
+  },
+
+  "wgs84_g873_1996": {
+    "version": "WGS84(G873)",
+    "realization_date": "1996-01-01",
+    "note": "與 G1150 參數相同，但實現精度略低"
+  },
+
+  "wgs84_original_1984": {
+    "version": "WGS84_Original",
+    "realization_date": "1984-01-01",
+    "note": "原始1984年版本，某些重力參數精度較低",
+
+    "gravitational_parameters": {
+      "geocentric_gravitational_constant": {
+        "value": 3.986005e14,
+        "note": "1984年較低精度版本"
+      },
+      "angular_velocity": {
+        "value": 7.2921159e-5,
+        "note": "1984年較低精度版本"
+      }
+    }
+  },
+
+  "validation": {
+    "coordinate_system_type": "Geographic 2D",
+    "datum": "World Geodetic System 1984",
+    "ellipsoid": "WGS 84",
+    "prime_meridian": "Greenwich",
+    "scope": "Horizontal component of 3D system. Used by GPS satellite navigation system.",
+    "area_of_use": "World"
+  }
+}

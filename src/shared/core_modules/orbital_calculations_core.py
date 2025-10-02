@@ -15,7 +15,6 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Any, Optional, Union, Tuple
 import numpy as np
 
-from ..engines.sgp4_orbital_engine import SGP4OrbitalEngine
 from ..engines.skyfield_orbital_engine import SkyfieldOrbitalEngine
 
 logger = logging.getLogger(__name__)
@@ -80,10 +79,6 @@ class OrbitalCalculationsCore:
             self.observer_lat,
             self.observer_lon,
             self.observer_elevation_m
-        )
-        self.sgp4_engine = SGP4OrbitalEngine(
-            observer_coordinates=observer_coordinates,
-            eci_only_mode=False
         )
 
         self.skyfield_engine = SkyfieldOrbitalEngine()
@@ -357,9 +352,7 @@ class OrbitalCalculationsCore:
 
     def get_calculation_statistics(self) -> Dict:
         """獲取計算統計信息"""
-        stats = self.calculation_stats.copy()
-        stats.update(self.sgp4_engine.get_calculation_statistics())
-        return stats
+        return self.calculation_stats.copy()
 
     def _validate_epoch_time_compliance(self, sat_data: Dict) -> None:
         """

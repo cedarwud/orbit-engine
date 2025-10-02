@@ -17,9 +17,22 @@ from .stage6_research_optimization_processor import (
     create_stage6_processor
 )
 
+# 導出驗證與管理模組
+from .stage6_input_output_validator import Stage6InputOutputValidator
+from .stage6_validation_framework import Stage6ValidationFramework
+from .stage6_academic_compliance import Stage6AcademicComplianceChecker
+from .stage6_snapshot_manager import Stage6SnapshotManager
+
 __all__ = [
+    # 主處理器
     'Stage6ResearchOptimizationProcessor',
-    'create_stage6_processor'
+    'create_stage6_processor',
+
+    # 驗證與管理模組
+    'Stage6InputOutputValidator',
+    'Stage6ValidationFramework',
+    'Stage6AcademicComplianceChecker',
+    'Stage6SnapshotManager'
 ]
 
 __version__ = '3.0.0'

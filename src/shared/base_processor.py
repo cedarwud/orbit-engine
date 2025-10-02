@@ -155,7 +155,18 @@ class BaseStageProcessor(BaseProcessor):
                         self.logger.info(f"✅ 輸出已保存至: {output_path}")
 
                 # 🔧 重要修改：無論成功或失敗都創建驗證快照
-                self._save_validation_snapshot(result)
+                # ✅ P0-1 修復: 優先調用子類的 save_validation_snapshot (如果存在)
+                if hasattr(self, 'save_validation_snapshot') and callable(getattr(self, 'save_validation_snapshot')):
+                    # 子類實現了專用的 save_validation_snapshot 方法
+                    try:
+                        self.save_validation_snapshot(result.data)
+                        self.logger.info(f"✅ 使用子類專用驗證快照方法")
+                    except Exception as e:
+                        self.logger.warning(f"⚠️ 子類驗證快照失敗，回退到基礎方法: {e}")
+                        self._save_validation_snapshot(result)
+                else:
+                    # 使用基礎快照方法
+                    self._save_validation_snapshot(result)
 
             except Exception as save_error:
                 self.logger.warning(f"⚠️ 保存輸出時出現警告: {save_error}")

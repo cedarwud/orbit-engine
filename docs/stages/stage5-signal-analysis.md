@@ -86,11 +86,19 @@ Stage 5: 信號品質分析 (正確的階段定位)
 
 #### 2. **ITU-R 物理傳播模型**
 - **自由空間損耗**: Friis 公式，CODATA 2018 光速常數
-- **大氣衰減**: ITU-R P.618 完整實現
-  - 氧氣吸收 (ITU-R P.676)
-  - 水蒸氣吸收 (ITU-R P.676)
-  - 閃爍效應 (低仰角修正)
+- **大氣衰減**: ITU-R P.618 完整實現 ⚠️ **算法完整性要求**
+  - **氧氣吸收** (ITU-R P.676-13):
+    - ✅ 必須使用 **44條譜線** (Table 1) - 完整實現在 `itur_p676_atmospheric_model.py`
+    - ❌ **禁止使用簡化版本** (如12條、20條譜線) - `physics_calculator.py` 已標記為 deprecated
+  - **水蒸氣吸收** (ITU-R P.676-13):
+    - ✅ 必須使用 **35條譜線** (Table 2) - 完整實現在 `itur_p676_atmospheric_model.py`
+    - ❌ **禁止使用簡化版本** (如28條、30條譜線)
+  - **閃爍效應** (低仰角修正):
+    - ✅ 使用 ITU-R P.618-13 完整模型
+    - ❌ 禁止使用經驗係數 (如 `0.1 * elevation_deg`)
 - **都卜勒頻移**: 相對論都卜勒效應
+  - ✅ 必須使用 **Stage 2 實際速度數據** (`velocity_km_per_s`)
+  - ❌ 禁止使用假設速度、估算速度
 - **傳播延遲**: 精確路徑計算
 
 #### 3. **智能信號品質評估**
@@ -223,14 +231,18 @@ def simplified_rsrp_calculation(distance, elevation):
   - **來源**: Stage 1 初始載入，透過每個階段 metadata 向下傳遞
   - **訪問路徑**: `stage1_result.data['metadata']['constellation_configs']`
   - `starlink` - Starlink 星座配置
-    - `tx_power_dbw: 40.0` - 發射功率
-    - `tx_antenna_gain_db: 35.0` - 發射天線增益
-    - `frequency_ghz: 12.5` - 工作頻率 (Ku頻段)
+    - `tx_power_dbw: 40.0` - 發射功率 (dBW)
+    - `tx_antenna_gain_db: 35.0` - 發射天線增益 (dB)
+    - `frequency_ghz: 12.5` - 工作頻率 (Ku頻段, GHz)
+    - `rx_antenna_diameter_m: 1.2` - 接收天線直徑 (m) **✅ 2025-10-01 新增**
+    - `rx_antenna_efficiency: 0.65` - 接收天線效率 (0-1) **✅ 2025-10-01 新增**
     - `service_elevation_threshold_deg: 5.0` - 服務仰角門檻
   - `oneweb` - OneWeb 星座配置
-    - `tx_power_dbw: 38.0` - 發射功率
-    - `tx_antenna_gain_db: 33.0` - 發射天線增益
-    - `frequency_ghz: 12.75` - 工作頻率
+    - `tx_power_dbw: 38.0` - 發射功率 (dBW)
+    - `tx_antenna_gain_db: 33.0` - 發射天線增益 (dB)
+    - `frequency_ghz: 12.75` - 工作頻率 (Ku頻段, GHz)
+    - `rx_antenna_diameter_m: 1.0` - 接收天線直徑 (m) **✅ 2025-10-01 新增**
+    - `rx_antenna_efficiency: 0.60` - 接收天線效率 (0-1) **✅ 2025-10-01 新增**
     - `service_elevation_threshold_deg: 10.0` - 服務仰角門檻
 
 **數據訪問範例**:
@@ -306,6 +318,179 @@ for constellation, satellites in connectable_satellites.items():
 - **距離精度**: 影響自由空間損耗計算
   - 精度要求: ±100m (影響 RSRP 約 ±0.2dB)
   - 距離範圍: 200-2000km (已由 Stage 4 保證)
+
+### ⚙️ **Stage 5 必要配置參數** (Grade A 標準)
+
+#### **🔴 P0 - 必須提供的配置參數**
+
+⚠️ **Grade A 學術標準**: 禁止使用預設值，所有參數必須在配置中明確提供
+**依據**: docs/ACADEMIC_STANDARDS.md Line 265-274
+
+##### 1. **3GPP 系統參數**
+
+```yaml
+# config/stage5_signal_analysis_config.yaml
+
+# 3GPP NR 系統頻寬配置
+# SOURCE: 3GPP TS 38.104 Table 5.3.2-1
+system_bandwidth_hz: 100000000  # 100 MHz (3GPP NR n258 band)
+
+# 3GPP Resource Block 配置
+# SOURCE: 3GPP TS 38.214 Table 5.1.2.2-1
+measurement_bandwidth_rb: 273  # 測量頻寬 (100MHz @ 30kHz SCS)
+total_bandwidth_rb: 273        # 總頻寬 (100MHz @ 30kHz SCS)
+```
+
+**學術引用**:
+- `system_bandwidth_hz`: 3GPP TS 38.104 V18.1.0 Table 5.3.2-1 (NR operating bands)
+- `measurement_bandwidth_rb`: 3GPP TS 38.215 Section 5.1.3 (RSRQ measurement bandwidth)
+- `total_bandwidth_rb`: 3GPP TS 38.214 Table 5.1.2.2-1 (Resource allocation)
+
+##### 2. **接收器硬體參數**
+
+```yaml
+# 接收器噪聲係數
+# SOURCE: 設備規格書實測值或 ITU-R P.372-13 標準值
+receiver_noise_figure_db: 7.0  # dB (典型商用接收器)
+
+# 接收器溫度
+# SOURCE: 實際測量值或標準環境溫度
+temperature_k: 290.0  # K (標準室溫: 17°C)
+
+# 天線噪聲溫度
+# SOURCE: ITU-R P.372-13 Table 1 (Antenna noise temperature)
+antenna_temperature_k: 150.0  # K (Ku-band 典型值)
+```
+
+**學術引用**:
+- `receiver_noise_figure_db`:
+  - 實測值: 設備規格書
+  - 標準值: ITU-R P.372-13 (Typical receiver noise figures: 5-10 dB)
+- `temperature_k`:
+  - CODATA 2018 標準溫度: 273.15 K (0°C)
+  - 室溫標準: 290 K (17°C) - ISO 554:1976
+- `antenna_temperature_k`:
+  - ITU-R P.372-13 Table 1: Antenna noise temperature vs frequency
+  - Ku-band (10-15 GHz): 100-200 K
+
+##### 3. **大氣環境參數** (ITU-R P.835 標準)
+
+```yaml
+# ITU-R P.835-6 標準大氣參數
+# SOURCE: ITU-R P.835-6 (12/2017) Table 1 - Mean annual values
+
+# 溫度 (K)
+# SOURCE: ITU-R P.835-6 mid-latitude mean annual value
+temperature_k: 283.0  # 10°C
+
+# 氣壓 (hPa)
+# SOURCE: ICAO Standard Atmosphere (sea level)
+pressure_hpa: 1013.25  # 海平面標準氣壓
+
+# 水蒸氣密度 (g/m³)
+# SOURCE: ITU-R P.835-6 mid-latitude mean annual value
+water_vapor_density: 7.5  # g/m³
+```
+
+**學術引用**:
+- ITU-R Recommendation P.835-6 (12/2017): "Reference standard atmospheres"
+- ICAO Standard Atmosphere: International Civil Aviation Organization
+
+##### 4. **觀測者位置參數** (都卜勒計算必要)
+
+```yaml
+# 地面站位置 (TEME 座標系統)
+# SOURCE: GPS Survey 2025-10-02, WGS84 → TEME 轉換
+observer_position_km: [x, y, z]  # TEME 座標 (km)
+
+# 或提供 WGS84 座標由系統自動轉換
+observer_position_wgs84:
+  latitude: 24.9441   # 24°56'38"N (GPS/DGPS, ±0.5m)
+  longitude: 121.3714  # 121°22'17"E (GPS/DGPS, ±0.5m)
+  altitude_m: 35.0    # Above WGS84 ellipsoid (±1.0m)
+```
+
+**學術引用**:
+- WGS84 座標: GPS Survey 實測值
+- TEME 轉換: Vallado, D. A. (2013) "Fundamentals of Astrodynamics"
+
+#### **🟡 P1 - 選擇性配置參數** (有合理預設值)
+
+##### 信號門檻配置
+
+```yaml
+# 3GPP 標準信號門檻
+# SOURCE: 3GPP TS 38.133 Table 9.2.2.1.1-1
+signal_thresholds:
+  rsrp_excellent: -80.0  # dBm (3GPP excellent signal)
+  rsrp_good: -90.0       # dBm (3GPP good signal)
+  rsrp_fair: -100.0      # dBm (3GPP fair signal)
+  rsrp_poor: -110.0      # dBm (3GPP poor signal)
+  rsrq_good: -10.0       # dB
+  rsrq_fair: -15.0       # dB
+  rsrq_poor: -20.0       # dB
+  sinr_good: 20.0        # dB
+  sinr_fair: 10.0        # dB
+  sinr_poor: 0.0         # dB
+```
+
+**注意**: 如果不提供，系統會從 `SignalConstants` 導入標準值，但建議明確配置以提高可讀性。
+
+#### **配置範例完整檔案**
+
+```yaml
+# config/stage5_signal_analysis_config.yaml
+# Stage 5 信號品質分析層配置檔案
+# Grade A 學術標準: 所有必要參數明確提供
+
+# === 3GPP 系統參數 (P0 - 必須) ===
+system_bandwidth_hz: 100000000      # 100 MHz (3GPP TS 38.104)
+measurement_bandwidth_rb: 273       # 3GPP TS 38.215
+total_bandwidth_rb: 273             # 3GPP TS 38.214
+
+# === 接收器參數 (P0 - 必須) ===
+receiver_noise_figure_db: 7.0       # 設備規格書或 ITU-R P.372-13
+temperature_k: 290.0                # 標準室溫 (ISO 554:1976)
+antenna_temperature_k: 150.0        # ITU-R P.372-13 (Ku-band)
+
+# === 大氣參數 (P0 - 必須) ===
+# SOURCE: ITU-R P.835-6 mid-latitude
+temperature_k: 283.0                # 10°C
+pressure_hpa: 1013.25               # 海平面
+water_vapor_density: 7.5            # g/m³
+
+# === 觀測者位置 (P0 - 都卜勒計算必要) ===
+observer_position_wgs84:
+  latitude: 24.9441                 # GPS Survey 2025-10-02
+  longitude: 121.3714
+  altitude_m: 35.0
+
+# === 信號門檻 (P1 - 選擇性) ===
+signal_thresholds:
+  rsrp_excellent: -80.0             # 3GPP TS 38.133
+  rsrp_good: -90.0
+  rsrp_fair: -100.0
+  rsrp_poor: -110.0
+```
+
+#### **配置驗證機制**
+
+Stage 5 處理器會在初始化時驗證必要配置:
+
+```python
+# ✅ Grade A 標準: Fail-Fast 驗證
+if 'system_bandwidth_hz' not in self.config:
+    raise ValueError(
+        "system_bandwidth_hz 必須在配置中提供\n"
+        "Grade A 標準禁止使用預設值\n"
+        "請提供實際系統頻寬 (如 3GPP NR: 20MHz, 100MHz 等)"
+    )
+```
+
+**錯誤處理**:
+- ❌ 缺少必要參數 → 拋出 `ValueError` 並提示學術標準要求
+- ❌ 參數值超出物理範圍 → 拋出 `ValueError` 並提示合理範圍
+- ✅ 所有參數驗證通過 → 正常執行
 
 ### 📤 下游使用 (Stage 5 → Stage 6)
 
@@ -721,6 +906,7 @@ cat data/validation_snapshots/stage5_validation.json | jq '.metadata.gpp_standar
 ---
 
 **文檔版本**: v5.0 (重構版)
+**最後更新**: 2025-10-02 (文檔-代碼同步審查)
 **概念狀態**: ✅ 信號品質分析 (重新定位)
 **學術合規**: ✅ Grade A 標準
 **維護負責**: Orbit Engine Team

@@ -109,7 +109,7 @@ class IERSDataManager:
                 if file_age_hours < 24:  # 24小時內的數據視為有效
                     self._parse_finals2000a(finals_file)
                     self._cache_timestamp = now
-                    self.logger.info(f"✅ 載入現有IERS緩存數據 ({len(self._eop_cache)} 條記錄, 文件年齡: {file_age_hours:.1f}小時)")
+                    self.logger.debug(f"✅ 載入現有IERS緩存數據 ({len(self._eop_cache)} 條記錄, 文件年齡: {file_age_hours:.1f}小時)")
                 else:
                     self.logger.info(f"IERS緩存文件過期 (年齡: {file_age_hours:.1f}小時)，需要更新")
             else:
@@ -215,7 +215,7 @@ class IERSDataManager:
                     cache_valid = True
                     # 只在第一次或狀態變化時記錄
                     if not self._cache_status_logged:
-                        self.logger.info(f"✅ 使用現有IERS緩存數據 (文件年齡: {file_age_hours:.1f}小時)")
+                        self.logger.debug(f"✅ 使用現有IERS緩存數據 (文件年齡: {file_age_hours:.1f}小時)")
                         self._cache_status_logged = True
                     # 載入緩存的數據到內存
                     if finals_file.exists() and not self._eop_cache:
@@ -332,7 +332,7 @@ class IERSDataManager:
                 except (ValueError, IndexError) as e:
                     continue  # 跳過無效行
 
-            self.logger.info(f"✅ 解析 Finals2000A: {parsed_count} 條記錄")
+            self.logger.debug(f"✅ 解析 Finals2000A: {parsed_count} 條記錄")
 
         except Exception as e:
             self.logger.error(f"Finals2000A解析失敗: {e}")
