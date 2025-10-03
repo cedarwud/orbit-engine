@@ -1,26 +1,24 @@
+#!/usr/bin/env python3
 """
-實時決策支援系統 - Stage 6 核心組件
+換手決策評估器 - Stage 6 核心組件
 
-提供毫秒級的實時換手決策支援。
+提供歷史資料重現場景的換手決策評估。
 
 依據:
 - docs/stages/stage6-research-optimization.md Line 103-107, 649-669
-- docs/refactoring/stage6/04-real-time-decision-support-spec.md
-
-目標: < 100ms 換手決策響應
+- 3GPP TS 38.331 換手決策標準
 
 Author: ORBIT Engine Team
-Created: 2025-09-30
+Created: 2025-10-03
 
 🎓 學術合規性檢查提醒:
 - 修改此文件前，請先閱讀: docs/stages/STAGE6_COMPLIANCE_CHECKLIST.md
-- 重點檢查: Line 422-424 RSRP改善門檻、Line 504-512 自適應門檻
+- 重點檢查: RSRP改善門檻必須有明確學術依據
 - 所有判斷門檻必須從 handover_constants.py 載入或有明確學術依據
 - 禁用詞: 假設、估計、簡化、模擬
 """
 
 import logging
-import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
@@ -31,25 +29,22 @@ from src.shared.constants.handover_constants import (
 )
 
 
-class RealTimeDecisionSupport:
-    """實時決策支援系統
+class HandoverDecisionEvaluator:
+    """換手決策評估器
 
-    提供毫秒級的實時換手決策支援：
-    1. 多候選評估: 同時評估 3-5 個換手候選的優劣
-    2. 自適應門檻: 根據環境動態調整 RSRP/距離門檻
+    專為歷史資料重現設計的批次決策評估工具：
+    1. 多候選評估: 評估 3-5 個換手候選的優劣
+    2. 標準門檻: 使用固定的 3GPP/ITU 學術標準門檻
     3. 決策可追溯: 完整的決策過程記錄和分析
-    4. 性能保證: < 100ms 決策延遲
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """初始化決策支援系統
+        """初始化決策評估器
 
         Args:
             config: 配置參數
-                - decision_latency_target_ms: 決策延遲目標 (預設 100ms)
                 - confidence_threshold: 信心門檻 (預設 0.8)
                 - candidate_evaluation_count: 候選評估數量 (預設 5)
-                - adaptive_thresholds: 是否啟用自適應門檻 (預設 True)
         """
         self.config = self._load_config(config)
         self.logger = logging.getLogger(__name__)
@@ -59,27 +54,7 @@ class RealTimeDecisionSupport:
         self.weights = get_handover_weights()
         self.standard_config = get_handover_config()
 
-        # 決策歷史記錄
-        self.decision_history = []
-
-        # 性能統計
-        self.performance_stats = {
-            'total_decisions': 0,
-            'average_latency_ms': 0.0,
-            'max_latency_ms': 0.0,
-            'successful_decisions': 0,
-            'failed_decisions': 0
-        }
-
-        # 自適應門檻
-        # SOURCE: 初始值來自 HandoverDecisionWeights
-        self.adaptive_thresholds = {
-            'rsrp_threshold_dbm': self.weights.RSRP_FAIR,
-            'distance_threshold_km': self.weights.OPTIMAL_DISTANCE_MAX_KM,
-            'elevation_threshold_deg': 10.0  # SOURCE: ITU-R S.1428 最低仰角建議
-        }
-
-        self.logger.info("實時決策支援系統初始化完成")
+        self.logger.info("換手決策評估器初始化完成")
         self.logger.info(f"   學術標準權重: 信號{self.weights.SIGNAL_QUALITY_WEIGHT} + 幾何{self.weights.GEOMETRY_WEIGHT} + 穩定{self.weights.STABILITY_WEIGHT}")
 
     def make_handover_decision(
@@ -99,7 +74,6 @@ class RealTimeDecisionSupport:
             {
                 'decision_id': str,
                 'timestamp': str,
-                'decision_latency_ms': float,
                 'recommendation': 'maintain' | 'handover_to_{satellite_id}',
                 'target_satellite_id': Optional[str],
                 'confidence_score': float,
@@ -108,8 +82,6 @@ class RealTimeDecisionSupport:
                 'decision_trace': {...}
             }
         """
-        decision_start = time.time()
-
         try:
             # 1. 生成決策ID
             decision_id = self._generate_decision_id()
@@ -130,35 +102,20 @@ class RealTimeDecisionSupport:
                 gpp_analysis
             )
 
-            # 5. 計算決策延遲
-            decision_latency_ms = (time.time() - decision_start) * 1000
-
-            # 6. 構建決策結果
+            # 5. 構建決策結果
             result = {
                 'decision_id': decision_id,
                 'timestamp': datetime.now(timezone.utc).isoformat(),
-                'decision_latency_ms': decision_latency_ms,
                 'recommendation': decision['recommendation'],
                 'target_satellite_id': decision.get('target_satellite_id'),
                 'confidence_score': decision['confidence'],
                 'reasoning': decision['reasoning'],
                 'evaluated_candidates': candidate_evaluations,
-                'decision_trace': decision['trace'],
-                'performance_benchmark': {
-                    'latency_met': decision_latency_ms < self.config['decision_latency_target_ms'],
-                    'confidence_met': decision['confidence'] >= self.config['confidence_threshold']
-                }
+                'decision_trace': decision['trace']
             }
-
-            # 7. 記錄決策歷史
-            self._record_decision(result)
-
-            # 8. 更新性能統計
-            self._update_performance_stats(result)
 
             self.logger.debug(
                 f"決策完成 - ID: {decision_id}, "
-                f"延遲: {decision_latency_ms:.2f}ms, "
                 f"建議: {decision['recommendation']}"
             )
 
@@ -166,22 +123,16 @@ class RealTimeDecisionSupport:
 
         except Exception as e:
             self.logger.error(f"做出換手決策時發生錯誤: {str(e)}", exc_info=True)
-            decision_latency_ms = (time.time() - decision_start) * 1000
 
             return {
                 'decision_id': self._generate_decision_id(),
                 'timestamp': datetime.now(timezone.utc).isoformat(),
-                'decision_latency_ms': decision_latency_ms,
                 'recommendation': 'maintain',
                 'target_satellite_id': None,
                 'confidence_score': 0.0,
                 'reasoning': {'error': str(e)},
                 'evaluated_candidates': [],
-                'decision_trace': {},
-                'performance_benchmark': {
-                    'latency_met': False,
-                    'confidence_met': False
-                }
+                'decision_trace': {}
             }
 
     def _evaluate_candidates(
@@ -482,124 +433,11 @@ class RealTimeDecisionSupport:
                 'trace': {}
             }
 
-    def update_adaptive_thresholds(
-        self,
-        decision_history: List[Dict[str, Any]]
-    ) -> Dict[str, float]:
-        """更新自適應門檻
-
-        基於歷史決策成功率動態調整門檻
-
-        Args:
-            decision_history: 決策歷史列表
-
-        Returns:
-            更新後的自適應門檻
-        """
-        if not self.config['adaptive_thresholds']:
-            return self.adaptive_thresholds
-
-        try:
-            # 分析最近100個決策的成功率
-            recent_decisions = decision_history[-100:]
-            if not recent_decisions:
-                return self.adaptive_thresholds
-
-            success_rate = sum(
-                1 for d in recent_decisions if d.get('success', False)
-            ) / len(recent_decisions)
-
-            # SOURCE: 自適應控制理論 - 統計過程控制 (SPC)
-            # 依據: Shewhart Control Chart 控制限
-            #   - 80% 對應約 ±1.28σ (常用預警門檻)
-            #   - 95% 對應約 ±1.96σ (穩定運行目標)
-            # 理由:
-            #   - < 80%: 進入預警區域，需放寬門檻降低換手失敗率
-            #   - > 95%: 系統過於保守，可提高門檻優化資源使用
-            ADAPTIVE_WARNING_THRESHOLD = 0.8   # 預警門檻
-            ADAPTIVE_STABLE_THRESHOLD = 0.95   # 穩定運行門檻
-
-            # 根據成功率調整門檻
-            if success_rate < ADAPTIVE_WARNING_THRESHOLD:
-                # 成功率低，放寬門檻
-                self.adaptive_thresholds['rsrp_threshold_dbm'] += 2.0
-                self.adaptive_thresholds['distance_threshold_km'] += 100.0
-                self.logger.info(f"放寬門檻 - 成功率: {success_rate:.2%}")
-            elif success_rate > ADAPTIVE_STABLE_THRESHOLD:
-                # 成功率高，提高門檻
-                self.adaptive_thresholds['rsrp_threshold_dbm'] -= 1.0
-                self.adaptive_thresholds['distance_threshold_km'] -= 50.0
-                self.logger.info(f"提高門檻 - 成功率: {success_rate:.2%}")
-
-            return self.adaptive_thresholds
-
-        except Exception as e:
-            self.logger.error(f"更新自適應門檻時發生錯誤: {str(e)}", exc_info=True)
-            return self.adaptive_thresholds
-
-    def get_performance_metrics(self) -> Dict[str, Any]:
-        """獲取性能指標
-
-        Returns:
-            {
-                'average_decision_latency_ms': float,
-                'max_decision_latency_ms': float,
-                'total_decisions': int,
-                'decision_accuracy': float,
-                'latency_target_compliance': bool
-            }
-        """
-        return {
-            'average_decision_latency_ms': self.performance_stats['average_latency_ms'],
-            'max_decision_latency_ms': self.performance_stats['max_latency_ms'],
-            'total_decisions': self.performance_stats['total_decisions'],
-            'decision_accuracy': (
-                self.performance_stats['successful_decisions'] /
-                self.performance_stats['total_decisions']
-                if self.performance_stats['total_decisions'] > 0 else 0.0
-            ),
-            'latency_target_compliance': (
-                self.performance_stats['average_latency_ms'] <
-                self.config['decision_latency_target_ms']
-            )
-        }
-
     def _generate_decision_id(self) -> str:
         """生成決策ID"""
+        import time
         timestamp_ms = int(time.time() * 1000)
         return f"HO_DECISION_{timestamp_ms}"
-
-    def _record_decision(self, decision: Dict[str, Any]):
-        """記錄決策歷史"""
-        self.decision_history.append(decision)
-
-        # 保持最近1000條記錄
-        if len(self.decision_history) > self.config['decision_history_size']:
-            self.decision_history = self.decision_history[-self.config['decision_history_size']:]
-
-    def _update_performance_stats(self, decision: Dict[str, Any]):
-        """更新性能統計"""
-        self.performance_stats['total_decisions'] += 1
-
-        latency = decision['decision_latency_ms']
-        total = self.performance_stats['total_decisions']
-
-        # 更新平均延遲
-        self.performance_stats['average_latency_ms'] = (
-            (self.performance_stats['average_latency_ms'] * (total - 1) + latency) / total
-        )
-
-        # 更新最大延遲
-        if latency > self.performance_stats['max_latency_ms']:
-            self.performance_stats['max_latency_ms'] = latency
-
-        # 更新成功/失敗計數
-        performance_benchmark = decision.get('performance_benchmark', {})
-        if performance_benchmark.get('latency_met', False) and \
-           performance_benchmark.get('confidence_met', False):
-            self.performance_stats['successful_decisions'] += 1
-        else:
-            self.performance_stats['failed_decisions'] += 1
 
     def _load_config(self, config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """載入並合併配置參數
@@ -610,25 +448,13 @@ class RealTimeDecisionSupport:
         std_config = get_handover_config()
 
         default_config = {
-            # SOURCE: HandoverDecisionConfig.DECISION_LATENCY_TARGET_MS
-            # 依據: Stage 6 實時決策性能目標
-            'decision_latency_target_ms': std_config.DECISION_LATENCY_TARGET_MS,
-
             # SOURCE: HandoverDecisionConfig.CONFIDENCE_THRESHOLD
             # 依據: 統計決策理論，80% 信心對應 95% 成功率
             'confidence_threshold': std_config.CONFIDENCE_THRESHOLD,
 
             # SOURCE: HandoverDecisionConfig.CANDIDATE_EVALUATION_COUNT
             # 依據: 計算複雜度與決策質量平衡
-            'candidate_evaluation_count': std_config.CANDIDATE_EVALUATION_COUNT,
-
-            # SOURCE: HandoverDecisionConfig.ADAPTIVE_THRESHOLDS_ENABLED
-            # 依據: 自適應控制理論
-            'adaptive_thresholds': std_config.ADAPTIVE_THRESHOLDS_ENABLED,
-
-            # SOURCE: HandoverDecisionConfig.DECISION_HISTORY_SIZE
-            # 依據: 記憶體使用與分析窗口平衡
-            'decision_history_size': std_config.DECISION_HISTORY_SIZE
+            'candidate_evaluation_count': std_config.CANDIDATE_EVALUATION_COUNT
         }
 
         if config:

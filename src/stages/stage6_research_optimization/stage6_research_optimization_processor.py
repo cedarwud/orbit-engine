@@ -58,11 +58,11 @@ except ImportError:
     logging.warning("ML Training Data Generator 未找到")
 
 try:
-    from .real_time_decision_support import RealTimeDecisionSupport
+    from .handover_decision_evaluator import HandoverDecisionEvaluator
     DECISION_SUPPORT_AVAILABLE = True
 except ImportError:
     DECISION_SUPPORT_AVAILABLE = False
-    logging.warning("Real Time Decision Support 未找到")
+    logging.warning("Handover Decision Evaluator 未找到")
 
 # 導入驗證與管理模組
 from .stage6_input_output_validator import Stage6InputOutputValidator
@@ -80,7 +80,7 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
     1. GPP Event Detector - 3GPP TS 38.331 標準事件檢測
     2. Satellite Pool Verifier - 動態衛星池時間序列驗證
     3. ML Training Data Generator - 多算法訓練數據生成
-    4. Real Time Decision Support - 毫秒級決策支援
+    4. Handover Decision Evaluator - 換手決策評估
 
     實現五項驗證框架:
     1. gpp_event_standard_compliance
@@ -139,10 +139,10 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
             raise RuntimeError(f"ML Training Data Generator 初始化失败: {e}")
 
         try:
-            self.decision_support = RealTimeDecisionSupport(config)
-            self.logger.info("✅ Real Time Decision Support 初始化成功")
+            self.decision_support = HandoverDecisionEvaluator(config)
+            self.logger.info("✅ Handover Decision Evaluator 初始化成功")
         except Exception as e:
-            raise RuntimeError(f"Real Time Decision Support 初始化失败: {e}")
+            raise RuntimeError(f"Handover Decision Evaluator 初始化失败: {e}")
 
         # 初始化驗證與管理模組
         self.input_output_validator = Stage6InputOutputValidator(logger=self.logger)
