@@ -1,3 +1,0 @@
--- PostgreSQL initialization for Satellite Processing System
--- Currently no initialization required
--- Stage 5 creates tables dynamically

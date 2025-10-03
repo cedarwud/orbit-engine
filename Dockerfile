@@ -23,6 +23,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 
+# 🔧 複製環境配置文件（2025-10-03 更新）
+# 自動加載配置，無需手動設置環境變數
+COPY .env .env
+
 # 🌐 設置 Orbit Engine 環境變量
 ENV PYTHONPATH=/orbit-engine/src:/orbit-engine
 
@@ -62,6 +66,9 @@ RUN mkdir -p /orbit-engine/data/tle_data \
              /orbit-engine/data/outputs/stage6 \
              /orbit-engine/data/validation_snapshots \
              /orbit-engine/data/logs \
+             /orbit-engine/data/cache/stage3 \
+             /orbit-engine/data/wgs84_cache \
+             /orbit-engine/data/astronomical_constants \
              /orbit-engine/config \
              /orbit-engine/tests
 

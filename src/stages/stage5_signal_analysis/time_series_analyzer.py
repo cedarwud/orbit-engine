@@ -17,14 +17,20 @@ import logging
 import math
 from typing import Dict, Any, List, Optional
 
-# 🚨 Grade A要求：使用學術級物理常數
-try:
-    from src.shared.constants.physics_constants import PhysicsConstants
-except ModuleNotFoundError:
-    from shared.constants.physics_constants import PhysicsConstants
-
-physics_consts = PhysicsConstants()
+# 🚨 Grade A要求：使用學術級物理常數 (優先 Astropy CODATA 2018/2022)
 logger = logging.getLogger(__name__)
+
+try:
+    from src.shared.constants.astropy_physics_constants import get_astropy_constants
+    physics_consts = get_astropy_constants()
+    logger.info("✅ 使用 Astropy 官方物理常數 (CODATA 2018/2022)")
+except (ModuleNotFoundError, ImportError):
+    try:
+        from src.shared.constants.physics_constants import PhysicsConstants
+    except ModuleNotFoundError:
+        from shared.constants.physics_constants import PhysicsConstants
+    physics_consts = PhysicsConstants()
+    logger.warning("⚠️ Astropy 不可用，使用 CODATA 2018 備用常數")
 
 
 class TimeSeriesAnalyzer:
@@ -210,9 +216,9 @@ class TimeSeriesAnalyzer:
             rx_gain_db = system_config['rx_gain_db']
             frequency_ghz = system_config['frequency_ghz']
 
-            # ✅ 使用 ITU-R P.676-13 完整大氣衰減模型
-            from .itur_p676_atmospheric_model import create_itur_p676_model
-            itur_model = create_itur_p676_model()
+            # ✅ 使用 ITU-R P.676-13 官方大氣衰減模型 (ITU-Rpy)
+            from .itur_official_atmospheric_model import create_itur_official_model
+            itur_model = create_itur_official_model()
             atmospheric_loss_db = itur_model.calculate_total_attenuation(
                 frequency_ghz=frequency_ghz,
                 elevation_deg=elevation_deg
@@ -288,9 +294,9 @@ class TimeSeriesAnalyzer:
             physics_calc = create_itur_physics_calculator(self.config)
             path_loss_db = physics_calc.calculate_free_space_loss(distance_km, frequency_ghz)
 
-            # ✅ 使用 ITU-R P.676-13 完整大氣衰減模型
-            from .itur_p676_atmospheric_model import create_itur_p676_model
-            itur_model = create_itur_p676_model()
+            # ✅ 使用 ITU-R P.676-13 官方大氣衰減模型 (ITU-Rpy)
+            from .itur_official_atmospheric_model import create_itur_official_model
+            itur_model = create_itur_official_model()
             atmospheric_loss_db = itur_model.calculate_total_attenuation(
                 frequency_ghz=frequency_ghz,
                 elevation_deg=elevation_deg

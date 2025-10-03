@@ -20,6 +20,9 @@
 import logging
 import json
 import os
+import psutil
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
@@ -37,6 +40,8 @@ except ImportError:
 from .sgp4_calculator import SGP4Calculator, SGP4Position, SGP4OrbitResult
 from .stage2_validator import Stage2Validator
 from .stage2_result_manager import Stage2ResultManager
+# 🆕 統一時間窗口管理器 (v3.1)
+from .unified_time_window_manager import UnifiedTimeWindowManager
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +98,19 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
         self.validator = Stage2Validator()
         self.result_manager = Stage2ResultManager(logger_instance=self.logger)
 
+        # 🆕 統一時間窗口管理器 (v3.1)
+        self.time_window_manager = UnifiedTimeWindowManager(
+            config=self.config,
+            stage1_output_dir=self.config.get('stage1_output_dir', 'data/outputs/stage1')
+        )
+
+        # 🆕 載入參考時刻（如果是統一時間窗口模式）
+        self.reference_time = self.time_window_manager.load_reference_time()
+
+        # 🚀 動態 CPU 並行配置
+        self.max_workers = self._get_optimal_workers()
+        self.enable_parallel = self.max_workers > 1
+
         # 處理統計
         self.processing_stats = {
             'total_satellites_processed': 0,
@@ -100,10 +118,12 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
             'failed_propagations': 0,
             'total_teme_positions': 0,
             'processing_grade': 'A',
-            'architecture_version': 'v3.0'
+            'architecture_version': 'v3.0',
+            'parallel_workers': self.max_workers
         }
 
         logger.info("✅ Stage 2 軌道狀態傳播處理器已初始化 - v3.0 架構")
+        logger.info(f"🚀 並行處理配置: {self.max_workers} 個工作進程 ({'啟用' if self.enable_parallel else '禁用'})")
 
     def _load_configuration(self):
         """從配置文件加載參數"""
@@ -154,6 +174,81 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
             logger.error(f"❌ 配置文件加載失敗: {e}")
             raise RuntimeError(f"Stage 2 配置文件載入失敗，無法繼續: {e}")
 
+    def _get_optimal_workers(self) -> int:
+        """
+        動態計算最優工作器數量 - 基於 CPU 狀態和配置
+
+        優先級：配置文件 > 動態 CPU 檢測 > 保守預設值
+
+        Returns:
+            int: 最優工作器數量
+        """
+        try:
+            # 1. 檢查配置文件設定（最高優先級）
+            performance_config = self.config.get('performance', {})
+            config_workers = performance_config.get('max_workers')
+
+            if config_workers and config_workers > 0:
+                logger.info(f"📋 使用配置文件設定: {config_workers} 個工作器")
+                return config_workers
+
+            # 2. 檢查是否強制單線程
+            if performance_config.get('force_single_thread', False):
+                logger.info("⚠️ 強制單線程模式")
+                return 1
+
+            # 3. 動態 CPU 狀態檢測
+            total_cpus = mp.cpu_count()
+
+            # 獲取當前 CPU 使用率（採樣 0.5 秒，減少等待時間）
+            try:
+                cpu_usage = psutil.cpu_percent(interval=0.5)
+                available_cpu = 100 - cpu_usage
+
+                # 動態策略配置（從配置文件讀取或使用預設值）
+                strategy = performance_config.get('dynamic_worker_strategy', {})
+
+                # ✅ 提高預設 CPU 使用率（更積極的並行策略）
+                threshold_high = strategy.get('cpu_usage_threshold_high', 30)   # CPU < 30%: 使用 95% 核心
+                threshold_medium = strategy.get('cpu_usage_threshold_medium', 50)  # CPU 30-50%: 使用 75% 核心
+                # CPU > 50%: 使用 50% 核心
+
+                if cpu_usage < threshold_high:
+                    # CPU 空閒：使用 95% 核心（積極並行）
+                    workers = max(1, int(total_cpus * 0.95))
+                    logger.info(
+                        f"💻 CPU 空閒（{cpu_usage:.1f}%）：使用 95% 核心 = {workers} 個工作器"
+                    )
+                elif cpu_usage < threshold_medium:
+                    # CPU 中度使用：使用 75% 核心
+                    workers = max(1, int(total_cpus * 0.75))
+                    logger.info(
+                        f"💻 CPU 中度使用（{cpu_usage:.1f}%）：使用 75% 核心 = {workers} 個工作器"
+                    )
+                else:
+                    # CPU 繁忙：使用 50% 核心（保守策略）
+                    workers = max(1, int(total_cpus * 0.5))
+                    logger.info(
+                        f"💻 CPU 繁忙（{cpu_usage:.1f}%）：使用 50% 核心 = {workers} 個工作器"
+                    )
+
+                logger.info(
+                    f"📊 系統狀態: 總核心 {total_cpus}，CPU使用率 {cpu_usage:.1f}%，"
+                    f"配置 {workers} 個並行工作器"
+                )
+                return workers
+
+            except Exception as cpu_error:
+                logger.warning(f"⚠️ CPU 狀態檢測失敗: {cpu_error}，使用預設配置")
+                # 回退策略：總核心數 - 1（保留一個核心給系統）
+                fallback_workers = max(1, total_cpus - 1)
+                logger.info(f"📋 回退配置: {fallback_workers} 個工作器")
+                return fallback_workers
+
+        except Exception as e:
+            logger.error(f"❌ 工作器配置失敗: {e}，使用單線程模式")
+            return 1
+
     def process(self, input_data: Any) -> ProcessingResult:
         """
         主要處理方法 - 軌道狀態傳播
@@ -186,6 +281,14 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
                 )
 
             logger.info(f"📊 輸入數據: {len(satellites_data)} 顆衛星")
+
+            # 🆕 驗證參考時刻（如果是統一時間窗口模式）
+            validation_result = self.time_window_manager.validate_reference_time(satellites_data)
+            if not validation_result['valid']:
+                logger.warning("⚠️ 參考時刻驗證未通過，但繼續執行（請檢查結果）")
+                logger.warning(f"   符合率: {validation_result['compliance_rate']:.1f}%")
+            else:
+                logger.info(f"✅ 參考時刻驗證通過: {validation_result['compliance_rate']:.1f}% 衛星符合")
 
             # 🛰️ 核心步驟：軌道狀態傳播
             orbital_results = self._perform_orbital_propagation(satellites_data)
@@ -324,58 +427,31 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
         return sampled
 
     def _perform_orbital_propagation(self, satellites_data: List[Dict]) -> Dict[str, OrbitalStateResult]:
-        """執行軌道狀態傳播計算"""
-        logger.info("🛰️ 開始軌道狀態傳播計算...")
+        """
+        執行軌道狀態傳播計算 - 自動選擇並行或串行模式
 
-        orbital_results = {}
+        Args:
+            satellites_data: 衛星數據列表
+
+        Returns:
+            Dict[str, OrbitalStateResult]: 軌道傳播結果
+        """
+        logger.info("🛰️ 開始軌道狀態傳播計算...")
         self.processing_stats['total_satellites_processed'] = len(satellites_data)
 
-        for satellite_data in satellites_data:
-            try:
-                satellite_id = satellite_data.get('satellite_id', satellite_data.get('name', 'unknown'))
+        if self.enable_parallel:
+            # 並行處理模式
+            orbital_results = self._perform_parallel_propagation(satellites_data)
+        else:
+            # 單線程處理模式
+            orbital_results = self._perform_sequential_propagation(satellites_data)
 
-                # 🚨 關鍵：使用 Stage 1 的 epoch_datetime，禁止重新解析 TLE
-                if 'epoch_datetime' not in satellite_data:
-                    logger.warning(f"衛星 {satellite_id} 缺少 epoch_datetime，跳過")
-                    self.processing_stats['failed_propagations'] += 1
-                    continue
-
-                # 生成時間序列 - 傳遞衛星數據進行動態計算
-                time_series = self._generate_time_series(satellite_data['epoch_datetime'], satellite_data)
-
-                # 批次計算軌道位置
-                teme_positions = self._calculate_teme_positions(satellite_data, time_series)
-
-                if teme_positions:
-                    # 識別星座類型
-                    constellation = self._identify_constellation(satellite_data)
-
-                    orbital_result = OrbitalStateResult(
-                        satellite_id=satellite_id,
-                        constellation=constellation,
-                        teme_positions=teme_positions,
-                        epoch_datetime=satellite_data['epoch_datetime'],
-                        propagation_successful=True,
-                        algorithm_used=self.propagation_method,
-                        coordinate_system=self.coordinate_system
-                    )
-
-                    orbital_results[satellite_id] = orbital_result
-                    self.processing_stats['successful_propagations'] += 1
-                    self.processing_stats['total_teme_positions'] += len(teme_positions)
-                else:
-                    logger.warning(f"衛星 {satellite_id} 軌道傳播失敗")
-                    self.processing_stats['failed_propagations'] += 1
-
-            except Exception as e:
-                logger.error(f"衛星 {satellite_id} 處理失敗: {e}")
-                self.processing_stats['failed_propagations'] += 1
-                continue
-
+        # 計算統計
         success_rate = (self.processing_stats['successful_propagations'] /
                        max(1, self.processing_stats['total_satellites_processed'])) * 100
 
         logger.info(f"🛰️ 軌道傳播完成:")
+        logger.info(f"   模式: {'並行處理' if self.enable_parallel else '單線程處理'}")
         logger.info(f"   成功: {self.processing_stats['successful_propagations']} 顆")
         logger.info(f"   失敗: {self.processing_stats['failed_propagations']} 顆")
         logger.info(f"   成功率: {success_rate:.1f}%")
@@ -383,63 +459,175 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
 
         return orbital_results
 
+    def _perform_parallel_propagation(self, satellites_data: List[Dict]) -> Dict[str, OrbitalStateResult]:
+        """
+        並行軌道傳播處理
+
+        Args:
+            satellites_data: 衛星數據列表
+
+        Returns:
+            Dict[str, OrbitalStateResult]: 軌道傳播結果
+        """
+        logger.info(f"🚀 啟用並行處理：{self.max_workers} 個工作進程")
+
+        orbital_results = {}
+        start_time = datetime.now(timezone.utc)
+
+        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+            # 提交所有衛星計算任務
+            future_to_sat = {
+                executor.submit(self._process_single_satellite, sat_data): sat_data
+                for sat_data in satellites_data
+            }
+
+            # 收集結果
+            completed = 0
+            for future in as_completed(future_to_sat):
+                sat_data = future_to_sat[future]
+                satellite_id = sat_data.get('satellite_id', sat_data.get('name', 'unknown'))
+
+                try:
+                    result = future.result()
+                    if result:
+                        orbital_results[result.satellite_id] = result
+                        self.processing_stats['successful_propagations'] += 1
+                        self.processing_stats['total_teme_positions'] += len(result.teme_positions)
+                    else:
+                        self.processing_stats['failed_propagations'] += 1
+
+                    completed += 1
+                    if completed % 500 == 0:  # 每 500 顆記錄進度
+                        logger.info(f"📊 進度: {completed}/{len(satellites_data)} 顆衛星已處理")
+
+                except Exception as e:
+                    logger.error(f"❌ 衛星 {satellite_id} 並行處理失敗: {e}")
+                    self.processing_stats['failed_propagations'] += 1
+
+        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+        rate = len(satellites_data) / max(elapsed, 0.1)
+        logger.info(f"⏱️ 並行處理完成: {elapsed:.1f}秒，處理速度 {rate:.1f} 顆/秒")
+
+        return orbital_results
+
+    def _perform_sequential_propagation(self, satellites_data: List[Dict]) -> Dict[str, OrbitalStateResult]:
+        """
+        單線程軌道傳播處理（原邏輯）
+
+        Args:
+            satellites_data: 衛星數據列表
+
+        Returns:
+            Dict[str, OrbitalStateResult]: 軌道傳播結果
+        """
+        logger.info("🔄 使用單線程處理模式")
+
+        orbital_results = {}
+
+        for satellite_data in satellites_data:
+            try:
+                result = self._process_single_satellite(satellite_data)
+                if result:
+                    orbital_results[result.satellite_id] = result
+                    self.processing_stats['successful_propagations'] += 1
+                    self.processing_stats['total_teme_positions'] += len(result.teme_positions)
+                else:
+                    self.processing_stats['failed_propagations'] += 1
+
+            except Exception as e:
+                satellite_id = satellite_data.get('satellite_id', satellite_data.get('name', 'unknown'))
+                logger.error(f"❌ 衛星 {satellite_id} 處理失敗: {e}")
+                self.processing_stats['failed_propagations'] += 1
+                continue
+
+        return orbital_results
+
+    def _process_single_satellite(self, satellite_data: Dict) -> Optional[OrbitalStateResult]:
+        """
+        處理單顆衛星的軌道傳播（可被並行調用）
+
+        Args:
+            satellite_data: 單顆衛星數據
+
+        Returns:
+            Optional[OrbitalStateResult]: 軌道傳播結果，失敗返回 None
+        """
+        try:
+            satellite_id = satellite_data.get('satellite_id', satellite_data.get('name', 'unknown'))
+
+            # 🚨 關鍵：使用 Stage 1 的 epoch_datetime，禁止重新解析 TLE
+            if 'epoch_datetime' not in satellite_data:
+                logger.warning(f"衛星 {satellite_id} 缺少 epoch_datetime，跳過")
+                return None
+
+            # 生成時間序列 - 傳遞衛星數據進行動態計算
+            time_series = self._generate_time_series(satellite_data['epoch_datetime'], satellite_data)
+
+            # 批次計算軌道位置
+            teme_positions = self._calculate_teme_positions(satellite_data, time_series)
+
+            if not teme_positions:
+                logger.warning(f"衛星 {satellite_id} 軌道傳播失敗")
+                return None
+
+            # 識別星座類型
+            constellation = self._identify_constellation(satellite_data)
+
+            orbital_result = OrbitalStateResult(
+                satellite_id=satellite_id,
+                constellation=constellation,
+                teme_positions=teme_positions,
+                epoch_datetime=satellite_data['epoch_datetime'],
+                propagation_successful=True,
+                algorithm_used=self.propagation_method,
+                coordinate_system=self.coordinate_system
+            )
+
+            return orbital_result
+
+        except Exception as e:
+            satellite_id = satellite_data.get('satellite_id', satellite_data.get('name', 'unknown'))
+            logger.error(f"衛星 {satellite_id} 單顆處理失敗: {e}")
+            return None
+
     def _generate_time_series(self, epoch_datetime_str: str, satellite_data: Optional[Dict] = None) -> List[float]:
         """
-        生成時間序列 (相對於 epoch 的分鐘數) - Grade A 動態計算
+        生成時間序列 (相對於 epoch 的分鐘數) - v3.1 支持統一時間窗口
 
         Args:
             epoch_datetime_str: 來自 Stage 1 的 epoch_datetime
-            satellite_data: 衛星數據（用於動態計算軌道週期）
+            satellite_data: 衛星數據（用於識別星座和軌道週期）
 
         Returns:
             List[float]: 時間序列 (分鐘)
         """
         try:
-            # 🔧 修復：定義 satellite_id 供錯誤訊息使用
             satellite_id = 'unknown'
+            satellite_name = 'unknown'
             if satellite_data:
                 satellite_id = satellite_data.get('satellite_id', satellite_data.get('name', 'unknown'))
+                satellite_name = satellite_data.get('name', satellite_id)
 
             # 解析 epoch 時間
             epoch_time = datetime.fromisoformat(epoch_datetime_str.replace('Z', '+00:00'))
 
-            interval_minutes = self.time_interval_seconds / 60.0
+            # 🆕 使用統一時間窗口管理器生成時間序列
+            time_series_datetimes = self.time_window_manager.generate_time_series(
+                satellite_name=satellite_name,
+                satellite_epoch=epoch_time
+            )
 
-            # ✅ Grade A 標準：動態計算時間序列長度
-            if self.dynamic_calculation and satellite_data:
-                try:
-                    # 基於實際軌道週期動態計算
-                    tle_line2 = satellite_data.get('line2', '')
-                    if tle_line2:
-                        orbital_period = self.sgp4_calculator.calculate_orbital_period(tle_line2)
-                        coverage_duration = orbital_period * self.coverage_cycles
-
-                        # 基於軌道週期計算時間點數
-                        calculated_positions = int(coverage_duration / interval_minutes)
-                        max_positions = max(calculated_positions, self.min_positions)
-
-                        logger.debug(f"動態計算: 軌道週期={orbital_period:.1f}min, 覆蓋={coverage_duration:.1f}min, 點數={max_positions}")
-                    else:
-                        # TLE Line 2 不存在，無法進行軌道計算
-                        logger.error(f"衛星 {satellite_id} 缺少 TLE Line 2，無法計算軌道週期")
-                        raise ValueError(f"衛星 {satellite_id} TLE 數據不完整")
-                except Exception as calc_error:
-                    # 動態計算失敗，拋出錯誤而非回退
-                    logger.error(f"衛星 {satellite_id} 動態軌道週期計算失敗: {calc_error}")
-                    raise RuntimeError(f"動態軌道週期計算失敗: {calc_error}")
-            else:
-                # 動態計算被禁用，拋出錯誤（不允許使用固定窗口）
-                logger.error("動態計算已禁用 (dynamic_calculation=False)，這違反 Grade A 標準")
-                raise RuntimeError("Stage 2 要求啟用動態計算 (dynamic_calculation=True)，不允許使用固定時間窗口")
-
-            # 生成時間序列
+            # 轉換為相對於 epoch 的分鐘數
             time_series = []
-            current_minutes = 0.0
-            target_duration = max_positions * interval_minutes
+            for time_point in time_series_datetimes:
+                # 移除時區資訊進行計算
+                time_point_naive = time_point.replace(tzinfo=None) if time_point.tzinfo else time_point
+                epoch_time_naive = epoch_time.replace(tzinfo=None) if epoch_time.tzinfo else epoch_time
 
-            while current_minutes <= target_duration and len(time_series) < max_positions:
-                time_series.append(current_minutes)
-                current_minutes += interval_minutes
+                time_diff = (time_point_naive - epoch_time_naive).total_seconds() / 60.0
+                time_series.append(time_diff)
+
+            logger.debug(f"衛星 {satellite_id}: 生成 {len(time_series)} 個時間點 (模式: {self.time_window_manager.mode})")
 
             return time_series
 

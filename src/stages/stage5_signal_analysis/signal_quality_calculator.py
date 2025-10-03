@@ -338,9 +338,11 @@ class SignalQualityCalculator:
             atmospheric_loss_db: 大氣衰減 (dB)
         """
         try:
-            # ✅ Grade A要求: 使用完整ITU-R P.676-13模型，移除所有簡化算法
+            # ✅ Grade A要求: 使用ITU-Rpy官方套件 (ITU-R P.676-13標準實現)
+            # 更新日期: 2025-10-03
+            # 替換原因: 自實現版本存在計算錯誤（衰減值異常偏低），採用官方套件確保精度
             # 依據: docs/ACADEMIC_STANDARDS.md Line 15-17
-            from .itur_p676_atmospheric_model import create_itur_p676_model
+            from .itur_official_atmospheric_model import create_itur_official_model
 
             # 從配置獲取大氣參數，或使用ITU-R P.835標準值
             # SOURCE: ITU-R P.835-6 (12/2017) Table 1 - Mean annual values at mid-latitude
@@ -348,15 +350,16 @@ class SignalQualityCalculator:
             pressure_hpa = self.config.get('pressure_hpa', 1013.25)  # Sea level, ICAO standard
             water_vapor_density = self.config.get('water_vapor_density', 7.5)  # g/m³, ITU-R P.835
 
-            # 創建ITU-R P.676-13模型實例
-            itur_model = create_itur_p676_model(
+            # 創建ITU-R P.676-13官方模型實例 (ITU-Rpy)
+            itur_model = create_itur_official_model(
                 temperature_k=temperature_k,
                 pressure_hpa=pressure_hpa,
                 water_vapor_density_g_m3=water_vapor_density
             )
 
             # 計算總大氣衰減 (包含氧氣和水蒸氣吸收)
-            # 使用完整44條氧氣譜線 + 35條水蒸氣譜線
+            # 使用ITU-Rpy官方套件: 完整44條氧氣譜線 + 35條水蒸氣譜線 (exact mode)
+            # 優勢: ITU-R官方認可實現，自動同步標準更新，廣泛驗證 (10k+/月下載)
             atmospheric_loss_db = itur_model.calculate_total_attenuation(
                 frequency_ghz=self.frequency_ghz,
                 elevation_deg=elevation_deg
@@ -367,9 +370,9 @@ class SignalQualityCalculator:
         except Exception as e:
             # ✅ Fail-Fast 策略：大氣衰減計算失敗應該拋出錯誤
             # ❌ Grade A標準：不允許使用保守估算值掩蓋計算錯誤
-            self.logger.error(f"❌ ITU-R P.676-13 大氣衰減計算失敗: {e}")
+            self.logger.error(f"❌ ITU-R P.676-13 大氣衰減計算失敗 (ITU-Rpy官方實現): {e}")
             raise RuntimeError(
-                f"大氣衰減計算失敗 (ITU-R P.676-13標準)\n"
+                f"大氣衰減計算失敗 (ITU-R P.676-13標準 / ITU-Rpy官方套件)\n"
                 f"Grade A標準禁止使用回退值或簡化模型\n"
                 f"計算錯誤: {e}\n"
                 f"輸入參數: elevation={elevation_deg}°, frequency={self.frequency_ghz}GHz"
@@ -377,7 +380,7 @@ class SignalQualityCalculator:
 
     # ❌ 已移除 _calculate_oxygen_absorption_coefficient 和 _calculate_water_vapor_absorption_coefficient
     # ✅ Grade A標準: 禁止使用簡化算法
-    # ✅ 改用完整 ITU-R P.676-13 模型 (itur_p676_atmospheric_model.py)
+    # ✅ 改用 ITU-Rpy 官方套件 (itur_official_atmospheric_model.py, 2025-10-03更新)
     # 依據: docs/ACADEMIC_STANDARDS.md Line 15-17
 
     def _calculate_rsrp(self, fspl_db: float, atmospheric_loss_db: float) -> float:

@@ -36,23 +36,28 @@ class DopplerCalculator:
         初始化都卜勒計算器
 
         Args:
-            speed_of_light_ms: 光速 (m/s), 預設從 PhysicsConstants 獲取 CODATA 2018 標準值
+            speed_of_light_ms: 光速 (m/s), 預設從 Astropy 獲取 CODATA 2018/2022 標準值
         """
-        # ✅ Grade A標準: 從 PhysicsConstants 導入光速，避免硬編碼
-        # 依據: docs/ACADEMIC_STANDARDS.md Line 89-94
+        # ✅ Grade A標準: 優先使用 Astropy 官方常數 (CODATA 2018/2022)
+        # 依據: docs/STAGE5_ACADEMIC_REFERENCES.md (2025-10-03 優化)
         if speed_of_light_ms is None:
             try:
-                from shared.constants.physics_constants import PhysicsConstants
-                physics_consts = PhysicsConstants()
+                from shared.constants.astropy_physics_constants import get_astropy_constants
+                physics_consts = get_astropy_constants()
                 self.c = physics_consts.SPEED_OF_LIGHT
             except ImportError:
-                # Fallback: CODATA 2018 官方值
-                # SOURCE: CODATA 2018 (NIST)
-                self.c = 299792458.0  # m/s (exact, defined value)
+                # Fallback: 使用自定義 PhysicsConstants
+                try:
+                    from shared.constants.physics_constants import PhysicsConstants
+                    physics_consts = PhysicsConstants()
+                    self.c = physics_consts.SPEED_OF_LIGHT
+                except ImportError:
+                    # Final fallback: CODATA 2018 官方值
+                    self.c = 299792458.0  # m/s (exact, defined value)
         else:
             self.c = speed_of_light_ms
 
-        logger.info(f"都卜勒計算器初始化: c={self.c} m/s (CODATA 2018)")
+        logger.info(f"都卜勒計算器初始化: c={self.c} m/s")
 
     def calculate_doppler_shift(self, velocity_km_per_s: List[float],
                                satellite_position_km: List[float],

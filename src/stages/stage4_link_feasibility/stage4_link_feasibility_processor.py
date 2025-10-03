@@ -36,6 +36,7 @@ from .link_budget_analyzer import LinkBudgetAnalyzer
 from .skyfield_visibility_calculator import SkyfieldVisibilityCalculator
 from .epoch_validator import EpochValidator
 from .pool_optimizer import optimize_satellite_pool
+from .poliastro_validator import PoliastroValidator
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,18 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
         self.epoch_validator = EpochValidator()
         self.validate_epochs = config.get('validate_epochs', True) if config else True
 
+        # Poliastro 交叉驗證器 (學術嚴謹性增強)
+        self.enable_cross_validation = config.get('enable_cross_validation', False) if config else False
+        if self.enable_cross_validation:
+            self.poliastro_validator = PoliastroValidator(config)
+            if self.poliastro_validator.enabled:
+                self.logger.info("✅ Poliastro 交叉驗證器已啟用")
+            else:
+                self.logger.warning("⚠️ Poliastro 交叉驗證器初始化失敗，功能已禁用")
+                self.enable_cross_validation = False
+        else:
+            self.poliastro_validator = None
+
         # 階段 4.2 時空錯置池規劃 - 🔴 CRITICAL 必要功能，強制執行
         # 依據: stage4-link-feasibility.md Line 123, 129
         self.enable_pool_optimization = True  # 強制啟用，不可停用
@@ -80,6 +93,7 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
         self.logger.info("🛰️ Stage 4 鏈路可行性評估處理器初始化完成")
         self.logger.info("   職責: 星座感知篩選、NTPU可見性分析、鏈路預算約束、服務窗口計算")
         self.logger.info(f"   學術模式: IAU標準={self.use_iau_standards}, Epoch驗證={self.validate_epochs}")
+        self.logger.info(f"   交叉驗證: Poliastro={'已啟用 (1%採樣)' if self.enable_cross_validation else '未啟用'}")
         self.logger.info(f"   階段 4.2: 池規劃優化=強制啟用 (🔴 CRITICAL 必要功能)")
 
     def execute(self, input_data: Any) -> Dict[str, Any]:
@@ -329,6 +343,33 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
                         )
                     else:
                         azimuth = self.visibility_calculator.calculate_azimuth(lat, lon)
+
+                    # 🔬 學術驗證：Poliastro 交叉驗證（採樣驗證，避免性能影響）
+                    cross_validation_result = None
+                    if self.enable_cross_validation and self.poliastro_validator:
+                        # 採樣率：1% (避免全量驗證導致性能下降)
+                        # 學術依據：ISO/IEC/IEEE 29119-4:2015 隨機採樣方法
+                        import random
+                        if random.random() < 0.01:  # 1% 採樣
+                            skyfield_result = {
+                                'elevation_deg': elevation,
+                                'azimuth_deg': azimuth,
+                                'distance_km': distance_km
+                            }
+                            cross_validation_result = self.poliastro_validator.validate_visibility_calculation(
+                                skyfield_result=skyfield_result,
+                                sat_lat_deg=lat,
+                                sat_lon_deg=lon,
+                                sat_alt_km=alt_km,
+                                timestamp=timestamp_dt if timestamp_dt else datetime.now(timezone.utc)
+                            )
+
+                            # 記錄驗證失敗（學術標準要求）
+                            if not cross_validation_result.get('validation_passed', True):
+                                self.logger.debug(
+                                    f"⚠️ 交叉驗證偏差: 仰角 {cross_validation_result.get('elevation_difference_deg', 0):.3f}° "
+                                    f"(衛星 {sat_id}, 時間 {timestamp})"
+                                )
 
                     # 使用鏈路預算分析器判斷可連線性 (仰角 + 距離雙重約束)
                     link_analysis = self.link_budget_analyzer.analyze_link_feasibility(

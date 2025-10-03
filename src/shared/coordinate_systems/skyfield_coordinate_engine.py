@@ -19,8 +19,14 @@ from typing import Dict, Any, Optional, Tuple, List
 from dataclasses import dataclass
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import multiprocessing
+import multiprocessing as mp
 import os
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
 
 # Skyfield 專業庫
 try:
@@ -515,11 +521,73 @@ class SkyfieldCoordinateEngine:
         except Exception as e:
             self.logger.warning(f"統計更新失敗: {e}")
 
-    def batch_convert_teme_to_wgs84(self, teme_data: List[Dict[str, Any]]) -> List[CoordinateTransformResult]:
-        """批次座標轉換 (多核並行優化 v2.0)"""
+    def _get_optimal_workers(self) -> int:
+        """
+        動態檢測最優工作器數量（與 Stage 2 相同的策略）
+
+        Returns:
+            int: 最優工作器數量
+        """
         try:
-            # 自適應並行策略：根據數據量動態調整核心數
-            max_workers = int(os.environ.get('ORBIT_ENGINE_MAX_WORKERS', '16'))
+            # 1. 檢查環境變數設定（最高優先級）
+            env_workers = os.environ.get('ORBIT_ENGINE_MAX_WORKERS')
+            if env_workers and env_workers.isdigit():
+                workers = int(env_workers)
+                if workers > 0:
+                    self.logger.info(f"📋 使用環境變數設定: {workers} 個工作器")
+                    return workers
+
+            # 2. 動態 CPU 狀態檢測
+            total_cpus = mp.cpu_count()
+
+            if not PSUTIL_AVAILABLE:
+                # 沒有 psutil，使用 75% 核心作為預設
+                workers = max(1, int(total_cpus * 0.75))
+                self.logger.info(f"💻 未安裝 psutil，使用預設 75% 核心 = {workers} 個工作器")
+                return workers
+
+            # 獲取當前 CPU 使用率（採樣 0.5 秒）
+            try:
+                cpu_usage = psutil.cpu_percent(interval=0.5)
+
+                # 動態策略：根據 CPU 使用率調整
+                if cpu_usage < 30:
+                    # CPU 空閒：使用 95% 核心（積極並行）
+                    workers = max(1, int(total_cpus * 0.95))
+                    self.logger.info(
+                        f"💻 CPU 空閒（{cpu_usage:.1f}%）：使用 95% 核心 = {workers} 個工作器"
+                    )
+                elif cpu_usage < 50:
+                    # CPU 中度使用：使用 75% 核心
+                    workers = max(1, int(total_cpus * 0.75))
+                    self.logger.info(
+                        f"💻 CPU 中度使用（{cpu_usage:.1f}%）：使用 75% 核心 = {workers} 個工作器"
+                    )
+                else:
+                    # CPU 繁忙：使用 50% 核心
+                    workers = max(1, int(total_cpus * 0.5))
+                    self.logger.info(
+                        f"💻 CPU 繁忙（{cpu_usage:.1f}%）：使用 50% 核心 = {workers} 個工作器"
+                    )
+
+                return workers
+
+            except Exception as e:
+                # psutil 檢測失敗，回退到 75%
+                workers = max(1, int(total_cpus * 0.75))
+                self.logger.warning(f"⚠️ CPU 檢測失敗: {e}，使用預設 75% 核心 = {workers} 個工作器")
+                return workers
+
+        except Exception as e:
+            # 完全失敗，使用保守值
+            self.logger.error(f"❌ 工作器數量檢測失敗: {e}，回退到 8 個工作器")
+            return 8
+
+    def batch_convert_teme_to_wgs84(self, teme_data: List[Dict[str, Any]]) -> List[CoordinateTransformResult]:
+        """批次座標轉換 (多核並行優化 v3.0 - 動態CPU檢測)"""
+        try:
+            # 🚀 動態檢測最優核心數（與 Stage 2 相同策略）
+            max_workers = self._get_optimal_workers()
 
             # ✅ 優化：每核心至少100點，避免過度並行化
             MIN_POINTS_PER_WORKER = 100

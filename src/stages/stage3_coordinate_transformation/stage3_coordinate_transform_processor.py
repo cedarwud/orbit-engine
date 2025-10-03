@@ -241,6 +241,7 @@ class Stage3CoordinateTransformProcessor(BaseStageProcessor):
         主要處理方法 - Stage 3 v3.1 模組化座標轉換
 
         v3.1 職責：協調各專業模組完成 TEME→WGS84 座標轉換
+        ✨ 新增：HDF5 緩存支援（歷史資料重現優化）
         """
         start_time = datetime.now(timezone.utc)
         self.logger.info("🚀 開始 Stage 3 v3.1 座標系統轉換處理...")
@@ -254,7 +255,70 @@ class Stage3CoordinateTransformProcessor(BaseStageProcessor):
                     message="Stage 2 輸出數據驗證失敗"
                 )
 
-            # ✅ 步驟 2: 提取 TEME 座標數據
+            # 🚀 步驟 1.5: 檢查 HDF5 緩存
+            cache_key = self.results_manager.generate_cache_key(input_data)
+            is_cached, cache_file = self.results_manager.check_cache(cache_key)
+
+            if is_cached:
+                self.logger.info("⚡ 從緩存載入座標數據（跳過座標轉換）")
+                cached_data = self.results_manager.load_from_cache(cache_file)
+
+                if cached_data:
+                    # 使用緩存數據
+                    geographic_coordinates = cached_data['geographic_coordinates']
+                    cached_metadata = cached_data.get('metadata', {})
+
+                    # 更新處理統計
+                    self.processing_stats.update({
+                        'total_satellites_processed': len(geographic_coordinates),
+                        'total_coordinate_points': sum(
+                            len(v['time_series']) for v in geographic_coordinates.values()
+                        ),
+                        'successful_transformations': sum(
+                            len(v['time_series']) for v in geographic_coordinates.values()
+                        ),
+                        'transformation_errors': 0,
+                        'cache_hit': True,
+                        'cache_file': cache_file
+                    })
+
+                    processing_time = datetime.now(timezone.utc) - start_time
+
+                    # 保留上游 metadata
+                    upstream_metadata = input_data.get('metadata', {})
+
+                    # 合併元數據（優先使用上游配置）
+                    merged_metadata = {
+                        **cached_metadata,
+                        **upstream_metadata,
+                        'cache_used': True,
+                        'cache_key': cache_key,
+                        'processing_duration_seconds': processing_time.total_seconds()
+                    }
+
+                    result_data = {
+                        'stage': 3,
+                        'stage_name': 'coordinate_system_transformation',
+                        'geographic_coordinates': geographic_coordinates,
+                        'metadata': merged_metadata
+                    }
+
+                    self.logger.info(
+                        f"✅ 緩存載入完成: {self.processing_stats['total_satellites_processed']} 顆衛星, "
+                        f"{self.processing_stats['total_coordinate_points']:,} 座標點, "
+                        f"用時 {processing_time.total_seconds():.2f} 秒"
+                    )
+
+                    return create_processing_result(
+                        status=ProcessingStatus.SUCCESS,
+                        data=result_data,
+                        message=f"從緩存載入 {self.processing_stats['total_satellites_processed']} 顆衛星的座標"
+                    )
+                else:
+                    self.logger.warning("⚠️ 緩存載入失敗，繼續執行座標轉換")
+
+            # ✅ 步驟 2: 提取 TEME 座標數據（緩存未命中或失效）
+            self.logger.info("🔄 緩存未命中，執行完整座標轉換")
             teme_data = self.data_extractor.extract_teme_coordinates(input_data)
             if not teme_data:
                 return create_processing_result(
@@ -334,6 +398,18 @@ class Stage3CoordinateTransformProcessor(BaseStageProcessor):
                 'geographic_coordinates': geographic_coordinates,
                 'metadata': merged_metadata
             }
+
+            # 🚀 步驟 7: 保存到 HDF5 緩存（異步，不影響主流程）
+            try:
+                cache_saved = self.results_manager.save_to_cache(
+                    cache_key=cache_key,
+                    geographic_coordinates=geographic_coordinates,
+                    metadata=merged_metadata
+                )
+                if cache_saved:
+                    self.logger.info("💾 座標數據已保存到緩存，下次執行將直接使用緩存")
+            except Exception as cache_error:
+                self.logger.warning(f"⚠️ 緩存保存失敗（不影響結果）: {cache_error}")
 
             return create_processing_result(
                 status=ProcessingStatus.SUCCESS,

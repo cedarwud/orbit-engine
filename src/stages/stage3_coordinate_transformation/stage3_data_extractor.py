@@ -4,6 +4,7 @@ Stage 3: 數據提取器 - TEME 座標提取與預處理模組
 
 職責：
 - 從 Stage 2 輸出中提取 TEME 座標數據
+- 支援 JSON 和 HDF5 雙格式讀取
 - 支援取樣模式（減少處理量）
 - 解析軌道狀態數據
 - 數據格式轉換與標準化
@@ -13,7 +14,15 @@ Stage 3: 數據提取器 - TEME 座標提取與預處理模組
 
 import logging
 import random
+import numpy as np
 from typing import Dict, Any, List, Optional
+
+try:
+    import h5py
+    HDF5_AVAILABLE = True
+except ImportError:
+    HDF5_AVAILABLE = False
+    logging.warning("⚠️ h5py 未安裝，HDF5 格式讀取不可用")
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +44,12 @@ class Stage3DataExtractor:
         self.sample_mode = self.config.get('sample_mode', False)
         self.sample_size = self.config.get('sample_size', 100)
 
-    def extract_teme_coordinates(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def extract_teme_coordinates(self, input_data: Any) -> Dict[str, Any]:
         """
-        提取 TEME 座標數據
+        提取 TEME 座標數據（自動檢測格式：HDF5 或 JSON）
 
         Args:
-            input_data: Stage 2 的輸出數據
+            input_data: Stage 2 的輸出數據（字典或 HDF5 文件路徑）
 
         Returns:
             TEME 座標數據字典，格式：
@@ -60,6 +69,19 @@ class Stage3DataExtractor:
                 ...
             }
         """
+        # 🔍 自動檢測格式
+        if isinstance(input_data, str):
+            # 文件路徑格式
+            if input_data.endswith('.h5') or input_data.endswith('.hdf5'):
+                self.logger.info("📦 檢測到 HDF5 格式，使用高效讀取")
+                return self._extract_from_hdf5(input_data)
+            elif input_data.endswith('.json'):
+                import json
+                with open(input_data, 'r') as f:
+                    input_data = json.load(f)
+                # 繼續使用字典處理
+
+        # 字典格式處理（JSON 或內存數據）
         satellites_data = input_data.get('satellites', {})
         teme_coordinates = {}
 
@@ -115,6 +137,88 @@ class Stage3DataExtractor:
                 time_series.append(teme_point)
 
         return time_series
+
+    def _extract_from_hdf5(self, hdf5_file: str) -> Dict[str, Any]:
+        """
+        從 HDF5 文件提取 TEME 座標數據（高效讀取）
+
+        Args:
+            hdf5_file: HDF5 文件路徑
+
+        Returns:
+            TEME 座標數據字典
+        """
+        if not HDF5_AVAILABLE:
+            raise ImportError("h5py 未安裝，無法讀取 HDF5 格式")
+
+        teme_coordinates = {}
+
+        self.logger.info(f"📦 開始讀取 HDF5 文件: {hdf5_file}")
+
+        with h5py.File(hdf5_file, 'r') as f:
+            # 驗證格式
+            if f.attrs.get('coordinate_system') != 'TEME':
+                raise ValueError(f"非 TEME 座標格式: {f.attrs.get('coordinate_system')}")
+
+            total_satellites = 0
+
+            # 遍歷所有星座
+            for constellation_name in f.keys():
+                const_group = f[constellation_name]
+
+                # 遍歷星座中的所有衛星
+                for sat_id in const_group.keys():
+                    sat_group = const_group[sat_id]
+
+                    # 讀取壓縮數據（自動解壓）
+                    positions = sat_group['position_teme_km'][:]  # (N, 3) array
+                    velocities = sat_group['velocity_teme_km_s'][:]  # (N, 3) array
+                    timestamps = sat_group['timestamps_utc'][:].astype(str)  # (N,) array
+
+                    # 轉換為階段三所需格式
+                    time_series = [
+                        {
+                            'datetime_utc': ts,
+                            'position_teme_km': pos.tolist(),
+                            'velocity_teme_km_s': vel.tolist()
+                        }
+                        for ts, pos, vel in zip(timestamps, positions, velocities)
+                    ]
+
+                    teme_coordinates[sat_id] = {
+                        'satellite_id': sat_id,
+                        'constellation': sat_group.attrs.get('constellation', constellation_name),
+                        'time_series': time_series
+                    }
+
+                    total_satellites += 1
+
+        self.logger.info(f"✅ HDF5 讀取完成: {total_satellites} 顆衛星數據")
+
+        # 應用取樣模式（如啟用）
+        if self.sample_mode:
+            teme_coordinates = self._apply_sampling_direct(teme_coordinates)
+
+        return teme_coordinates
+
+    def _apply_sampling_direct(self, teme_coordinates: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        直接對 TEME 座標應用取樣（用於 HDF5）
+
+        Args:
+            teme_coordinates: TEME 座標數據
+
+        Returns:
+            取樣後的 TEME 座標數據
+        """
+        if len(teme_coordinates) <= self.sample_size:
+            return teme_coordinates
+
+        sampled_ids = random.sample(list(teme_coordinates.keys()), self.sample_size)
+        sampled = {sat_id: teme_coordinates[sat_id] for sat_id in sampled_ids}
+
+        self.logger.info(f"🔬 取樣模式: {len(sampled)}/{len(teme_coordinates)} 顆衛星")
+        return sampled
 
     def _apply_sampling(
         self,

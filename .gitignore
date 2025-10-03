@@ -40,6 +40,8 @@ htmlcov/
 coverage.xml
 *.cover
 .hypothesis/
+venv/
+.venv/
 
 # 📊 數據文件 (大型數據不提交)
 data/outputs/

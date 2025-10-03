@@ -1,10 +1,11 @@
 # 🛰️ Stage 2: 軌道狀態傳播層 - 完整規格文檔
 
-**最後更新**: 2025-10-01 (效能數據更新)
-**重構狀態**: ✅ 已完成 Skyfield 直接實現
+**最後更新**: 2025-10-03 (v3.1 統一時間窗口重構)
+**重構狀態**: ✅ 已完成 Skyfield 直接實現 + 統一時間窗口
 **學術合規**: Grade A 標準，NASA JPL 精度
 **接口標準**: 100% BaseStageProcessor 合規
 **效能提升**: 🚀 56% 處理速度提升 (vs 重構前)
+**時間同步**: 🆕 統一時間窗口模式（v3.1）
 
 ## 📖 概述與目標
 
@@ -49,12 +50,23 @@ Stage 2: 軌道狀態傳播 (Skyfield 直接實現)
 
 ## 🏗️ 架構設計
 
-### ✅ 簡化重構後的直接架構
+### ✅ 簡化重構後的直接架構（v3.1 統一時間窗口）
 ```
 ┌─────────────────────────────────────────────────────────┐
 │       Stage 2: 軌道狀態傳播層 (Skyfield 直接實現)         │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │     🆕 UnifiedTimeWindowManager (v3.1)          │   │
+│  │                                                 │   │
+│  │  📊 從 Stage 1 讀取推薦參考時刻                  │   │
+│  │  🕐 統一時間窗口生成 (所有衛星共用起點)          │   │
+│  │  🌍 星座感知軌道週期 (Starlink/OneWeb)         │   │
+│  │  ✅ 參考時刻驗證 (±12h 容差檢查)               │   │
+│  │  🔄 向後兼容 (支持 independent_epoch 模式)     │   │
+│  └─────────────────────────────────────────────────┘   │
+│                            │                            │
+│                            ▼                            │
 │  ┌─────────────────────────────────────────────────┐   │
 │  │            SGP4Calculator (簡化版)              │   │
 │  │                                                 │   │
@@ -70,8 +82,9 @@ Stage 2: 軌道狀態傳播 (Skyfield 直接實現)
 │  │      Stage2OrbitalPropagationProcessor          │   │
 │  │                                                 │   │
 │  │  ✅ 使用 Stage 1 epoch_datetime (v3.0合規)     │   │
+│  │  🆕 整合統一時間窗口管理器 (v3.1)              │   │
 │  │  🛰️ 星座分離計算 (Starlink/OneWeb)            │   │
-│  │  ⏱️ 時間序列生成 (動態軌道週期)                │   │
+│  │  ⏱️ 時間序列生成 (統一參考時刻或獨立epoch)     │   │
 │  │  📍 TEME 座標標準輸出                          │   │
 │  │  🔬 5項專用驗證檢查                            │   │
 │  │  📈 100% 成功率 (9,041顆衛星實測)             │   │
@@ -90,20 +103,95 @@ Stage 2: 軌道狀態傳播 (Skyfield 直接實現)
 | **維護負擔** | 複雜包裝層 | 單一Skyfield | **大幅簡化** |
 | **學術可信** | 自建包裝 | NASA JPL標準 | **權威保證** |
 
+## 🆕 統一時間窗口功能（v3.1 新增）
+
+### 🎯 核心問題與解決方案
+
+**問題**：當前 Stage 2 讓每顆衛星使用各自的 epoch 時間生成時間序列，導致：
+- 9,039 顆衛星產生 272,226 個完全不同的時間戳
+- Stage 4 無法統計「某個時刻有多少顆衛星同時可見」
+- 平均可見衛星數異常低（1.02 顆，預期 10-15 顆）
+
+**解決方案**：統一時間窗口模式
+- ✅ 所有衛星共用同一個參考起點時刻（來自 Stage 1 Epoch 分析）
+- ✅ 保持星座特性（Starlink 95分鐘，OneWeb 112分鐘）
+- ✅ 時間序列完全同步（所有 Starlink 共用 190 個時間點）
+- ✅ 計算量減少 39.8%（5,444 顆 vs 9,039 顆）
+
+### 📊 時間序列生成模式
+
+#### 模式 1：unified_window（統一時間窗口）🆕
+```python
+# 所有衛星從同一參考時刻開始
+reference_time = "2025-10-02T02:30:00Z"  # 來自 Stage 1 Epoch 分析
+
+for satellite in satellites:
+    time_series = generate_time_series(
+        start=reference_time,                      # 統一起點！
+        duration=get_orbital_period(satellite),    # 星座特定週期
+        interval=30
+    )
+    # Starlink: [02:30:00, 02:30:30, ..., 04:05:00] (190 點)
+    # OneWeb:   [02:30:00, 02:30:30, ..., 04:22:00] (224 點)
+```
+
+#### 模式 2：independent_epoch（獨立 epoch）
+```python
+# 每顆衛星使用各自的 epoch 時間（舊行為，向後兼容）
+for satellite in satellites:
+    start_time = satellite['epoch_datetime']  # 不同的起點
+    time_series = generate_time_series(
+        start=start_time,
+        duration=get_orbital_period(satellite),
+        interval=30
+    )
+```
+
+### 🔧 配置示例
+
+```yaml
+time_series:
+  # 時間序列生成模式
+  mode: 'unified_window'  # 'unified_window' | 'independent_epoch'
+
+  # 統一時間窗口配置（mode='unified_window' 時生效）
+  unified_window:
+    reference_time_source: 'stage1_analysis'  # 從 Stage 1 讀取
+    max_epoch_deviation_hours: 12             # 參考時刻容差
+
+  # 星座軌道週期配置
+  constellation_orbital_periods:
+    starlink_minutes: 95   # Starlink 軌道週期
+    oneweb_minutes: 112    # OneWeb 軌道週期
+    default_minutes: 100   # 其他衛星默認週期
+
+  # 時間步長
+  interval_seconds: 30
+```
+
+### ✅ 預期效果
+
+| 項目 | 改善前 | 改善後 | 說明 |
+|------|--------|--------|------|
+| **時間序列數量** | 272,226 個 | 190 個 (Starlink) | 所有 Starlink 共用 |
+| **平均可見衛星數** | 1.02 顆 | 10-15 顆 | 時間同步後正常統計 |
+| **處理衛星數** | 9,039 顆 | 5,444 顆 | Stage 1 日期篩選 |
+| **座標點數** | 1,726,109 | 1,039,599 | -39.8% |
+
 ## 🎯 核心功能與職責
 
 ### ✅ **Stage 2 專屬職責**
 
 #### 1. **時間序列規劃與星座分離計算**
-- **目標時間窗口**: 2小時軌道傳播窗口 (基於星座軌道週期優化)
-- **時間步長**: 30秒間隔 (配置優化後)
+- **🆕 時間序列模式**: 統一時間窗口（unified_window）或獨立 epoch（independent_epoch）
+- **🆕 參考時刻來源**: Stage 1 Epoch 分析推薦時刻（例: 2025-10-02T02:30:00Z）
+- **目標時間窗口**: 基於星座軌道週期的傳播窗口
+- **時間步長**: 30秒間隔 (可配置)
 - **星座特定軌道週期** ⚠️ **重要**：
-  - **Starlink**: ~90-95分鐘軌道週期 (LEO 低軌 ~550km)
-  - **OneWeb**: ~109-115分鐘軌道週期 (LEO 高軌 ~1200km)
-- **時間範圍**: 動態計算
-  - Starlink: 191個時間點 (95分鐘 ÷ 30秒)
-  - OneWeb: 224個時間點 (112分鐘 ÷ 30秒)
+  - **Starlink**: 95分鐘軌道週期 → 190個時間點
+  - **OneWeb**: 112分鐘軌道週期 → 224個時間點
 - **時間來源**: 100% 使用 Stage 1 提供的 epoch_datetime
+- **🆕 時間同步保證**: 同一星座的所有衛星使用相同時間序列
 
 #### 2. **SGP4/SDP4 軌道傳播**
 - **專業庫使用**: 使用 skyfield 或 pyephem 等學術級庫

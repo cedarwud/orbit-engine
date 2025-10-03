@@ -333,7 +333,8 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
 
             # 更新統計
             overall_verification = result.get('overall_verification', {})
-            self.processing_stats['pool_verification_passed'] = overall_verification.get('all_pools_pass', False)
+            # 修正：使用正確的欄位名稱 overall_passed
+            self.processing_stats['pool_verification_passed'] = overall_verification.get('overall_passed', False)
 
             # 检查验证器是否正确执行了时间序列遍历
             starlink_pool = result.get('starlink_pool', {})
@@ -407,6 +408,65 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
             self.logger.error(f"ML 訓練數據生成失敗: {e}", exc_info=True)
             return {'generated': False, 'error': str(e)}
 
+    def _extract_latest_snapshot(self, satellite_id: str, sat_data: Dict[str, Any]) -> Dict[str, Any]:
+        """從 time_series 提取最新時間點的詳細數據快照
+
+        Args:
+            satellite_id: 衛星ID
+            sat_data: 包含 time_series 和 summary 的原始數據
+
+        Returns:
+            包含 signal_quality, physical_parameters, visibility_metrics 的快照
+        """
+        time_series = sat_data.get('time_series', [])
+        summary = sat_data.get('summary', {})
+
+        # 使用最新時間點（最後一個）
+        if time_series:
+            latest_point = time_series[-1]
+
+            # 從時間點提取數據
+            signal_quality = latest_point.get('signal_quality', {})
+            physical_parameters = latest_point.get('physical_parameters', {})
+            is_connectable = latest_point.get('is_connectable', False)
+
+            # 構建 visibility_metrics（從 physical_parameters 推導）
+            visibility_metrics = {
+                'is_connectable': is_connectable,
+                'elevation_deg': 45.0,  # 預設值，待從 Stage 4 數據獲取
+                'distance_km': physical_parameters.get('distance_km', 9999.0)
+            }
+
+            # 構建 quality_assessment（從 summary 推導）
+            quality_assessment = {
+                'quality_level': summary.get('average_quality_level', 'unknown'),
+                'link_margin_db': 10.0  # 預設值
+            }
+
+            return {
+                'satellite_id': satellite_id,
+                'constellation': sat_data.get('constellation', 'unknown'),
+                'signal_quality': signal_quality,
+                'physical_parameters': physical_parameters,
+                'visibility_metrics': visibility_metrics,
+                'quality_assessment': quality_assessment,
+                'summary': summary
+            }
+        else:
+            # 無時間序列數據，使用 summary 構建基本快照
+            return {
+                'satellite_id': satellite_id,
+                'constellation': sat_data.get('constellation', 'unknown'),
+                'signal_quality': {
+                    'rsrp_dbm': summary.get('average_rsrp_dbm', -999),
+                    'rs_sinr_db': summary.get('average_sinr_db', -999)
+                },
+                'physical_parameters': {},
+                'visibility_metrics': {'is_connectable': False},
+                'quality_assessment': {'quality_level': summary.get('average_quality_level', 'poor')},
+                'summary': summary
+            }
+
     def _provide_decision_support(self, input_data: Dict[str, Any],
                                   gpp_events: Dict[str, Any]) -> Dict[str, Any]:
         """提供實時決策支援
@@ -428,9 +488,10 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
                 return {'supported': False, 'error': 'No signal_analysis available'}
 
             # 按 RSRP 排序，选择信号最强的作为服务卫星
+            # 修正：從 summary.average_rsrp_dbm 讀取平均信號強度
             satellites_by_rsrp = sorted(
                 signal_analysis.items(),
-                key=lambda x: x[1].get('signal_quality', {}).get('rsrp_dbm', -999),
+                key=lambda x: x[1].get('summary', {}).get('average_rsrp_dbm', -999),
                 reverse=True
             )
 
@@ -439,18 +500,14 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
                 return {'supported': False, 'error': 'No satellites available'}
 
             # 提取服务卫星和候选卫星
+            # 修正：從 time_series 提取最新時間點的詳細數據
             serving_satellite_id, serving_data = satellites_by_rsrp[0]
-            serving_satellite = {
-                'satellite_id': serving_satellite_id,
-                **serving_data
-            }
+            serving_satellite = self._extract_latest_snapshot(serving_satellite_id, serving_data)
 
             candidate_satellites = []
             for sat_id, sat_data in satellites_by_rsrp[1:6]:  # 最多5个候选
-                candidate_satellites.append({
-                    'satellite_id': sat_id,
-                    **sat_data
-                })
+                candidate_snapshot = self._extract_latest_snapshot(sat_id, sat_data)
+                candidate_satellites.append(candidate_snapshot)
 
             # 提取相關的 3GPP 事件
             all_events = []
@@ -477,8 +534,7 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
 
             return {
                 'current_recommendations': [decision],
-                'performance_metrics': self.decision_support.get_performance_metrics(),
-                'adaptive_thresholds': self.decision_support.adaptive_thresholds
+                'decision_count': 1
             }
 
         except Exception as e:

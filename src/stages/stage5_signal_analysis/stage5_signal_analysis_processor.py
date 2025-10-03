@@ -25,12 +25,33 @@ import json
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 import math
-# 🚨 Grade A要求：使用學術級物理常數
+import os
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+# 🚨 Grade A要求：使用學術級物理常數 (優先 Astropy CODATA 2018/2022)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# psutil 用於動態 CPU 檢測（可選依賴）
 try:
-    from src.shared.constants.physics_constants import PhysicsConstants
-except ModuleNotFoundError:
-    from shared.constants.physics_constants import PhysicsConstants
-physics_consts = PhysicsConstants()
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    logger.warning("⚠️ psutil 不可用，將使用保守的 CPU 核心配置")
+
+try:
+    from src.shared.constants.astropy_physics_constants import get_astropy_constants
+    physics_consts = get_astropy_constants()
+    logger.info("✅ 使用 Astropy 官方物理常數 (CODATA 2018/2022)")
+except (ModuleNotFoundError, ImportError):
+    try:
+        from src.shared.constants.physics_constants import PhysicsConstants
+    except ModuleNotFoundError:
+        from shared.constants.physics_constants import PhysicsConstants
+    physics_consts = PhysicsConstants()
+    logger.warning("⚠️ Astropy 不可用，使用 CODATA 2018 備用常數")
 
 
 # 共享模組導入
@@ -120,7 +141,12 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
             # ✅ 已移除 gpp_events_detected - 已移至 Stage 6
         }
 
+        # 🚀 多核心並行處理配置（與 Stage 2/3 相同策略）
+        self.max_workers = self._get_optimal_workers()
+        self.enable_parallel = self.max_workers > 1
+
         self.logger.info("Stage 5 信號品質分析處理器已初始化 - 3GPP/ITU-R 標準模式")
+        self.logger.info(f"🚀 並行處理配置: {self.max_workers} 個工作進程 ({'啟用' if self.enable_parallel else '禁用'})")
 
     def execute(self, input_data: Any) -> Dict[str, Any]:
         """執行 Stage 5 信號品質分析處理 - 統一接口方法"""
@@ -545,49 +571,27 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
                 'rx_antenna_efficiency': rx_antenna_efficiency
             }
 
-            # 遍歷該星座的每顆衛星
-            for satellite in satellites:
-                satellite_id = satellite.get('satellite_id')
-                time_series = satellite.get('time_series', [])
+            # 🚀 並行或順序處理衛星（根據配置動態選擇）
+            if self.enable_parallel and len(satellites) > 5:
+                # 多核心並行處理
+                self.logger.info(f"🚀 使用 {self.max_workers} 個工作器並行處理 {len(satellites)} 顆衛星...")
+                constellation_results = self._process_satellites_parallel(
+                    satellites, constellation, system_config
+                )
+            else:
+                # 單核心順序處理
+                self.logger.info(f"使用單核心處理 {len(satellites)} 顆衛星...")
+                constellation_results = self._process_satellites_serial(
+                    satellites, constellation, system_config
+                )
 
-                if not time_series:
-                    self.logger.warning(f"衛星 {satellite_id} 缺少時間序列數據，跳過")
-                    continue
+            # 合併結果
+            analyzed_satellites.update(constellation_results['satellites'])
 
-                self.processing_stats['total_satellites_analyzed'] += 1
-
-                try:
-                    # 分析時間序列 (逐點計算) - 使用重構後的 time_series_analyzer
-                    time_series_analysis = self.time_series_analyzer.analyze_time_series(
-                        satellite_id=satellite_id,
-                        time_series=time_series,
-                        system_config=system_config
-                    )
-
-                    # 存儲分析結果
-                    analyzed_satellites[satellite_id] = {
-                        'satellite_id': satellite_id,
-                        'constellation': constellation,
-                        'time_series': time_series_analysis['time_series'],
-                        'summary': time_series_analysis['summary'],
-                        'physical_parameters': time_series_analysis['physics_summary']
-                    }
-
-                    # 更新統計 (基於平均品質)
-                    avg_quality = time_series_analysis['summary']['average_quality_level']
-                    if avg_quality == 'excellent':
-                        self.processing_stats['excellent_signals'] += 1
-                    elif avg_quality == 'good':
-                        self.processing_stats['good_signals'] += 1
-                    elif avg_quality == 'fair':
-                        self.processing_stats['fair_signals'] += 1
-                    else:
-                        self.processing_stats['poor_signals'] += 1
-
-                except Exception as e:
-                    self.logger.error(f"❌ 衛星 {satellite_id} 時間序列分析失敗: {e}")
-                    self.processing_stats['poor_signals'] += 1
-                    continue
+            # 更新統計
+            for quality_level, count in constellation_results['stats'].items():
+                if quality_level in self.processing_stats:
+                    self.processing_stats[quality_level] += count
 
         self.logger.info(f"✅ 信號分析完成: {len(analyzed_satellites)} 顆衛星")
         return analyzed_satellites
@@ -708,6 +712,265 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
         except Exception as e:
             self.logger.error(f"❌ Stage 5驗證快照保存失敗: {e}")
             return False
+
+    def _process_satellites_serial(
+        self,
+        satellites: List[Dict[str, Any]],
+        constellation: str,
+        system_config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """順序處理衛星（單核心）"""
+        analyzed_satellites = {}
+        stats = {
+            'total_satellites_analyzed': 0,
+            'excellent_signals': 0,
+            'good_signals': 0,
+            'fair_signals': 0,
+            'poor_signals': 0
+        }
+
+        for satellite in satellites:
+            satellite_id = satellite.get('satellite_id')
+            time_series = satellite.get('time_series', [])
+
+            if not time_series:
+                self.logger.warning(f"衛星 {satellite_id} 缺少時間序列數據，跳過")
+                continue
+
+            stats['total_satellites_analyzed'] += 1
+
+            try:
+                # 分析時間序列
+                time_series_analysis = self.time_series_analyzer.analyze_time_series(
+                    satellite_id=satellite_id,
+                    time_series=time_series,
+                    system_config=system_config
+                )
+
+                # 存儲分析結果
+                analyzed_satellites[satellite_id] = {
+                    'satellite_id': satellite_id,
+                    'constellation': constellation,
+                    'time_series': time_series_analysis['time_series'],
+                    'summary': time_series_analysis['summary'],
+                    'physical_parameters': time_series_analysis['physics_summary']
+                }
+
+                # 更新統計
+                avg_quality = time_series_analysis['summary']['average_quality_level']
+                if avg_quality == 'excellent':
+                    stats['excellent_signals'] += 1
+                elif avg_quality == 'good':
+                    stats['good_signals'] += 1
+                elif avg_quality == 'fair':
+                    stats['fair_signals'] += 1
+                else:
+                    stats['poor_signals'] += 1
+
+            except Exception as e:
+                self.logger.error(f"❌ 衛星 {satellite_id} 時間序列分析失敗: {e}")
+                stats['poor_signals'] += 1
+                continue
+
+        return {
+            'satellites': analyzed_satellites,
+            'stats': stats
+        }
+
+    def _process_satellites_parallel(
+        self,
+        satellites: List[Dict[str, Any]],
+        constellation: str,
+        system_config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """並行處理衛星（多核心）"""
+        analyzed_satellites = {}
+        stats = {
+            'total_satellites_analyzed': 0,
+            'excellent_signals': 0,
+            'good_signals': 0,
+            'fair_signals': 0,
+            'poor_signals': 0
+        }
+
+        # 創建進程池並提交任務
+        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+            # 提交所有衛星處理任務
+            future_to_satellite = {
+                executor.submit(
+                    _process_single_satellite_worker,
+                    satellite,
+                    constellation,
+                    system_config,
+                    self.signal_thresholds,
+                    self.config
+                ): satellite for satellite in satellites if satellite.get('time_series')
+            }
+
+            # 收集結果
+            completed = 0
+            total = len(future_to_satellite)
+
+            for future in as_completed(future_to_satellite):
+                satellite = future_to_satellite[future]
+                satellite_id = satellite.get('satellite_id')
+                completed += 1
+
+                try:
+                    result = future.result()
+                    if result and 'satellite_id' in result:
+                        analyzed_satellites[result['satellite_id']] = result
+                        stats['total_satellites_analyzed'] += 1
+
+                        # 更新統計
+                        avg_quality = result.get('summary', {}).get('average_quality_level', 'poor')
+                        if avg_quality == 'excellent':
+                            stats['excellent_signals'] += 1
+                        elif avg_quality == 'good':
+                            stats['good_signals'] += 1
+                        elif avg_quality == 'fair':
+                            stats['fair_signals'] += 1
+                        else:
+                            stats['poor_signals'] += 1
+
+                except Exception as e:
+                    self.logger.error(f"❌ 衛星 {satellite_id} 並行處理失敗: {e}")
+                    stats['poor_signals'] += 1
+
+                # 進度報告（每 10 顆）
+                if completed % 10 == 0 or completed == total:
+                    self.logger.info(f"   進度: {completed}/{total} 顆衛星已處理 ({completed*100//total}%)")
+
+        return {
+            'satellites': analyzed_satellites,
+            'stats': stats
+        }
+
+    def _get_optimal_workers(self) -> int:
+        """
+        動態計算最優工作器數量 - 基於 CPU 狀態和配置
+        （與 Stage 2/3 相同的策略）
+
+        優先級：
+        1. 環境變數 ORBIT_ENGINE_MAX_WORKERS
+        2. 配置文件 performance.max_workers
+        3. 動態 CPU 檢測（使用 psutil）
+        4. 保守預設值（75% 核心）
+
+        Returns:
+            int: 最優工作器數量
+        """
+        try:
+            # 1. 檢查環境變數設定（最高優先級）
+            env_workers = os.environ.get('ORBIT_ENGINE_MAX_WORKERS')
+            if env_workers and env_workers.isdigit():
+                workers = int(env_workers)
+                if workers > 0:
+                    self.logger.info(f"📋 使用環境變數設定: {workers} 個工作器")
+                    return workers
+
+            # 2. 檢查配置文件設定
+            performance_config = self.config.get('performance', {})
+            config_workers = performance_config.get('max_workers')
+
+            if config_workers and config_workers > 0:
+                self.logger.info(f"📋 使用配置文件設定: {config_workers} 個工作器")
+                return config_workers
+
+            # 3. 檢查是否強制單線程
+            if performance_config.get('force_single_thread', False):
+                self.logger.info("⚠️ 強制單線程模式")
+                return 1
+
+            # 4. 動態 CPU 狀態檢測
+            total_cpus = mp.cpu_count()
+
+            if not PSUTIL_AVAILABLE:
+                # 沒有 psutil，使用 75% 核心作為預設
+                workers = max(1, int(total_cpus * 0.75))
+                self.logger.info(f"💻 未安裝 psutil，使用預設 75% 核心 = {workers} 個工作器")
+                return workers
+
+            # 獲取當前 CPU 使用率（採樣 0.5 秒）
+            try:
+                cpu_usage = psutil.cpu_percent(interval=0.5)
+
+                # 動態策略：根據 CPU 使用率調整
+                if cpu_usage < 30:
+                    # CPU 空閒：使用 95% 核心（積極並行）
+                    workers = max(1, int(total_cpus * 0.95))
+                    self.logger.info(
+                        f"💻 CPU 空閒（{cpu_usage:.1f}%）：使用 95% 核心 = {workers} 個工作器"
+                    )
+                elif cpu_usage < 50:
+                    # CPU 中度使用：使用 75% 核心
+                    workers = max(1, int(total_cpus * 0.75))
+                    self.logger.info(
+                        f"💻 CPU 中度使用（{cpu_usage:.1f}%）：使用 75% 核心 = {workers} 個工作器"
+                    )
+                else:
+                    # CPU 繁忙：使用 50% 核心
+                    workers = max(1, int(total_cpus * 0.5))
+                    self.logger.info(
+                        f"💻 CPU 繁忙（{cpu_usage:.1f}%）：使用 50% 核心 = {workers} 個工作器"
+                    )
+
+                return workers
+
+            except Exception as cpu_error:
+                self.logger.warning(f"⚠️ CPU 狀態檢測失敗: {cpu_error}，使用預設配置")
+                # 回退策略：75% 核心
+                fallback_workers = max(1, int(total_cpus * 0.75))
+                self.logger.info(f"📋 回退配置: {fallback_workers} 個工作器")
+                return fallback_workers
+
+        except Exception as e:
+            self.logger.error(f"❌ 工作器數量計算失敗: {e}，使用單核心")
+            return 1
+
+
+def _process_single_satellite_worker(
+    satellite: Dict[str, Any],
+    constellation: str,
+    system_config: Dict[str, Any],
+    signal_thresholds: Dict[str, float],
+    config: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """
+    Worker 函數：處理單顆衛星（用於並行處理）
+
+    注意：這個函數必須在類外部定義，以便 ProcessPoolExecutor 可以序列化它
+    """
+    try:
+        # 在 worker 進程中重新創建分析器
+        from .time_series_analyzer import create_time_series_analyzer
+        time_series_analyzer = create_time_series_analyzer(config, signal_thresholds)
+
+        satellite_id = satellite.get('satellite_id')
+        time_series = satellite.get('time_series', [])
+
+        if not time_series:
+            return None
+
+        # 分析時間序列
+        time_series_analysis = time_series_analyzer.analyze_time_series(
+            satellite_id=satellite_id,
+            time_series=time_series,
+            system_config=system_config
+        )
+
+        # 返回分析結果
+        return {
+            'satellite_id': satellite_id,
+            'constellation': constellation,
+            'time_series': time_series_analysis['time_series'],
+            'summary': time_series_analysis['summary'],
+            'physical_parameters': time_series_analysis['physics_summary']
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Worker 處理衛星 {satellite.get('satellite_id')} 失敗: {e}")
+        return None
 
 
 def create_stage5_processor(config: Optional[Dict[str, Any]] = None) -> Stage5SignalAnalysisProcessor:

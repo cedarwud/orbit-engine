@@ -88,7 +88,7 @@ class DataValidator:
             self.logger.info(f"  ✅ 官方標準: {self.checksum_stats['official_standard']} ({official_pct:.1f}%)")
 
             if self.checksum_stats['legacy_non_standard'] > 0:
-                self.logger.warning(f"  ⚠️ 數據來源問題: {self.checksum_stats['legacy_non_standard']} ({legacy_pct:.1f}%) 使用錯誤的checksum算法 (遺漏正號處理)")
+                self.logger.warning(f"  ⚠️ 數據來源問題: {self.checksum_stats['legacy_non_standard']} ({legacy_pct:.1f}%) 使用錯誤的checksum算法 (錯誤地將正號+算作1)")
 
             if self.checksum_stats['invalid'] > 0:
                 self.logger.error(f"  ❌ 校驗失敗: {self.checksum_stats['invalid']} ({invalid_pct:.1f}%)")
@@ -712,34 +712,37 @@ class DataValidator:
         """
         驗證TLE行校驗和（學術級實現，同時支援官方標準和現實數據）
 
-        實現說明：
-        1. 官方 NORAD/NASA 標準: 正號(+)和負號(-)都算作1
-        2. 數據來源問題: 許多TLE提供者錯誤實現checksum（遺漏正號處理）
+        🎓 學術級實現說明：
+        1. 官方 NORAD/NASA 標準: 只有負號(-)算作1，正號(+)被忽略
+        2. 數據來源問題: 許多TLE提供者錯誤地將正號(+)也算作1
         3. 學術解決方案: 實現正確算法，但兼容錯誤數據源，並明確標記問題
 
-        參考: https://celestrak.org/NORAD/documentation/tle-fmt.php
+        參考文獻:
+        - CelesTrak TLE Format: https://celestrak.org/NORAD/documentation/tle-fmt.php
+        - 與 python-sgp4 (Rhodes, 2020) 實現一致
         """
         if len(tle_line) != 69:
             return False
 
         expected_checksum = int(tle_line[68])
 
-        # 官方標準算法 (包含正號處理)
+        # 官方標準算法 (正號被忽略)
         checksum_official = 0
         for char in tle_line[:68]:
             if char.isdigit():
                 checksum_official += int(char)
-            elif char == '-' or char == '+':
+            elif char == '-':
                 checksum_official += 1
+            # 正號(+)被忽略（官方標準）
         checksum_official = checksum_official % 10
 
-        # 數據來源錯誤算法 (遺漏正號處理) - 許多TLE提供者錯誤實現了checksum
+        # 數據來源錯誤算法 (錯誤地將正號也算作1) - 許多TLE提供者的錯誤實現
         checksum_legacy = 0
         for char in tle_line[:68]:
             if char.isdigit():
                 checksum_legacy += int(char)
-            elif char == '-':
-                checksum_legacy += 1
+            elif char == '-' or char == '+':
+                checksum_legacy += 1  # 錯誤：將正號也算作1
         checksum_legacy = checksum_legacy % 10
 
         # 優先檢查官方標準，如果不匹配則檢查遺留算法

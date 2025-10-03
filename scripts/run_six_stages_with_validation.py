@@ -48,8 +48,27 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-# 確保能找到模組
+# 🔧 自動加載環境變數（從 .env 文件）
+# 更新日期: 2025-10-03
+# 功能: 進入虛擬環境後無需手動 export，直接執行即可
+from dotenv import load_dotenv
+
+# 加載項目根目錄的 .env 文件
 project_root = Path(__file__).parent.parent
+env_file = project_root / '.env'
+if env_file.exists():
+    load_dotenv(env_file)
+    logger_early = logging.getLogger(__name__)
+    logger_early.info(f"✅ 已自動加載環境配置: {env_file}")
+    # 顯示關鍵配置（用於確認）
+    test_mode = os.getenv('ORBIT_ENGINE_TEST_MODE', '未設置')
+    logger_early.info(f"   ORBIT_ENGINE_TEST_MODE = {test_mode}")
+else:
+    logger_early = logging.getLogger(__name__)
+    logger_early.warning(f"⚠️  未找到 .env 文件: {env_file}")
+    logger_early.warning(f"   將使用預設配置或環境變數")
+
+# 確保能找到模組
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / 'src'))
 
@@ -170,10 +189,24 @@ def execute_stage1_unified() -> tuple:
         else:
             use_sampling = use_sampling == '1'
 
-        config = {'sample_mode': use_sampling, 'sample_size': 50} if use_sampling else {}
+        # 🆕 Stage 1 配置（含 Epoch 分析） - 2025-10-03
+        config = {
+            'sample_mode': use_sampling,
+            'sample_size': 50,
+            # 🆕 Epoch 分析配置
+            'epoch_analysis': {
+                'enabled': True  # 啟用 epoch 動態分析
+            },
+            # 🆕 Epoch 篩選配置
+            'epoch_filter': {
+                'enabled': True,          # 啟用日期篩選
+                'mode': 'latest_date',    # 篩選最新日期
+                'tolerance_hours': 0      # 🔧 不使用容差，只保留當天衛星
+            }
+        } if not use_sampling else {'sample_mode': use_sampling, 'sample_size': 50}
 
         stage1 = create_stage1_processor(config=config)
-        mode_msg = "取樣模式 (50顆衛星)" if use_sampling else "完整模式 (全部衛星)"
+        mode_msg = "取樣模式 (50顆衛星)" if use_sampling else "完整模式 (全部衛星 + Epoch 分析)"
         print(f'✅ 使用 Stage1MainProcessor (唯一處理器) - {mode_msg}')
 
         # 執行 Stage 1
@@ -1205,7 +1238,12 @@ def run_all_stages_sequential(validation_level='STANDARD'):
         else:
             use_sampling = use_sampling == '1'
 
+        # 🔧 v3.1 重構：禁用預篩選器（Stage 1 已完成日期篩選）
+        # 原因：Stage 1 Epoch 篩選後僅保留 5,444 顆衛星，無需額外預篩選
+        # 效果：保留更多候選衛星，提升 Stage 4 可見性統計準確度
+
         stage3_config = {
+            'enable_geometric_prefilter': False,  # 🆕 v3.1: 直接禁用
             'coordinate_config': {
                 'source_frame': 'TEME',
                 'target_frame': 'WGS84',
@@ -1221,6 +1259,8 @@ def run_all_stages_sequential(validation_level='STANDARD'):
                 'target_accuracy_m': 0.5
             }
         }
+
+        print('🆕 Stage 3: 預篩選已禁用 (v3.1) - Stage 1 已完成 Epoch 篩選')
 
         if use_sampling:
             stage3_config['sample_mode'] = True
@@ -1607,7 +1647,12 @@ def run_stage_specific(target_stage, validation_level='STANDARD'):
                 return False, 3, "需要Stage 2輸出文件"
 
             from stages.stage3_coordinate_transformation.stage3_coordinate_transform_processor import Stage3CoordinateTransformProcessor
+
+            # 🔧 v3.1 重構：禁用預篩選器（Stage 1 已完成日期篩選）
+            # 原因：Stage 1 Epoch 篩選後僅保留 5,444 顆衛星，無需額外預篩選
+
             stage3_config = {
+                'enable_geometric_prefilter': False,  # 🆕 v3.1: 直接禁用
                 'coordinate_config': {
                     'source_frame': 'TEME',
                     'target_frame': 'WGS84',

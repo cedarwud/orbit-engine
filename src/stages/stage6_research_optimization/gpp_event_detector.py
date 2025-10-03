@@ -384,22 +384,32 @@ class GPPEventDetector:
 
         # 如果指定服務衛星
         if serving_satellite_id and serving_satellite_id in signal_analysis:
-            return signal_analysis[serving_satellite_id]
+            sat_data = signal_analysis[serving_satellite_id]
+            return self._extract_satellite_snapshot(serving_satellite_id, sat_data)
 
         # 選擇 RSRP 最高的衛星
-        best_satellite = None
+        # 修正：從 summary.average_rsrp_dbm 讀取
+        best_satellite_id = None
         max_rsrp = float('-inf')
 
         for sat_id, sat_data in signal_analysis.items():
             try:
-                rsrp = sat_data['signal_quality']['rsrp_dbm']
+                # 從 summary 讀取平均 RSRP
+                summary = sat_data.get('summary', {})
+                rsrp = summary.get('average_rsrp_dbm', -999)
+
                 if rsrp > max_rsrp:
                     max_rsrp = rsrp
-                    best_satellite = sat_data
+                    best_satellite_id = sat_id
             except (KeyError, TypeError):
                 continue
 
-        return best_satellite
+        # 提取服務衛星的完整快照
+        if best_satellite_id:
+            sat_data = signal_analysis[best_satellite_id]
+            return self._extract_satellite_snapshot(best_satellite_id, sat_data)
+
+        return None
 
     def _extract_neighbor_satellites(
         self,
@@ -411,9 +421,52 @@ class GPPEventDetector:
 
         for sat_id, sat_data in signal_analysis.items():
             if sat_id != serving_satellite_id:
-                neighbor_satellites.append(sat_data)
+                # 從 time_series 提取最新時間點數據
+                snapshot = self._extract_satellite_snapshot(sat_id, sat_data)
+                neighbor_satellites.append(snapshot)
 
         return neighbor_satellites
+
+    def _extract_satellite_snapshot(self, sat_id: str, sat_data: Dict[str, Any]) -> Dict[str, Any]:
+        """從 time_series 提取最新時間點的衛星數據快照
+
+        Args:
+            sat_id: 衛星ID
+            sat_data: 包含 time_series 和 summary 的原始數據
+
+        Returns:
+            包含 signal_quality, physical_parameters 的快照
+        """
+        time_series = sat_data.get('time_series', [])
+        summary = sat_data.get('summary', {})
+
+        # 使用最新時間點（最後一個）
+        if time_series:
+            latest_point = time_series[-1]
+            signal_quality = latest_point.get('signal_quality', {})
+            physical_parameters = latest_point.get('physical_parameters', {})
+
+            return {
+                'satellite_id': sat_id,
+                'constellation': sat_data.get('constellation', 'unknown'),
+                'signal_quality': signal_quality,
+                'physical_parameters': physical_parameters,
+                'summary': summary
+            }
+        else:
+            # 無時間序列數據，使用 summary 構建基本快照
+            return {
+                'satellite_id': sat_id,
+                'constellation': sat_data.get('constellation', 'unknown'),
+                'signal_quality': {
+                    'rsrp_dbm': summary.get('average_rsrp_dbm', -999),
+                    'rs_sinr_db': summary.get('average_sinr_db', -999)
+                },
+                'physical_parameters': {
+                    'distance_km': 9999.0  # 預設值
+                },
+                'summary': summary
+            }
 
     def _empty_event_result(self) -> Dict[str, Any]:
         """返回空的事件檢測結果"""

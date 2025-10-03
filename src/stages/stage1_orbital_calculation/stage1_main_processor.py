@@ -29,6 +29,9 @@ from .tle_data_loader import TLEDataLoader
 from .data_validator import DataValidator
 from .time_reference_manager import TimeReferenceManager
 
+# 🆕 導入 Epoch 分析組件 (2025-10-03)
+from .epoch_analyzer import EpochAnalyzer, EpochFilter
+
 # 導入標準接口
 from shared.interfaces.processor_interface import ProcessingResult, ProcessingStatus, ProcessingMetrics
 from shared.base_processor import BaseStageProcessor
@@ -58,7 +61,16 @@ class Stage1MainProcessor(BaseStageProcessor):
         self.data_validator = DataValidator()
         self.time_manager = TimeReferenceManager()
 
-        logger.info("🏗️ Stage 1 Main Processor 已初始化 (v2.0架構)")
+        # 🆕 初始化 Epoch 分析組件 (v2.1 - 2025-10-03)
+        self.epoch_analyzer = EpochAnalyzer()
+
+        epoch_filter_config = self.config.get('epoch_filter', {})
+        self.epoch_filter = EpochFilter(epoch_filter_config)
+
+        # 用於儲存 epoch 分析結果
+        self.epoch_analysis = None
+
+        logger.info("🏗️ Stage 1 Main Processor 已初始化 (v2.1 - 含 Epoch 分析)")
 
     def process(self, input_data: Optional[Dict[str, Any]] = None) -> ProcessingResult:
         """
@@ -90,6 +102,24 @@ class Stage1MainProcessor(BaseStageProcessor):
                 sample_size=self.config.get('sample_size', 500)
             )
             logger.info(f"✅ Phase 1 完成: 載入 {len(satellites_data)} 顆衛星數據")
+
+            # 🆕 === Phase 1.5: 執行 Epoch 分析 === (2025-10-03)
+            epoch_analysis_enabled = self.config.get('epoch_analysis', {}).get('enabled', False)
+
+            if epoch_analysis_enabled:
+                logger.info("📊 Phase 1.5: 執行 Epoch 分析...")
+                self.epoch_analysis = self.epoch_analyzer.analyze_epoch_distribution(satellites_data)
+                logger.info(f"✅ Epoch 分析完成: 推薦參考時刻 {self.epoch_analysis['recommended_reference_time']}")
+
+                # 保存 epoch 分析報告
+                self._save_epoch_analysis()
+
+                # 🆕 === Phase 1.6: 執行 Epoch 篩選 === (2025-10-03)
+                logger.info("🔍 Phase 1.6: 執行 Epoch 篩選...")
+                satellites_data = self.epoch_filter.filter_satellites(satellites_data, self.epoch_analysis)
+                logger.info(f"✅ Epoch 篩選完成: 保留 {len(satellites_data)} 顆衛星")
+            else:
+                logger.info("ℹ️  Epoch 分析功能未啟用")
 
             # === Phase 2: 執行數據驗證 ===
             logger.info("🔍 Phase 2: 執行數據驗證...")
@@ -186,6 +216,11 @@ class Stage1MainProcessor(BaseStageProcessor):
         # 根據學術標準，每筆TLE記錄使用各自的epoch時間進行軌道計算
         metadata['time_base_source'] = 'individual_tle_epochs'
         metadata['tle_epoch_compliance'] = True
+
+        # 🆕 整合 Epoch 分析結果 (2025-10-03)
+        if self.epoch_analysis is not None:
+            metadata['epoch_analysis'] = self.epoch_analysis
+            logger.info(f"📊 Epoch 分析已整合到 metadata（推薦參考時刻: {self.epoch_analysis['recommended_reference_time']}）")
 
         # 學術合規標記 (完整字典格式)
         # v2.0: 區分 TLE 數據層 vs 系統參數層的合規性
@@ -471,6 +506,39 @@ class Stage1MainProcessor(BaseStageProcessor):
             self.logger.error(f"❌ 快照保存失敗: {e}")
             return False
 
+    def _save_epoch_analysis(self) -> bool:
+        """
+        🆕 保存 Epoch 分析報告 (2025-10-03)
+
+        將 epoch 分析結果保存為 JSON 文件，供 Stage 2 使用
+
+        Returns:
+            bool: 保存成功返回 True
+        """
+        if self.epoch_analysis is None:
+            logger.warning("⚠️ Epoch 分析結果為空，跳過保存")
+            return False
+
+        try:
+            # 確保輸出目錄存在
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+
+            # 固定文件名（Stage 2 需要讀取此檔案）
+            output_path = self.output_dir / 'epoch_analysis.json'
+
+            # 保存為 JSON 文件
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(self.epoch_analysis, f, indent=2, ensure_ascii=False, default=str)
+
+            logger.info(f"💾 Epoch 分析報告已保存: {output_path}")
+            logger.info(f"📊 推薦參考時刻: {self.epoch_analysis['recommended_reference_time']}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Epoch 分析報告保存失敗: {e}")
+            return False
+
     def _save_output_file(self, processing_result: ProcessingResult) -> bool:
         """
         保存 Stage 1 輸出文件供後續階段使用
@@ -559,19 +627,22 @@ class Stage1MainProcessor(BaseStageProcessor):
         """
         計算 TLE 行的 checksum (官方 Modulo 10 算法)
 
-        基於 NORAD/NASA 官方 TLE 格式規範:
-        - 數字 0-9: 加上數字值
-        - 負號 '-': 加 1
-        - 正號 '+': 加 1
-        - 其他字符: 忽略
+        🎓 學術級實現 - 官方 NORAD Modulo 10 算法：
+        - 數字 (0-9): 加上該數字的值
+        - 負號 (-): 算作 1
+        - 其他字符 (字母、空格、句點、正號+): 忽略
+        - Checksum = (sum % 10)
 
-        參考: https://celestrak.org/NORAD/documentation/tle-fmt.php
+        參考文獻：
+        - CelesTrak TLE Format: https://celestrak.org/NORAD/documentation/tle-fmt.php
+        - USSPACECOM Two-Line Element Set Format
+        - 與 python-sgp4 (Rhodes, 2020) 實現一致
 
         Args:
             line: TLE 行數據 (不含 checksum 位)
 
         Returns:
-            int: 計算得出的 checksum
+            int: 計算得出的 checksum (0-9)
         """
         checksum = 0
         for char in line:
@@ -579,9 +650,7 @@ class Stage1MainProcessor(BaseStageProcessor):
                 checksum += int(char)
             elif char == '-':
                 checksum += 1  # 負號算作 1
-            elif char == '+':
-                checksum += 1  # 正號算作 1 (修復: 之前遺漏)
-            # 其他字符 (字母、空格、句點等) 被忽略
+            # 其他字符 (字母、空格、句點、正號+) 被忽略
 
         return checksum % 10
 

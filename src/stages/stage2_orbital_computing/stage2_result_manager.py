@@ -2,14 +2,26 @@
 📊 Stage 2: 結果管理模組
 
 負責 Stage 2 處理結果的構建、保存和載入操作。
+
+支援格式：
+- JSON：向後兼容，易讀性高
+- HDF5：高效壓縮，學術標準格式
 """
 
 import logging
 import json
 import os
 import glob
+import numpy as np
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Any, Optional
+
+try:
+    import h5py
+    HDF5_AVAILABLE = True
+except ImportError:
+    HDF5_AVAILABLE = False
+    logging.warning("⚠️ h5py 未安裝，HDF5 格式不可用")
 
 logger = logging.getLogger(__name__)
 
@@ -159,15 +171,16 @@ class Stage2ResultManager:
         with open(stage1_output_file, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-    def save_results(self, results: Dict[str, Any]) -> str:
+    def save_results(self, results: Dict[str, Any], output_format: str = 'both') -> str:
         """
-        保存 Stage 2 處理結果到文件
+        保存 Stage 2 處理結果到文件（支援 JSON/HDF5 雙格式）
 
         Args:
             results: 處理結果數據
+            output_format: 輸出格式 ('json', 'hdf5', 'both')
 
         Returns:
-            str: 輸出文件路徑
+            str: 主要輸出文件路徑
 
         Raises:
             IOError: 保存失敗
@@ -177,14 +190,109 @@ class Stage2ResultManager:
             os.makedirs(output_dir, exist_ok=True)
 
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-            output_file = os.path.join(output_dir, f"orbital_propagation_output_{timestamp}.json")
+            output_files = []
 
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(results, f, ensure_ascii=False, indent=2, default=str)
+            # JSON 格式（向後兼容）
+            if output_format in ('json', 'both'):
+                json_file = os.path.join(output_dir, f"orbital_propagation_output_{timestamp}.json")
+                with open(json_file, 'w', encoding='utf-8') as f:
+                    json.dump(results, f, ensure_ascii=False, indent=2, default=str)
+                self.logger.info(f"📁 JSON 格式已保存: {json_file}")
+                output_files.append(json_file)
 
-            self.logger.info(f"📁 Stage 2 結果已保存: {output_file}")
-            return output_file
+            # HDF5 格式（高效儲存）
+            if output_format in ('hdf5', 'both') and HDF5_AVAILABLE:
+                hdf5_file = os.path.join(output_dir, f"orbital_propagation_output_{timestamp}.h5")
+                self._save_results_hdf5(results, hdf5_file)
+                self.logger.info(f"📦 HDF5 格式已保存: {hdf5_file}")
+                output_files.append(hdf5_file)
+
+            # 返回主要格式路徑（HDF5 優先，否則 JSON）
+            return output_files[-1] if output_files else ""
 
         except Exception as e:
             self.logger.error(f"❌ 保存 Stage 2 結果失敗: {e}")
             raise IOError(f"無法保存 Stage 2 結果: {e}")
+
+    def _save_results_hdf5(self, results: Dict[str, Any], output_file: str):
+        """
+        保存結果為 HDF5 格式（學術標準，高效壓縮）
+
+        Args:
+            results: 處理結果數據
+            output_file: HDF5 輸出文件路徑
+        """
+        if not HDF5_AVAILABLE:
+            self.logger.warning("⚠️ h5py 未安裝，跳過 HDF5 保存")
+            return
+
+        with h5py.File(output_file, 'w') as f:
+            # 保存元數據
+            metadata = results.get('metadata', {})
+            f.attrs['stage'] = results.get('stage', 'stage2_orbital_computing')
+            f.attrs['coordinate_system'] = metadata.get('coordinate_system', 'TEME')
+            f.attrs['architecture_version'] = metadata.get('architecture_version', 'v3.0')
+            f.attrs['timestamp'] = datetime.now(timezone.utc).isoformat()
+            f.attrs['total_satellites'] = metadata.get('total_satellites_processed', 0)
+
+            # 保存衛星數據（按星座分組）
+            satellites_data = results.get('satellites', {})
+
+            for constellation_name, constellation_sats in satellites_data.items():
+                if not isinstance(constellation_sats, dict):
+                    continue
+
+                # 創建星座組
+                const_group = f.create_group(constellation_name)
+
+                for sat_id, sat_data in constellation_sats.items():
+                    # 創建衛星組
+                    sat_group = const_group.create_group(sat_id)
+
+                    # 提取軌道狀態數據
+                    orbital_states = sat_data.get('orbital_states', [])
+                    if not orbital_states:
+                        continue
+
+                    # TEME 位置 (N x 3)
+                    positions = np.array([
+                        state['position_teme'] for state in orbital_states
+                    ], dtype=np.float64)
+
+                    # TEME 速度 (N x 3)
+                    velocities = np.array([
+                        state['velocity_teme'] for state in orbital_states
+                    ], dtype=np.float64)
+
+                    # 時間戳 (N,)
+                    timestamps = np.array([
+                        state['timestamp'] for state in orbital_states
+                    ], dtype='S32')
+
+                    # 保存數據集（使用 gzip 壓縮）
+                    sat_group.create_dataset(
+                        'position_teme_km',
+                        data=positions,
+                        compression='gzip',
+                        compression_opts=6
+                    )
+                    sat_group.create_dataset(
+                        'velocity_teme_km_s',
+                        data=velocities,
+                        compression='gzip',
+                        compression_opts=6
+                    )
+                    sat_group.create_dataset(
+                        'timestamps_utc',
+                        data=timestamps
+                    )
+
+                    # 衛星元數據
+                    sat_group.attrs['constellation'] = sat_data.get('constellation', '')
+                    sat_group.attrs['epoch_datetime'] = sat_data.get('epoch_datetime', '')
+                    sat_group.attrs['algorithm_used'] = sat_data.get('algorithm_used', 'SGP4')
+                    sat_group.attrs['total_positions'] = len(orbital_states)
+
+        # 記錄壓縮效果
+        file_size_mb = os.path.getsize(output_file) / (1024 * 1024)
+        self.logger.info(f"📦 HDF5 文件大小: {file_size_mb:.1f} MB")

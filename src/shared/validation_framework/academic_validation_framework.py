@@ -254,6 +254,16 @@ class PhysicsValidator:
         """
         驗證TLE校驗和（基於NORAD官方算法）
 
+        🎓 學術級實現 - 官方 NORAD Modulo 10 算法：
+        - 數字 (0-9): 加上該數字的值
+        - 負號 (-): 算作 1
+        - 其他字符 (字母、空格、句點、正號+): 忽略
+        - Checksum = (sum % 10)
+
+        參考文獻：
+        - CelesTrak TLE Format: https://celestrak.org/NORAD/documentation/tle-fmt.php
+        - 與 python-sgp4 (Rhodes, 2020) 實現一致
+
         Args:
             tle_line: TLE行字符串
 
@@ -263,15 +273,14 @@ class PhysicsValidator:
         if len(tle_line) != 69:
             return False
 
-        # 計算校驗和（NORAD標準）
+        # 計算校驗和（NORAD官方標準）
         checksum = 0
         for char in tle_line[:-1]:  # 除最後一位校驗和數字外
             if char.isdigit():
                 checksum += int(char)
             elif char == '-':
                 checksum += 1  # 負號算作1
-            elif char == '+':
-                checksum += 1  # 正號算作1
+            # 正號(+)被忽略（官方標準）
 
         expected_checksum = int(tle_line[-1])
         calculated_checksum = checksum % 10
