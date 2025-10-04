@@ -64,13 +64,14 @@ except ModuleNotFoundError:
     from shared.interfaces import ProcessingStatus, ProcessingResult, create_processing_result
     from shared.validation_framework import ValidationEngine
 # Stage 5核心模組 (重構後專注信號品質分析)
-from .signal_quality_calculator import SignalQualityCalculator
-# ✅ 新增重構後的模組
 from .itur_physics_calculator import create_itur_physics_calculator
 from .stage5_compliance_validator import create_stage5_validator
 from .time_series_analyzer import create_time_series_analyzer
-# ❌ 已移除 PhysicsCalculator - 已棄用 (使用簡化算法，違反 Grade A 標準)
-# ✅ 已移除 GPPEventDetector - 已移至 Stage 6 研究數據生成層
+
+# ✅ 重構後的模組化組件
+from .parallel_processing import CPUOptimizer, SignalAnalysisWorkerManager
+from .data_processing import ConfigManager, InputExtractor
+from .output_management import ResultBuilder, SnapshotManager
 
 logger = logging.getLogger(__name__)
 
@@ -89,47 +90,14 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(stage_number=5, stage_name="signal_quality_analysis", config=config or {})
 
-        # ✅ Grade A 要求: 添加必要的接收器參數（來源：文檔或設備規格書）
-        # 依據: docs/stages/stage5-signal-analysis.md Line 354-366
-        if 'noise_figure_db' not in self.config:
-            # SOURCE: ITU-R P.372-13 典型商用接收器規格
-            self.config['noise_figure_db'] = 7.0  # dB (典型商用接收器)
-        if 'temperature_k' not in self.config:
-            # SOURCE: ITU-R P.372-13 標準接收器溫度
-            self.config['temperature_k'] = 290.0  # K (標準溫度)
+        # ✅ 使用模組化配置管理器
+        self.config_manager = ConfigManager(self.config)
+        self.signal_thresholds = self.config_manager.get_thresholds()
 
-        # 配置參數
-        self.frequency_ghz = self.config.get('frequency_ghz', 12.0)  # Ku-band
-        self.tx_power_dbw = self.config.get('tx_power_dbw', 40.0)
-        self.antenna_gain_db = self.config.get('antenna_gain_db', 35.0)
-        self.noise_floor_dbm = self.config.get('noise_floor_dbm', -120.0)
-
-        # 信號門檻配置
-        # 🔧 修復：使用3GPP標準閾值，避免硬編碼
-        from shared.constants.physics_constants import SignalConstants
-        signal_consts = SignalConstants()
-
-        self.signal_thresholds = self.config.get('signal_thresholds', {
-            'rsrp_excellent': signal_consts.RSRP_EXCELLENT,
-            'rsrp_good': signal_consts.RSRP_GOOD,
-            'rsrp_fair': signal_consts.RSRP_FAIR,
-            'rsrp_poor': signal_consts.RSRP_POOR,
-            'rsrq_good': signal_consts.RSRQ_GOOD,
-            'rsrq_fair': signal_consts.RSRQ_FAIR,
-            'rsrq_poor': signal_consts.RSRQ_POOR,
-            'sinr_good': signal_consts.SINR_EXCELLENT,
-            'sinr_fair': signal_consts.SINR_GOOD,
-            'sinr_poor': signal_consts.SINR_POOR
-        })
-
-        # 初始化組件 - 僅核心信號分析模組
-        self.signal_calculator = SignalQualityCalculator()
-        # ✅ 新增重構後的專職模組
+        # 初始化核心組件
         self.physics_calculator = create_itur_physics_calculator(self.config)
         self.validator = create_stage5_validator()
         self.time_series_analyzer = create_time_series_analyzer(self.config, self.signal_thresholds)
-        # ❌ 已移除 PhysicsCalculator - 已棄用 (使用簡化算法，違反 Grade A 標準)
-        # ✅ 已移除 GPPEventDetector - 已移至 Stage 6 研究數據生成層
 
         # 處理統計
         self.processing_stats = {
@@ -138,15 +106,21 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
             'good_signals': 0,
             'fair_signals': 0,
             'poor_signals': 0
-            # ✅ 已移除 gpp_events_detected - 已移至 Stage 6
         }
 
-        # 🚀 多核心並行處理配置（與 Stage 2/3 相同策略）
-        self.max_workers = self._get_optimal_workers()
+        # ✅ 使用模組化並行處理
+        self.max_workers = CPUOptimizer.get_optimal_workers(self.config)
         self.enable_parallel = self.max_workers > 1
+        self.worker_manager = SignalAnalysisWorkerManager(
+            self.max_workers, self.config, self.signal_thresholds
+        )
 
-        self.logger.info("Stage 5 信號品質分析處理器已初始化 - 3GPP/ITU-R 標準模式")
-        self.logger.info(f"🚀 並行處理配置: {self.max_workers} 個工作進程 ({'啟用' if self.enable_parallel else '禁用'})")
+        # ✅ 使用模組化輸出管理
+        self.result_builder = ResultBuilder(self.validator, physics_consts)
+        self.snapshot_manager = SnapshotManager(self.validator)
+
+        self.logger.info("Stage 5 信號品質分析處理器已初始化 - 3GPP/ITU-R 標準模式 (模組化)")
+        self.logger.info(f"🚀 並行處理: {self.max_workers} 工作器 ({'啟用' if self.enable_parallel else '禁用'})")
 
     def execute(self, input_data: Any) -> Dict[str, Any]:
         """執行 Stage 5 信號品質分析處理 - 統一接口方法"""
@@ -199,163 +173,21 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
             # 執行信號分析
             analyzed_satellites = self._perform_signal_analysis(satellites_data)
 
-            # 構建符合文檔格式的輸出數據
-            processing_time = datetime.now(timezone.utc) - start_time
+            # ✅ 使用 ResultBuilder 構建輸出（替代150行手動構建代碼）
+            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
 
-            # 按照文檔要求格式化輸出 (包含 time_series 結構)
-            formatted_satellites = {}
-            total_time_points = 0
-
-            for satellite_id, analysis_data in analyzed_satellites.items():
-                # 提取時間序列和摘要數據
-                time_series = analysis_data.get('time_series', [])
-                summary = analysis_data.get('summary', {})
-                physics_summary = analysis_data.get('physical_parameters', {})
-                constellation = analysis_data.get('constellation', 'unknown')
-
-                if not time_series:
-                    self.logger.warning(f"衛星 {satellite_id} 缺少時間序列數據，跳過")
-                    continue
-
-                # 按照文檔規範構建衛星數據 (包含 time_series 數組)
-                formatted_satellites[satellite_id] = {
-                    'satellite_id': satellite_id,
-                    'constellation': constellation,
-                    'time_series': time_series,  # ← 關鍵：時間序列數組
-                    'summary': {
-                        'total_time_points': summary.get('total_time_points', 0),
-                        'average_rsrp_dbm': summary.get('average_rsrp_dbm'),
-                        'average_rsrq_db': summary.get('average_rsrq_db'),
-                        'average_sinr_db': summary.get('average_sinr_db'),
-                        'quality_distribution': summary.get('quality_distribution', {}),
-                        'average_quality_level': summary.get('average_quality_level', 'poor')
-                    },
-                    'physical_parameters': physics_summary
-                }
-
-                total_time_points += summary.get('total_time_points', 0)
-
-            # 計算全局平均值和可用衛星數
-            all_rsrp = []
-            all_sinr = []
-            usable_satellites = 0  # ✅ 使用 3GPP 標準門檻
-
-            # 載入 3GPP 信號標準門檻
-            from shared.constants.physics_constants import SignalConstants
-            signal_consts = SignalConstants()
-
-            for sat_data in formatted_satellites.values():
-                avg_rsrp_dbm = sat_data['summary']['average_rsrp_dbm']
-                avg_sinr_db = sat_data['summary']['average_sinr_db']
-
-                if avg_rsrp_dbm:
-                    all_rsrp.append(avg_rsrp_dbm)
-
-                    # ✅ Grade A 標準: 使用 3GPP TS 38.214 可用性門檻
-                    # 依據: scripts/run_six_stages_with_validation.py Line 598-601
-                    if avg_rsrp_dbm >= signal_consts.RSRP_FAIR:  # 3GPP 標準: -100 dBm
-                        usable_satellites += 1
-
-                if avg_sinr_db:
-                    all_sinr.append(avg_sinr_db)
-
-            # ✅ Grade A標準: 禁止使用預設值，必須基於實際數據
-            # 依據: docs/ACADEMIC_STANDARDS.md Line 27-44
-            if not all_rsrp or not all_sinr:
-                self.logger.warning(
-                    "⚠️ 無有效的RSRP/SINR數據，無法計算平均值\n"
-                    "Grade A標準要求基於實際測量數據"
-                )
-                avg_rsrp = None
-                avg_sinr = None
-            else:
-                avg_rsrp = sum(all_rsrp) / len(all_rsrp)
-                avg_sinr = sum(all_sinr) / len(all_sinr)
-
-            # ✅ 先構建 metadata (用於合規驗證)
-            metadata = {
-                # 3GPP 配置
-                'gpp_config': {
-                    'standard_version': 'TS_38.214_v18.5.1',
-                    'calculation_standard': '3GPP_TS_38.214'
-                },
-
-                # ITU-R 配置
-                'itur_config': {
-                    'recommendation': 'P.618-13',
-                    'atmospheric_model': 'complete'
-                },
-
-                # ✅ 物理常數 (CODATA 2018) - 腳本驗證必要欄位
-                # 依據: scripts/run_six_stages_with_validation.py Line 579-584
-                'physical_constants': {
-                    'speed_of_light_ms': physics_consts.SPEED_OF_LIGHT,
-                    'boltzmann_constant': 1.380649e-23,  # CODATA 2018
-                    'standard_compliance': 'CODATA_2018'
-                },
-
-                # 處理統計
-                'processing_duration_seconds': processing_time.total_seconds(),
-                'total_calculations': total_time_points * 3,  # RSRP + RSRQ + SINR
-            }
-
-            # ✅ Grade A 要求: 動態驗證合規性，禁止硬編碼
-            # 依據: docs/ACADEMIC_STANDARDS.md Line 23-26, 265-274
-            self.logger.info("🔍 執行學術合規性驗證...")
-
-            # 驗證 3GPP 標準合規性 (使用重構後的 validator)
-            gpp_compliant = self.validator.verify_3gpp_compliance(formatted_satellites)
-
-            # 驗證 ITU-R 標準合規性 (使用重構後的 validator)
-            itur_compliant = self.validator.verify_itur_compliance(metadata)
-
-            # 計算學術等級
-            if gpp_compliant and itur_compliant:
-                academic_grade = 'Grade_A'
-            elif gpp_compliant or itur_compliant:
-                academic_grade = 'Grade_B'
-            else:
-                academic_grade = 'Grade_C'
-
-            # 添加合規標記到 metadata
-            metadata.update({
-                # ✅ 動態合規標記 (基於實際驗證結果)
-                'gpp_standard_compliance': gpp_compliant,
-                'itur_standard_compliance': itur_compliant,
-                'academic_standard': academic_grade,
-                'time_series_processing': total_time_points > 0  # ✅ 基於實際處理數據
-            })
-
-            # 按照文檔規範的最終輸出格式
-            result_data = {
-                'stage': 5,
-                'stage_name': 'signal_quality_analysis',
-                'signal_analysis': formatted_satellites,
-                # 🔧 修復: 添加 connectable_satellites 傳遞給 Stage 6
-                # 依據: Stage 6 需要 connectable_satellites 用於動態池驗證
-                'connectable_satellites': input_data.get('connectable_satellites', {}),
-                'analysis_summary': {
-                    'total_satellites_analyzed': len(formatted_satellites),
-                    # ✅ 新增: usable_satellites 欄位 (腳本驗證必要)
-                    # 依據: scripts/run_six_stages_with_validation.py Line 531, 598-601
-                    'usable_satellites': usable_satellites,
-                    'total_time_points_processed': total_time_points,
-                    'signal_quality_distribution': {
-                        'excellent': self.processing_stats['excellent_signals'],
-                        'good': self.processing_stats['good_signals'],
-                        'fair': self.processing_stats['fair_signals'],
-                        'poor': self.processing_stats['poor_signals']
-                    },
-                    'average_rsrp_dbm': avg_rsrp,
-                    'average_sinr_db': avg_sinr
-                },
-                'metadata': metadata
-            }
+            self.logger.info("🔍 執行學術合規性驗證並構建結果...")
+            result_data = self.result_builder.build(
+                analyzed_satellites=analyzed_satellites,
+                input_data=input_data,
+                processing_stats=self.processing_stats,
+                processing_time=processing_time
+            )
 
             return create_processing_result(
                 status=ProcessingStatus.SUCCESS,
                 data=result_data,
-                message=f"成功分析{len(formatted_satellites)}顆衛星的信號品質"
+                message=f"成功分析{len(analyzed_satellites)}顆衛星的信號品質"
             )
 
         except Exception as e:
@@ -389,68 +221,19 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
         return input_data.get('stage') in ['stage4_link_feasibility', 'stage4_optimization']
 
     def _extract_satellite_data(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        提取衛星數據 - 重構版本
+        """提取衛星數據 - 使用 InputExtractor 模組"""
+        # ✅ 委託給 InputExtractor
+        result = InputExtractor.extract(input_data)
 
-        從 Stage 4 輸出提取可連線衛星池及其完整時間序列數據
-
-        返回格式:
-        {
-            'connectable_satellites': {
-                'starlink': [...],
-                'oneweb': [...],
-                'other': [...]
-            },
-            'metadata': {
-                'constellation_configs': {...}  # 從 Stage 1 傳遞
-            }
-        }
-        """
-        # Stage 4 格式：connectable_satellites 按星座分類
-        connectable_satellites = input_data.get('connectable_satellites', {})
-
-        if not connectable_satellites:
-            # ⚠️ 向後兼容層：支援舊版本數據格式（臨時過渡期）
-            # TODO: 在所有上游數據更新後移除此兼容層
-            self.logger.warning(
-                "⚠️ 未找到 connectable_satellites 數據，嘗試從舊格式 satellites 提取\n"
-                "注意: 此為臨時向後兼容層，建議更新上游數據格式"
-            )
-            satellites = input_data.get('satellites', {})
-            if satellites:
-                # 向後兼容層：舊格式數據轉換 (所有衛星歸類為 'other')
-                # 依據: Stage 4 重構前使用 'satellites' 字段，現使用 'connectable_satellites' 字段
-                connectable_satellites = {'other': list(satellites.values())}
-                self.logger.info(f"✅ 從舊格式轉換: {len(satellites)} 顆衛星")
-            else:
-                # ✅ Fail-Fast: 無有效數據時拋出錯誤
-                raise ValueError(
-                    "Stage 5 輸入數據驗證失敗：未找到衛星數據\n"
-                    "需要 'connectable_satellites' 或 'satellites' 欄位\n"
-                    "請檢查 Stage 4 輸出格式"
-                )
-
-        # 提取 constellation_configs (從 Stage 1 metadata 傳遞)
-        metadata = input_data.get('metadata', {})
-        constellation_configs = metadata.get('constellation_configs', {})
-
-        # 統計信息
-        total_connectable = sum(len(sats) for sats in connectable_satellites.values())
-        self.logger.info(f"📊 提取可連線衛星池: {total_connectable} 顆衛星")
-
+        # 詳細統計日誌 (每個星座的時間序列資訊)
+        connectable_satellites = result['connectable_satellites']
         for constellation, sats in connectable_satellites.items():
             if sats:
-                # 計算時間序列總數
                 total_time_points = sum(len(sat.get('time_series', [])) for sat in sats)
                 avg_points = total_time_points / len(sats) if len(sats) > 0 else 0
                 self.logger.info(f"   {constellation}: {len(sats)} 顆衛星, 平均 {avg_points:.0f} 個時間點")
 
-        return {
-            'connectable_satellites': connectable_satellites,
-            'metadata': {
-                'constellation_configs': constellation_configs
-            }
-        }
+        return result
 
     def _perform_signal_analysis(self, satellites_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -571,19 +354,13 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
                 'rx_antenna_efficiency': rx_antenna_efficiency
             }
 
-            # 🚀 並行或順序處理衛星（根據配置動態選擇）
-            if self.enable_parallel and len(satellites) > 5:
-                # 多核心並行處理
-                self.logger.info(f"🚀 使用 {self.max_workers} 個工作器並行處理 {len(satellites)} 顆衛星...")
-                constellation_results = self._process_satellites_parallel(
-                    satellites, constellation, system_config
-                )
-            else:
-                # 單核心順序處理
-                self.logger.info(f"使用單核心處理 {len(satellites)} 顆衛星...")
-                constellation_results = self._process_satellites_serial(
-                    satellites, constellation, system_config
-                )
+            # ✅ 使用 WorkerManager 處理衛星 (自動選擇並行/順序模式)
+            constellation_results = self.worker_manager.process_satellites(
+                satellites=satellites,
+                constellation=constellation,
+                system_config=system_config,
+                time_series_analyzer=self.time_series_analyzer
+            )
 
             # 合併結果
             analyzed_satellites.update(constellation_results['satellites'])
@@ -642,335 +419,14 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
             raise IOError(f"無法保存Stage 5結果: {str(e)}")
 
     def save_validation_snapshot(self, processing_results: Dict[str, Any]) -> bool:
-        """
-        保存Stage 5驗證快照
+        """保存Stage 5驗證快照 - 使用 SnapshotManager 模組"""
+        return self.snapshot_manager.save(processing_results)
 
-        ✅ 符合腳本驗證要求:
-        - data_summary (Line 529-531)
-        - metadata.physical_constants (Line 579-584)
-        - metadata.gpp_standard_compliance (Line 551-553)
-        - metadata.itur_standard_compliance (Line 556-558)
-        """
-        try:
-            from pathlib import Path
-            from datetime import datetime, timezone
-            import json
-
-            # 創建驗證目錄
-            validation_dir = Path("data/validation_snapshots")
-            validation_dir.mkdir(parents=True, exist_ok=True)
-
-            # 執行驗證檢查
-            validation_results = self.run_validation_checks(processing_results)
-
-            # ✅ 提取腳本期望的數據格式
-            analysis_summary = processing_results.get('analysis_summary', {})
-            metadata = processing_results.get('metadata', {})
-            signal_analysis = processing_results.get('signal_analysis', {})
-
-            # ✅ 按照腳本驗證格式構建快照 (Line 522-611)
-            snapshot_data = {
-                'stage': 'stage5_signal_analysis',
-                'timestamp': datetime.now(timezone.utc).isoformat(),
-
-                # ✅ data_summary (腳本 Line 529-531)
-                'data_summary': {
-                    'total_satellites_analyzed': analysis_summary.get('total_satellites_analyzed', 0),
-                    'usable_satellites': analysis_summary.get('usable_satellites', 0),
-                    'signal_quality_distribution': analysis_summary.get('signal_quality_distribution', {}),
-                    'average_rsrp_dbm': analysis_summary.get('average_rsrp_dbm'),
-                    'average_sinr_db': analysis_summary.get('average_sinr_db'),
-                    'total_time_points_processed': analysis_summary.get('total_time_points_processed', 0)
-                },
-
-                # ✅ metadata (腳本 Line 548-584)
-                'metadata': {
-                    'gpp_config': metadata.get('gpp_config', {}),
-                    'itur_config': metadata.get('itur_config', {}),
-                    'physical_constants': metadata.get('physical_constants', {}),
-                    'processing_duration_seconds': metadata.get('processing_duration_seconds', 0.0),
-                    'gpp_standard_compliance': metadata.get('gpp_standard_compliance', False),
-                    'itur_standard_compliance': metadata.get('itur_standard_compliance', False),
-                    'academic_standard': metadata.get('academic_standard', 'Grade_A'),
-                    'time_series_processing': metadata.get('time_series_processing', False)
-                },
-
-                # 驗證結果
-                'validation_results': validation_results,
-                'validation_status': validation_results.get('validation_status', 'unknown'),
-                'overall_status': validation_results.get('overall_status', 'UNKNOWN')
-            }
-
-            # 保存快照
-            snapshot_path = validation_dir / "stage5_validation.json"
-            with open(snapshot_path, 'w', encoding='utf-8') as f:
-                json.dump(snapshot_data, f, indent=2, ensure_ascii=False, default=str)
-
-            self.logger.info(f"📋 Stage 5驗證快照已保存: {snapshot_path}")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"❌ Stage 5驗證快照保存失敗: {e}")
-            return False
-
-    def _process_satellites_serial(
-        self,
-        satellites: List[Dict[str, Any]],
-        constellation: str,
-        system_config: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """順序處理衛星（單核心）"""
-        analyzed_satellites = {}
-        stats = {
-            'total_satellites_analyzed': 0,
-            'excellent_signals': 0,
-            'good_signals': 0,
-            'fair_signals': 0,
-            'poor_signals': 0
-        }
-
-        for satellite in satellites:
-            satellite_id = satellite.get('satellite_id')
-            time_series = satellite.get('time_series', [])
-
-            if not time_series:
-                self.logger.warning(f"衛星 {satellite_id} 缺少時間序列數據，跳過")
-                continue
-
-            stats['total_satellites_analyzed'] += 1
-
-            try:
-                # 分析時間序列
-                time_series_analysis = self.time_series_analyzer.analyze_time_series(
-                    satellite_id=satellite_id,
-                    time_series=time_series,
-                    system_config=system_config
-                )
-
-                # 存儲分析結果
-                analyzed_satellites[satellite_id] = {
-                    'satellite_id': satellite_id,
-                    'constellation': constellation,
-                    'time_series': time_series_analysis['time_series'],
-                    'summary': time_series_analysis['summary'],
-                    'physical_parameters': time_series_analysis['physics_summary']
-                }
-
-                # 更新統計
-                avg_quality = time_series_analysis['summary']['average_quality_level']
-                if avg_quality == 'excellent':
-                    stats['excellent_signals'] += 1
-                elif avg_quality == 'good':
-                    stats['good_signals'] += 1
-                elif avg_quality == 'fair':
-                    stats['fair_signals'] += 1
-                else:
-                    stats['poor_signals'] += 1
-
-            except Exception as e:
-                self.logger.error(f"❌ 衛星 {satellite_id} 時間序列分析失敗: {e}")
-                stats['poor_signals'] += 1
-                continue
-
-        return {
-            'satellites': analyzed_satellites,
-            'stats': stats
-        }
-
-    def _process_satellites_parallel(
-        self,
-        satellites: List[Dict[str, Any]],
-        constellation: str,
-        system_config: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """並行處理衛星（多核心）"""
-        analyzed_satellites = {}
-        stats = {
-            'total_satellites_analyzed': 0,
-            'excellent_signals': 0,
-            'good_signals': 0,
-            'fair_signals': 0,
-            'poor_signals': 0
-        }
-
-        # 創建進程池並提交任務
-        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            # 提交所有衛星處理任務
-            future_to_satellite = {
-                executor.submit(
-                    _process_single_satellite_worker,
-                    satellite,
-                    constellation,
-                    system_config,
-                    self.signal_thresholds,
-                    self.config
-                ): satellite for satellite in satellites if satellite.get('time_series')
-            }
-
-            # 收集結果
-            completed = 0
-            total = len(future_to_satellite)
-
-            for future in as_completed(future_to_satellite):
-                satellite = future_to_satellite[future]
-                satellite_id = satellite.get('satellite_id')
-                completed += 1
-
-                try:
-                    result = future.result()
-                    if result and 'satellite_id' in result:
-                        analyzed_satellites[result['satellite_id']] = result
-                        stats['total_satellites_analyzed'] += 1
-
-                        # 更新統計
-                        avg_quality = result.get('summary', {}).get('average_quality_level', 'poor')
-                        if avg_quality == 'excellent':
-                            stats['excellent_signals'] += 1
-                        elif avg_quality == 'good':
-                            stats['good_signals'] += 1
-                        elif avg_quality == 'fair':
-                            stats['fair_signals'] += 1
-                        else:
-                            stats['poor_signals'] += 1
-
-                except Exception as e:
-                    self.logger.error(f"❌ 衛星 {satellite_id} 並行處理失敗: {e}")
-                    stats['poor_signals'] += 1
-
-                # 進度報告（每 10 顆）
-                if completed % 10 == 0 or completed == total:
-                    self.logger.info(f"   進度: {completed}/{total} 顆衛星已處理 ({completed*100//total}%)")
-
-        return {
-            'satellites': analyzed_satellites,
-            'stats': stats
-        }
-
-    def _get_optimal_workers(self) -> int:
-        """
-        動態計算最優工作器數量 - 基於 CPU 狀態和配置
-        （與 Stage 2/3 相同的策略）
-
-        優先級：
-        1. 環境變數 ORBIT_ENGINE_MAX_WORKERS
-        2. 配置文件 performance.max_workers
-        3. 動態 CPU 檢測（使用 psutil）
-        4. 保守預設值（75% 核心）
-
-        Returns:
-            int: 最優工作器數量
-        """
-        try:
-            # 1. 檢查環境變數設定（最高優先級）
-            env_workers = os.environ.get('ORBIT_ENGINE_MAX_WORKERS')
-            if env_workers and env_workers.isdigit():
-                workers = int(env_workers)
-                if workers > 0:
-                    self.logger.info(f"📋 使用環境變數設定: {workers} 個工作器")
-                    return workers
-
-            # 2. 檢查配置文件設定
-            performance_config = self.config.get('performance', {})
-            config_workers = performance_config.get('max_workers')
-
-            if config_workers and config_workers > 0:
-                self.logger.info(f"📋 使用配置文件設定: {config_workers} 個工作器")
-                return config_workers
-
-            # 3. 檢查是否強制單線程
-            if performance_config.get('force_single_thread', False):
-                self.logger.info("⚠️ 強制單線程模式")
-                return 1
-
-            # 4. 動態 CPU 狀態檢測
-            total_cpus = mp.cpu_count()
-
-            if not PSUTIL_AVAILABLE:
-                # 沒有 psutil，使用 75% 核心作為預設
-                workers = max(1, int(total_cpus * 0.75))
-                self.logger.info(f"💻 未安裝 psutil，使用預設 75% 核心 = {workers} 個工作器")
-                return workers
-
-            # 獲取當前 CPU 使用率（採樣 0.5 秒）
-            try:
-                cpu_usage = psutil.cpu_percent(interval=0.5)
-
-                # 動態策略：根據 CPU 使用率調整
-                if cpu_usage < 30:
-                    # CPU 空閒：使用 95% 核心（積極並行）
-                    workers = max(1, int(total_cpus * 0.95))
-                    self.logger.info(
-                        f"💻 CPU 空閒（{cpu_usage:.1f}%）：使用 95% 核心 = {workers} 個工作器"
-                    )
-                elif cpu_usage < 50:
-                    # CPU 中度使用：使用 75% 核心
-                    workers = max(1, int(total_cpus * 0.75))
-                    self.logger.info(
-                        f"💻 CPU 中度使用（{cpu_usage:.1f}%）：使用 75% 核心 = {workers} 個工作器"
-                    )
-                else:
-                    # CPU 繁忙：使用 50% 核心
-                    workers = max(1, int(total_cpus * 0.5))
-                    self.logger.info(
-                        f"💻 CPU 繁忙（{cpu_usage:.1f}%）：使用 50% 核心 = {workers} 個工作器"
-                    )
-
-                return workers
-
-            except Exception as cpu_error:
-                self.logger.warning(f"⚠️ CPU 狀態檢測失敗: {cpu_error}，使用預設配置")
-                # 回退策略：75% 核心
-                fallback_workers = max(1, int(total_cpus * 0.75))
-                self.logger.info(f"📋 回退配置: {fallback_workers} 個工作器")
-                return fallback_workers
-
-        except Exception as e:
-            self.logger.error(f"❌ 工作器數量計算失敗: {e}，使用單核心")
-            return 1
-
-
-def _process_single_satellite_worker(
-    satellite: Dict[str, Any],
-    constellation: str,
-    system_config: Dict[str, Any],
-    signal_thresholds: Dict[str, float],
-    config: Dict[str, Any]
-) -> Optional[Dict[str, Any]]:
-    """
-    Worker 函數：處理單顆衛星（用於並行處理）
-
-    注意：這個函數必須在類外部定義，以便 ProcessPoolExecutor 可以序列化它
-    """
-    try:
-        # 在 worker 進程中重新創建分析器
-        from .time_series_analyzer import create_time_series_analyzer
-        time_series_analyzer = create_time_series_analyzer(config, signal_thresholds)
-
-        satellite_id = satellite.get('satellite_id')
-        time_series = satellite.get('time_series', [])
-
-        if not time_series:
-            return None
-
-        # 分析時間序列
-        time_series_analysis = time_series_analyzer.analyze_time_series(
-            satellite_id=satellite_id,
-            time_series=time_series,
-            system_config=system_config
-        )
-
-        # 返回分析結果
-        return {
-            'satellite_id': satellite_id,
-            'constellation': constellation,
-            'time_series': time_series_analysis['time_series'],
-            'summary': time_series_analysis['summary'],
-            'physical_parameters': time_series_analysis['physics_summary']
-        }
-
-    except Exception as e:
-        logger.error(f"❌ Worker 處理衛星 {satellite.get('satellite_id')} 失敗: {e}")
-        return None
+    # ✅ 以下方法已移至模組:
+    # - _process_satellites_serial() → worker_manager.py
+    # - _process_satellites_parallel() → worker_manager.py
+    # - _get_optimal_workers() → cpu_optimizer.py
+    # - _process_single_satellite_worker() → worker_manager.py
 
 
 def create_stage5_processor(config: Optional[Dict[str, Any]] = None) -> Stage5SignalAnalysisProcessor:

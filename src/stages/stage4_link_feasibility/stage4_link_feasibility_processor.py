@@ -38,6 +38,11 @@ from .epoch_validator import EpochValidator
 from .pool_optimizer import optimize_satellite_pool
 from .poliastro_validator import PoliastroValidator
 
+# ✅ 重構後的模組化組件
+from .data_processing import CoordinateExtractor, ServiceWindowCalculator
+from .filtering import SatelliteFilter
+from .output_management import ResultBuilder, SnapshotManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,7 +95,13 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
             self.logger.warning("⚠️ 階段 4.2 為必要功能（文檔標記 🔴 CRITICAL），忽略停用請求")
             self.logger.warning("   依據: stage4-link-feasibility.md Line 123, 129")
 
-        self.logger.info("🛰️ Stage 4 鏈路可行性評估處理器初始化完成")
+        # ✅ 初始化模組化組件
+        self.service_window_calculator = ServiceWindowCalculator()
+        self.satellite_filter = SatelliteFilter(self.service_window_calculator)
+        self.result_builder = ResultBuilder(self.constellation_filter, self.link_budget_analyzer)
+        self.snapshot_manager = SnapshotManager()
+
+        self.logger.info("🛰️ Stage 4 鏈路可行性評估處理器初始化完成 (模組化)")
         self.logger.info("   職責: 星座感知篩選、NTPU可見性分析、鏈路預算約束、服務窗口計算")
         self.logger.info(f"   學術模式: IAU標準={self.use_iau_standards}, Epoch驗證={self.validate_epochs}")
         self.logger.info(f"   交叉驗證: Poliastro={'已啟用 (1%採樣)' if self.enable_cross_validation else '未啟用'}")
@@ -178,50 +189,14 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
         return True
 
     def _extract_wgs84_coordinates(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """提取 WGS84 座標數據並讀取 constellation_configs"""
-        # ✅ 兼容 Stage 3 兩種輸出格式：'satellites' 或 'geographic_coordinates'
-        satellites_data = input_data.get('satellites') or input_data.get('geographic_coordinates', {})
-        wgs84_data = {}
+        """提取 WGS84 座標數據 - 使用 CoordinateExtractor 模組"""
+        # ✅ 委託給 CoordinateExtractor
+        wgs84_data, upstream_configs = CoordinateExtractor.extract(input_data, self.constellation_filter)
 
-        # 從上游數據讀取 constellation_configs (Stage 1 傳遞)
-        if 'metadata' in input_data and 'constellation_configs' in input_data['metadata']:
-            self.upstream_constellation_configs = input_data['metadata']['constellation_configs']
-            self.logger.info("✅ 從 Stage 1 讀取 constellation_configs")
+        # 保存上游配置供後續使用
+        if upstream_configs:
+            self.upstream_constellation_configs = upstream_configs
 
-            # 更新 ConstellationFilter 使用上游配置（只更新閾值，保留其他參數）
-            if self.upstream_constellation_configs:
-                for constellation_name, config in self.upstream_constellation_configs.items():
-                    threshold = config.get('service_elevation_threshold_deg')
-                    if threshold is not None:
-                        constellation_key = constellation_name.lower()
-                        # ✅ 只更新 min_elevation_deg，保留其他配置
-                        if constellation_key in self.constellation_filter.CONSTELLATION_THRESHOLDS:
-                            self.constellation_filter.CONSTELLATION_THRESHOLDS[constellation_key]['min_elevation_deg'] = threshold
-                            self.logger.info(f"   {constellation_name}: {threshold}° (從上游配置)")
-
-        for satellite_id, satellite_info in satellites_data.items():
-            if isinstance(satellite_info, dict):
-                # ✅ 兼容 Stage 3 兩種格式：'wgs84_coordinates' 或 'time_series'
-                wgs84_coordinates = satellite_info.get('wgs84_coordinates') or satellite_info.get('time_series', [])
-
-                # ✅ 智能推斷星座（從衛星ID或元數據）
-                constellation = satellite_info.get('constellation', 'unknown')
-                if constellation == 'unknown':
-                    # 從衛星 ID 推斷（修正範圍：Starlink 40000-59999, OneWeb 60000+）
-                    sat_id_lower = str(satellite_id).lower()
-                    if 'starlink' in sat_id_lower or (satellite_id.isdigit() and 40000 < int(satellite_id) < 60000):
-                        constellation = 'starlink'  # Starlink: 40000-59999
-                    elif 'oneweb' in sat_id_lower or (satellite_id.isdigit() and int(satellite_id) >= 60000):
-                        constellation = 'oneweb'    # OneWeb: 60000+
-
-                if wgs84_coordinates:
-                    wgs84_data[satellite_id] = {
-                        'wgs84_coordinates': wgs84_coordinates,
-                        'constellation': constellation,
-                        'total_positions': len(wgs84_coordinates)
-                    }
-
-        self.logger.info(f"📊 提取了 {len(wgs84_data)} 顆衛星的 WGS84 座標數據")
         return wgs84_data
 
     def _process_link_feasibility(self, wgs84_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -418,59 +393,9 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
         return time_series_metrics
 
     def _filter_connectable_satellites(self, time_series_metrics: Dict[str, Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-        """
-        按星座分類並篩選可連線衛星
-
-        只保留至少有一個時間點 is_connectable=True 的衛星
-
-        Returns:
-            {
-                'starlink': [...],
-                'oneweb': [...],
-                'other': [...]
-            }
-        """
-        connectable_by_constellation = {
-            'starlink': [],
-            'oneweb': [],
-            'other': []
-        }
-
-        for sat_id, sat_metrics in time_series_metrics.items():
-            time_series = sat_metrics['time_series']
-            constellation = sat_metrics['constellation']
-
-            # 檢查是否至少有一個時間點可連線 (適配新的嵌套結構)
-            has_connectable_time = any(point['visibility_metrics']['is_connectable'] for point in time_series)
-
-            if has_connectable_time:
-                # 確定星座分類
-                if 'starlink' in constellation:
-                    constellation_key = 'starlink'
-                elif 'oneweb' in constellation:
-                    constellation_key = 'oneweb'
-                else:
-                    constellation_key = 'other'
-
-                # 計算服務窗口
-                service_window = self._calculate_service_window(time_series)
-
-                satellite_entry = {
-                    'satellite_id': sat_id,
-                    'name': sat_metrics['name'],
-                    'constellation': constellation_key,
-                    'time_series': time_series,
-                    'service_window': service_window
-                }
-
-                connectable_by_constellation[constellation_key].append(satellite_entry)
-
-        # 記錄統計
-        for constellation, sats in connectable_by_constellation.items():
-            if sats:
-                self.logger.info(f"📊 {constellation}: {len(sats)} 顆可連線衛星")
-
-        return connectable_by_constellation
+        """按星座分類並篩選可連線衛星 - 使用 SatelliteFilter 模組"""
+        # ✅ 委託給 SatelliteFilter
+        return self.satellite_filter.filter_by_constellation(time_series_metrics)
 
     def _optimize_satellite_pools(self, connectable_satellites: Dict[str, List[Dict[str, Any]]]) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Any]]:
         """
@@ -594,130 +519,26 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
             'average_satellites_visible': average_visible
         }
 
-    def _calculate_service_window(self, time_series: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        計算服務窗口摘要 (基於實際時間戳記)
-
-        基於 is_connectable=True 的時間點
-        """
-        connectable_points = [p for p in time_series if p['visibility_metrics']['is_connectable']]
-
-        if not connectable_points:
-            return {
-                'start_time': None,
-                'end_time': None,
-                'duration_minutes': 0,
-                'time_points_count': 0,
-                'max_elevation_deg': 0
-            }
-
-        # 計算實際持續時間 (基於時間戳記)
-        try:
-            start_time = datetime.fromisoformat(connectable_points[0]['timestamp'].replace('Z', '+00:00'))
-            end_time = datetime.fromisoformat(connectable_points[-1]['timestamp'].replace('Z', '+00:00'))
-            duration_minutes = (end_time - start_time).total_seconds() / 60.0
-        except (ValueError, IndexError, KeyError) as e:
-            # ⚠️ 改善的容錯處理：使用點數估算，但記錄警告
-            self.logger.warning(
-                f"⚠️ 時間戳記解析失敗，使用點數估算: {e}\n"
-                f"連線點數: {len(connectable_points)}"
-            )
-            # 預設時間間隔: 30 秒
-            # 學術依據:
-            #   - Vallado, D. A. (2013). "Fundamentals of Astrodynamics and Applications" (4th ed.)
-            #     Section 8.6 "SGP4 Propagator", pp. 927-934
-            #     建議 SGP4 傳播間隔 < 1 分鐘以維持精度
-            #   - 對於 LEO 衛星（軌道速度 ~7.5 km/s），30秒間隔對應 ~225km 軌道移動
-            #   - 足夠捕捉可見性變化而不遺漏短暫連線窗口
-            #   - 相較於 60 秒間隔提供更精細的時間解析度（2倍採樣率）
-            # SOURCE: Vallado 2013 Section 8.6 "SGP4 Propagation Time Step Recommendations"
-            time_interval_sec = self.config.get('time_interval_seconds', 30)
-            duration_minutes = len(connectable_points) * (time_interval_sec / 60.0)
-
-        return {
-            'start_time': connectable_points[0]['timestamp'],
-            'end_time': connectable_points[-1]['timestamp'],
-            'duration_minutes': duration_minutes,
-            'time_points_count': len(connectable_points),
-            'max_elevation_deg': max(p['visibility_metrics']['elevation_deg'] for p in connectable_points)
-        }
-
     def _build_stage4_output(self, original_data: Dict[str, Any],
                            time_series_metrics: Dict[str, Dict[str, Any]],
                            connectable_satellites: Dict[str, List[Dict[str, Any]]],
                            optimized_pools: Dict[str, List[Dict[str, Any]]],
                            optimization_results: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        構建 Stage 4 標準化輸出
-
-        符合 stage4-link-feasibility.md 規範的完整時間序列輸出
-        包含階段 4.1 (候選池) 和階段 4.2 (優化池) 數據
-        """
+        """構建 Stage 4 標準化輸出 - 使用 ResultBuilder 模組"""
 
         # 計算 NTPU 覆蓋率分析 (基於優化池)
         ntpu_coverage = self._analyze_ntpu_coverage(optimized_pools)
 
-        # 構建輸出結果
-        stage4_output = {
-            'stage': 'stage4_link_feasibility',
-
-            # 階段 4.1: 候選衛星池 (完整候選)
-            'connectable_satellites_candidate': connectable_satellites,
-
-            # 階段 4.2: 優化衛星池 (最優子集) - 用於後續階段
-            'connectable_satellites': optimized_pools,
-
-            'feasibility_summary': {
-                # 階段 4.1 統計
-                'candidate_pool': {
-                    'total_connectable': sum(len(sats) for sats in connectable_satellites.values()),
-                    'by_constellation': {
-                        constellation: len(sats)
-                        for constellation, sats in connectable_satellites.items()
-                        if len(sats) > 0
-                    }
-                },
-                # 階段 4.2 統計
-                'optimized_pool': {
-                    'total_optimized': sum(len(sats) for sats in optimized_pools.values()),
-                    'by_constellation': {
-                        constellation: len(sats)
-                        for constellation, sats in optimized_pools.items()
-                        if len(sats) > 0
-                    }
-                },
-                'ntpu_coverage': ntpu_coverage  # 基於優化池的覆蓋分析
-            },
-
-            'metadata': {
-                'processing_timestamp': datetime.now(timezone.utc).isoformat(),
-                'total_input_satellites': len(original_data),
-                'total_processed_satellites': len(time_series_metrics),
-                'link_budget_constraints': self.link_budget_analyzer.get_constraint_info(),
-                'constellation_thresholds': {
-                    'starlink': self.constellation_filter.CONSTELLATION_THRESHOLDS['starlink'],
-                    'oneweb': self.constellation_filter.CONSTELLATION_THRESHOLDS['oneweb']
-                },
-                # ✅ Grade A 要求: 向下傳遞 constellation_configs 給 Stage 5
-                # 依據: docs/stages/stage5-signal-analysis.md Line 221-235
-                'constellation_configs': self.upstream_constellation_configs if hasattr(self, 'upstream_constellation_configs') else {},
-                'processing_stage': 4,
-                'output_format': 'complete_time_series_with_optimization',
-                'stage_4_1_completed': True,  # 階段 4.1 可見性篩選
-                'stage_4_2_completed': True,  # 階段 4.2 池規劃 (強制執行)
-                'stage_4_2_critical': True,  # 標記為 CRITICAL 必要功能
-                'constellation_aware': True,  # 星座感知處理 (Starlink/OneWeb 不同門檻)
-                'use_iau_standards': self.use_iau_standards,  # IAU 標準可見性計算
-                'refactored_version': 'plan_a_b_integrated_v1.0'
-            }
-        }
-
-        # 添加階段 4.2 優化結果 (強制包含)
-        stage4_output['pool_optimization'] = {
-            'optimization_metrics': optimization_results['optimization_metrics'],
-            'validation_results': optimization_results['validation_results'],
-            'critical_feature': True  # 標記為 CRITICAL 必要功能
-        }
+        # ✅ 委託給 ResultBuilder 構建輸出
+        stage4_output = self.result_builder.build(
+            original_data=original_data,
+            time_series_metrics=time_series_metrics,
+            connectable_satellites=connectable_satellites,
+            optimized_pools=optimized_pools,
+            optimization_results=optimization_results,
+            ntpu_coverage=ntpu_coverage,
+            upstream_constellation_configs=getattr(self, 'upstream_constellation_configs', None)
+        )
 
         # 記錄處理結果
         total_candidate = stage4_output['feasibility_summary']['candidate_pool']['total_connectable']
@@ -868,95 +689,8 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
             raise
 
     def save_validation_snapshot(self, processing_results: Dict[str, Any]) -> bool:
-        """
-        保存 Stage 4 驗證快照
-
-        符合驗證腳本期望格式 (scripts/run_six_stages_with_validation.py:712-801)
-
-        Args:
-            processing_results: Stage 4 處理結果 (來自 execute() 返回值)
-
-        Returns:
-            bool: 保存成功返回 True
-        """
-        try:
-            validation_dir = Path("data/validation_snapshots")
-            validation_dir.mkdir(parents=True, exist_ok=True)
-
-            # 提取必要數據
-            metadata = processing_results.get('metadata', {})
-            feasibility_summary = processing_results.get('feasibility_summary', {})
-            pool_optimization = processing_results.get('pool_optimization', {})
-
-            # 檢查階段完成狀態
-            stage_4_1_completed = metadata.get('stage_4_1_completed', False)
-            stage_4_2_completed = metadata.get('stage_4_2_completed', False)
-
-            # 判斷驗證狀態
-            validation_results = pool_optimization.get('validation_results', {})
-            starlink_validation = validation_results.get('starlink', {})
-            oneweb_validation = validation_results.get('oneweb', {})
-
-            starlink_passed = starlink_validation.get('validation_passed', False)
-            oneweb_passed = oneweb_validation.get('validation_passed', True)  # OneWeb 可選
-
-            overall_validation_passed = (
-                stage_4_1_completed and
-                stage_4_2_completed and
-                starlink_passed
-            )
-
-            # 構建驗證快照數據
-            snapshot_data = {
-                'stage': 'stage4_link_feasibility',
-                'timestamp': datetime.now(timezone.utc).isoformat(),
-                'status': 'success' if overall_validation_passed else 'warning',
-
-                # 階段完成標記 (驗證腳本必需)
-                'metadata': metadata,
-
-                # 可行性摘要 (包含階段 4.1 和 4.2 統計)
-                'feasibility_summary': feasibility_summary,
-
-                # 階段 4.2 池優化結果 (CRITICAL 驗證項)
-                'pool_optimization': pool_optimization,
-
-                # 驗證狀態摘要
-                'validation_status': 'passed' if overall_validation_passed else 'warning',
-                'validation_passed': overall_validation_passed,
-
-                # 數據摘要
-                'data_summary': {
-                    'candidate_pool_total': feasibility_summary.get('candidate_pool', {}).get('total_connectable', 0),
-                    'optimized_pool_total': feasibility_summary.get('optimized_pool', {}).get('total_optimized', 0),
-                    'stage_4_1_completed': stage_4_1_completed,
-                    'stage_4_2_completed': stage_4_2_completed,
-                    'critical_feature_enabled': metadata.get('stage_4_2_critical', False)
-                },
-
-                # 處理統計
-                'processing_duration': metadata.get('processing_timestamp', ''),
-                'total_input_satellites': metadata.get('total_input_satellites', 0),
-                'total_processed_satellites': metadata.get('total_processed_satellites', 0)
-            }
-
-            # 保存快照
-            snapshot_path = validation_dir / "stage4_validation.json"
-            import json
-            with open(snapshot_path, 'w', encoding='utf-8') as f:
-                json.dump(snapshot_data, f, indent=2, ensure_ascii=False, default=str)
-
-            self.logger.info(f"📋 Stage 4 驗證快照已保存: {snapshot_path}")
-            self.logger.info(f"   階段 4.1: {'✅' if stage_4_1_completed else '❌'} | 階段 4.2: {'✅' if stage_4_2_completed else '❌'}")
-            self.logger.info(f"   驗證狀態: {snapshot_data['validation_status']}")
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"❌ Stage 4 驗證快照保存失敗: {e}")
-            import traceback
-            self.logger.error(f"   錯誤詳情: {traceback.format_exc()}")
-            return False
+        """保存 Stage 4 驗證快照 - 使用 SnapshotManager 模組"""
+        return self.snapshot_manager.save(processing_results)
 
 
 def create_stage4_processor(config: Optional[Dict[str, Any]] = None) -> Stage4LinkFeasibilityProcessor:

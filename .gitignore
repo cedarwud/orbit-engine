@@ -53,6 +53,8 @@ data/tle_data/**                 # TLE數據文件 (每日更新)
 data/logs/*.log
 *.csv
 *.parquet
+*.bsp                            # Skyfield 星歷數據 (17MB+, 自動下載)
+data/ephemeris/*.bsp             # 明確忽略星歷數據檔案
 
 # 🐳 Docker
 .dockerignore

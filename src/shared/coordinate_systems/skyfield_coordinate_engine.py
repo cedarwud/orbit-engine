@@ -30,7 +30,7 @@ except ImportError:
 
 # Skyfield 專業庫
 try:
-    from skyfield.api import load, wgs84, Topos
+    from skyfield.api import Loader, wgs84, Topos
     from skyfield.framelib import itrs, true_equator_and_equinox_of_date
     from skyfield.positionlib import Geocentric, ICRS
     from skyfield.units import Distance, Angle
@@ -97,12 +97,17 @@ class SkyfieldCoordinateEngine:
     def _initialize_skyfield(self):
         """初始化 Skyfield 專業組件"""
         try:
+            # 設定星歷數據快取目錄
+            ephemeris_dir = 'data/ephemeris'
+            os.makedirs(ephemeris_dir, exist_ok=True)
+            loader = Loader(ephemeris_dir)
+
             # 載入時間標準 (包含真實閏秒數據)
-            self.ts = load.timescale()
+            self.ts = loader.timescale()
 
             # 載入高精度星歷數據
-            self.ephemeris = load('de421.bsp')  # JPL DE421 高精度星歷
-            self.logger.debug("✅ 載入 JPL DE421 星歷數據")
+            self.ephemeris = loader('de421.bsp')  # JPL DE421 高精度星歷
+            self.logger.debug(f"✅ 載入 JPL DE421 星歷數據 (cache: {ephemeris_dir})")
 
             # 地球物理模型
             self.earth = self.ephemeris['earth']

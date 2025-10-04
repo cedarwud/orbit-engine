@@ -29,9 +29,9 @@ from .validation_engine import (
     ValidationRegistry
 )
 
-from .stage2_validator import Stage2VisibilityValidator
 from .stage4_validator import Stage4TimeseriesValidator
 
+# Stage2Validator 已移除（v3.0 架構重構，可見性功能移至 Stage 4）
 # Stage3Validator 已移除（重構中）
 # from .stage3_validator import Stage3SignalValidator
 
@@ -56,7 +56,7 @@ __all__ = [
     'ValidationStatus',
     'FailureCriteria',
     'ValidationRegistry',
-    'Stage2VisibilityValidator',
+    # 'Stage2VisibilityValidator',  # 已移除（v3.0 架構重構）
     # 'Stage3SignalValidator',  # 已移除（重構中）
     'Stage4TimeseriesValidator'
 ]

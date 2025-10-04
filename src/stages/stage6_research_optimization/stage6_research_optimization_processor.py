@@ -108,7 +108,7 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
         if not ML_GENERATOR_AVAILABLE:
             missing_modules.append("MLTrainingDataGenerator")
         if not DECISION_SUPPORT_AVAILABLE:
-            missing_modules.append("RealTimeDecisionSupport")
+            missing_modules.append("HandoverDecisionEvaluator")
 
         if missing_modules:
             error_msg = (

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Stage 1: Data Validator Component (v2.0 Architecture)
+Stage 1: Data Validator Component (v3.0 Modular Architecture)
 
 專職責任：
 - TLE數據格式驗證和完整性檢查
@@ -8,10 +8,11 @@ Stage 1: Data Validator Component (v2.0 Architecture)
 - 數據血統和來源追蹤
 - 錯誤報告和品質度量
 
-v2.0重構原則：
+v3.0重構原則：
 - 單一責任原則：專門負責數據驗證
 - 學術標準合規：Grade A驗證要求
 - 模組化設計：可獨立測試和重用
+- 職責分離：驗證器、檢查器、計算器、報告器獨立
 """
 
 import logging
@@ -23,6 +24,12 @@ from pathlib import Path
 from shared.validation_framework import ValidationEngine
 from shared.constants import OrbitEngineConstantsManager
 from shared.utils import TimeUtils
+
+# ✅ 重構後的模組化組件
+from .validators import FormatValidator, ChecksumValidator
+from .metrics import AccuracyCalculator, ConsistencyCalculator
+from .checkers import AcademicChecker, RequirementChecker
+from .reports import StatisticsReporter
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +48,7 @@ class DataValidator:
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or {}
 
-        # 初始化組件
+        # 初始化共享組件
         self.validation_engine = ValidationEngine('stage1_data_validator')
         self.system_constants = OrbitEngineConstantsManager()
         self.time_utils = TimeUtils()
@@ -57,6 +64,15 @@ class DataValidator:
             'academic_grade_a_compliance': True
         }
 
+        # ✅ 初始化模組化組件
+        self.format_validator = FormatValidator(self.validation_rules)
+        self.checksum_validator = ChecksumValidator()
+        self.accuracy_calculator = AccuracyCalculator(self.format_validator, self.checksum_validator)
+        self.consistency_calculator = ConsistencyCalculator()
+        self.requirement_checker = RequirementChecker(self.format_validator)
+        self.academic_checker = AcademicChecker(self.requirement_checker)
+        self.statistics_reporter = StatisticsReporter(self.checksum_validator)
+
         # 品質度量統計
         self.validation_stats = {
             'total_records_validated': 0,
@@ -66,32 +82,12 @@ class DataValidator:
             'academic_compliance_score': 0.0
         }
 
-        # Checksum 統計計數器
-        self.checksum_stats = {
-            'official_standard': 0,
-            'legacy_non_standard': 0,
-            'invalid': 0
-        }
-
         self.logger = logging.getLogger(f"{__name__}.DataValidator")
-        self.logger.info("Stage 1 數據驗證器已初始化")
+        self.logger.info("Stage 1 數據驗證器已初始化 (模組化 v3.0)")
 
     def _report_checksum_statistics(self):
-        """報告 checksum 驗證統計信息"""
-        total = sum(self.checksum_stats.values())
-        if total > 0:
-            official_pct = (self.checksum_stats['official_standard'] / total) * 100
-            legacy_pct = (self.checksum_stats['legacy_non_standard'] / total) * 100
-            invalid_pct = (self.checksum_stats['invalid'] / total) * 100
-
-            self.logger.info(f"📊 TLE Checksum 統計報告:")
-            self.logger.info(f"  ✅ 官方標準: {self.checksum_stats['official_standard']} ({official_pct:.1f}%)")
-
-            if self.checksum_stats['legacy_non_standard'] > 0:
-                self.logger.warning(f"  ⚠️ 數據來源問題: {self.checksum_stats['legacy_non_standard']} ({legacy_pct:.1f}%) 使用錯誤的checksum算法 (錯誤地將正號+算作1)")
-
-            if self.checksum_stats['invalid'] > 0:
-                self.logger.error(f"  ❌ 校驗失敗: {self.checksum_stats['invalid']} ({invalid_pct:.1f}%)")
+        """報告 checksum 驗證統計信息 - 使用 StatisticsReporter"""
+        self.statistics_reporter.report_checksum_statistics()
 
     def validate_tle_dataset(self, tle_data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -160,6 +156,10 @@ class DataValidator:
         return validation_result
 
     def _validate_format_compliance(self, tle_data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """驗證格式合規性 - 使用 FormatValidator"""
+        return self.format_validator.validate_format_compliance(tle_data_list)
+
+    def _validate_format_compliance_old(self, tle_data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
         """驗證TLE格式合規性"""
         format_results = {
             'passed': 0,
@@ -208,6 +208,10 @@ class DataValidator:
         return format_results
 
     def _validate_tle_line(self, tle_line: str, line_number: int) -> bool:
+        """驗證TLE行 - 使用 FormatValidator"""
+        return self.format_validator.validate_tle_line(tle_line, line_number)
+
+    def _validate_tle_line_old(self, tle_line: str, line_number: int) -> bool:
         """驗證單行TLE格式"""
         if not tle_line or len(tle_line) != self.validation_rules['tle_line_length']:
             return False
@@ -239,6 +243,10 @@ class DataValidator:
         return True
 
     def _validate_academic_compliance(self, tle_data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """驗證學術合規性 - 使用 AcademicChecker"""
+        return self.academic_checker.validate(tle_data_list)
+
+    def _validate_academic_compliance_old(self, tle_data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
         """驗證學術Grade A合規性"""
         academic_results = {
             'compliance_score': 0.0,
@@ -496,6 +504,10 @@ class DataValidator:
         return verification_ratio >= 0.95
 
     def _check_general_requirement(self, tle_data_list: List[Dict[str, Any]], requirement: str) -> bool:
+        """檢查通用需求 - 使用 RequirementChecker"""
+        return self.requirement_checker.check(tle_data_list, requirement)
+
+    def _check_general_requirement_old(self, tle_data_list: List[Dict[str, Any]], requirement: str) -> bool:
         """檢查學術要求（完整實現，符合Grade A標準）"""
         
         if requirement == 'format_compliance':
@@ -622,6 +634,10 @@ class DataValidator:
         return all(field in tle_data and tle_data[field] for field in required_fields)
 
     def _calculate_consistency_score(self, tle_data_list: List[Dict[str, Any]]) -> float:
+        """計算一致性評分 - 使用 ConsistencyCalculator"""
+        return self.consistency_calculator.calculate(tle_data_list)
+
+    def _calculate_consistency_score_old(self, tle_data_list: List[Dict[str, Any]]) -> float:
         """計算一致性評分（完整實現，符合Grade A標準）"""
         if not tle_data_list:
             return 0.0
@@ -758,6 +774,10 @@ class DataValidator:
             return False
 
     def _calculate_accuracy_score(self, tle_data_list: List[Dict[str, Any]]) -> float:
+        """計算準確性評分 - 使用 AccuracyCalculator"""
+        return self.accuracy_calculator.calculate(tle_data_list)
+
+    def _calculate_accuracy_score_old(self, tle_data_list: List[Dict[str, Any]]) -> float:
         """計算準確性評分（完整實現，符合Grade A標準）"""
         if not tle_data_list:
             return 0.0

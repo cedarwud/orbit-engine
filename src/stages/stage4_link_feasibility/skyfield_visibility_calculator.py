@@ -8,10 +8,11 @@ Skyfield 專業可見性計算器 - Stage 4 核心模組
 使用 NASA JPL 標準天文計算庫確保 IAU 標準合規
 """
 
-from skyfield.api import load, wgs84, utc
+from skyfield.api import Loader, wgs84, utc
 from skyfield.toposlib import GeographicPosition
 from datetime import datetime, timezone
 import logging
+import os
 from typing import Dict, Any, Tuple, Optional, List
 
 logger = logging.getLogger(__name__)
@@ -61,8 +62,13 @@ class SkyfieldVisibilityCalculator:
         self.config = config or {}
         self.logger = logger
 
+        # 設定星歷數據快取目錄
+        ephemeris_dir = 'data/ephemeris'
+        os.makedirs(ephemeris_dir, exist_ok=True)
+        loader = Loader(ephemeris_dir)
+
         # 載入 Skyfield 時間系統
-        self.ts = load.timescale()
+        self.ts = loader.timescale()
 
         # 創建 NTPU 地面站 (WGS84 橢球)
         self.ntpu_station = wgs84.latlon(
@@ -74,8 +80,8 @@ class SkyfieldVisibilityCalculator:
         # 嘗試載入星曆表 (用於更高精度)
         self.ephemeris = None
         try:
-            self.ephemeris = load('de421.bsp')  # NASA JPL DE421
-            self.logger.info("✅ NASA JPL DE421 星曆表載入成功")
+            self.ephemeris = loader('de421.bsp')  # NASA JPL DE421
+            self.logger.info(f"✅ NASA JPL DE421 星曆表載入成功 (cache: {ephemeris_dir})")
         except Exception as e:
             self.logger.warning(f"⚠️ 星曆表載入失敗: {e}, 使用預設精度")
 
