@@ -83,7 +83,10 @@ class Stage2ResultManager:
                     'position_teme': [pos.x, pos.y, pos.z],  # TEME 座標 (km)
                     'velocity_teme': [pos.vx, pos.vy, pos.vz],  # TEME 速度 (km/s)
                     'satellite_id': satellite_id,
-                    'propagation_error': 0.001  # km (估計誤差，符合SGP4精度)
+                    # ✅ Grade A 標準: 移除估計誤差值
+                    # SGP4 誤差應從算法實際計算獲取，不使用硬編碼估算值
+                    # 參考: Vallado 2013, Table 3.2 - SGP4 精度範圍 0.5-5 km (視 TLE 新舊而定)
+                    # 如需提供誤差，應從 Skyfield 或 SGP4 計算結果獲取
                 }
                 orbital_states.append(orbital_state)
 
