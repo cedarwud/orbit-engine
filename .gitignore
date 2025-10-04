@@ -50,6 +50,8 @@ data/validation_snapshots/
 !data/validation_snapshots/.gitkeep  # 但保留目錄結構
 data/tle_data/**                 # TLE數據文件 (每日更新)
 !data/tle_data/.gitkeep          # 但保留目錄結構
+data/cache/                      # 快取檔案 (HDF5 座標快取, 可重新產生)
+!data/cache/.gitkeep             # 但保留目錄結構
 data/logs/*.log
 *.csv
 *.parquet
