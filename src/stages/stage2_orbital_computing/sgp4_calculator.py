@@ -88,12 +88,15 @@ class SGP4Calculator:
             self.calculation_stats["total_calculations"] += 1
 
             # ✅ v3.0架構要求：使用Stage 1提供的epoch_datetime，禁止TLE重新解析
-            tle_line1 = tle_data.get('line1', tle_data.get('tle_line1', ''))
-            tle_line2 = tle_data.get('line2', tle_data.get('tle_line2', ''))
-            satellite_name = tle_data.get('name', tle_data.get('satellite_id', 'Satellite'))
+            # ❌ Fail-Fast: 移除預設值回退，要求完整數據
+            tle_line1 = tle_data.get('line1') or tle_data.get('tle_line1')
+            tle_line2 = tle_data.get('line2') or tle_data.get('tle_line2')
+            satellite_name = tle_data.get('name') or tle_data.get('satellite_id')
 
             if not tle_line1 or not tle_line2:
-                raise ValueError("TLE數據不完整")
+                raise ValueError("TLE數據不完整: 缺少 line1/line2")
+            if not satellite_name:
+                raise ValueError("TLE數據不完整: 缺少 name/satellite_id")
 
             # 🚨 關鍵修復：使用Stage 1的epoch_datetime，不重新解析TLE
             epoch_datetime_str = tle_data.get('epoch_datetime')
@@ -145,9 +148,12 @@ class SGP4Calculator:
             return position
 
         except Exception as e:
-            self.logger.error(f"Skyfield 計算失敗: {e}")
+            # ⚠️ 批次處理容錯：單顆衛星失敗不中斷整個批次
+            # 這是合理的容錯，因為 TLE 數據可能有個別損壞
+            # 系統性錯誤（配置/依賴問題）會在初始化時檢查
+            self.logger.error(f"Skyfield 計算失敗 (衛星: {satellite_name}): {e}")
             self.calculation_stats["failed_calculations"] += 1
-            return None
+            return None  # 標記失敗，由上層決定如何處理
 
 
     def batch_calculate(self, tle_data_list: List[Dict[str, Any]], time_series: List[float]) -> Dict[str, SGP4OrbitResult]:
@@ -166,7 +172,11 @@ class SGP4Calculator:
         results = {}
 
         for tle_data in tle_data_list:
-            satellite_id = str(tle_data.get('satellite_id', tle_data.get('norad_id', 'unknown')))
+            # ❌ Fail-Fast: 衛星 ID 必須存在
+            satellite_id = tle_data.get('satellite_id') or tle_data.get('norad_id')
+            if not satellite_id:
+                raise ValueError("TLE數據缺少必要的 satellite_id 或 norad_id 欄位")
+            satellite_id = str(satellite_id)
 
             try:
                 positions = []
@@ -310,7 +320,7 @@ class SGP4Calculator:
             # ✅ SOURCE: Mean motion 上限驗證
             # 依據: Vallado 2013, Table 2.1 - LEO 最低軌道 ~160 km (ISS)
             # 最高 mean motion: 1440 min/day ÷ 88 min/orbit ≈ 16.36 revs/day
-            # 保守上限設為 20 revs/day（允許極低軌道或特殊任務）
+            # 擴展驗證上限設為 20 revs/day（允許極低軌道或特殊任務）
             MAX_MEAN_MOTION_REVS_PER_DAY = 20.0
             # SOURCE: 物理上限，基於 LEO 定義（高度 < 2000 km）
             if mean_motion > MAX_MEAN_MOTION_REVS_PER_DAY:
@@ -328,7 +338,7 @@ class SGP4Calculator:
             # - ISS (高度 ~400 km): 92.68 分鐘
             # - Starlink (高度 ~550 km): 95.5 分鐘
             # - LEO 上限 (高度 ~2000 km): ~127 分鐘
-            # 保守範圍: 80-150 分鐘（允許極低/極高 LEO）
+            # 擴展驗證範圍: 80-150 分鐘（允許極低/極高 LEO）
             LEO_ORBITAL_PERIOD_MIN = 80.0   # minutes
             LEO_ORBITAL_PERIOD_MAX = 150.0  # minutes
             # SOURCE: IAU definition of LEO (altitude 160-2000 km)
@@ -344,63 +354,3 @@ class SGP4Calculator:
         except Exception as e:
             # ❌ Grade A標準：不允許硬編碼回退值
             raise ValueError(f"軌道週期計算失敗，Grade A標準禁止使用預設值: {e}")
-
-    def calculate_optimal_time_points(self, tle_line2: str, time_interval_seconds: int = 30, coverage_cycles: float = 1.0) -> int:
-        """
-        基於實際軌道物理參數計算時間點數量 - Grade A學術標準
-
-        學術原則：
-        1. 基於實際TLE軌道參數計算
-        2. 禁止星座硬編碼或預設值
-        3. 完整軌道週期覆蓋，基於物理計算
-
-        Args:
-            tle_line2: TLE第二行數據
-            time_interval_seconds: 時間間隔（秒）
-            coverage_cycles: 覆蓋週期數（1.0=完整軌道週期）
-
-        Returns:
-            int: 基於物理計算的時間點數量
-        """
-        try:
-            # ✅ 從真實TLE數據計算軌道週期
-            orbital_period_minutes = self.calculate_orbital_period(tle_line2)
-
-            # ✅ 基於物理軌道週期計算覆蓋時間
-            coverage_time_minutes = orbital_period_minutes * coverage_cycles
-            coverage_time_seconds = coverage_time_minutes * 60
-
-            # ✅ 基於時間間隔計算精確時間點數
-            time_points = int(coverage_time_seconds / time_interval_seconds)
-
-            # ✅ SOURCE: 最小數據時長驗證
-            # 依據: 軌道力學分析要求最少半個軌道週期數據
-            # LEO 最短軌道週期 ~88 分鐘（ISS）→ 半週期 ~44 分鐘
-            # 保守值: 30 分鐘最小數據長度
-            # SOURCE: Vallado 2013, Chapter 8 - Orbit Determination
-            # 建議: 至少 1/3 軌道週期以確保軌道參數估計穩定性
-            MIN_DATA_DURATION_MINUTES = 30  # minutes
-            min_time_points = (MIN_DATA_DURATION_MINUTES * 60) // time_interval_seconds
-            # SOURCE: 工程實踐，30 分鐘 = 1800 秒，30秒間隔 = 60 個點
-            if time_points < min_time_points:
-                self.logger.warning(
-                    f"計算的時間點數({time_points})小於最小要求({min_time_points})\n"
-                    f"最小數據時長: {MIN_DATA_DURATION_MINUTES} 分鐘\n"
-                    f"SOURCE: Vallado 2013, 軌道分析最小數據長度要求"
-                )
-                time_points = min_time_points
-
-            # 學術級計算記錄
-            self.logger.info(f"🔬 Grade A軌道物理計算:")
-            self.logger.info(f"  - 實際軌道週期: {orbital_period_minutes:.1f}分鐘")
-            self.logger.info(f"  - 覆蓋倍數: {coverage_cycles:.1f}x")
-            self.logger.info(f"  - 覆蓋時間: {coverage_time_minutes:.1f}分鐘")
-            self.logger.info(f"  - 時間間隔: {time_interval_seconds}秒")
-            self.logger.info(f"  - 計算時間點數: {time_points}")
-            self.logger.info(f"  - 計算基礎: 真實TLE軌道參數")
-
-            return time_points
-
-        except Exception as e:
-            # ❌ Grade A標準：不允許硬編碼回退值
-            raise ValueError(f"時間點計算失敗，Grade A標準禁止使用預設值: {e}")

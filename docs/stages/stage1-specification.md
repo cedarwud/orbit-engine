@@ -171,12 +171,14 @@ processor = create_stage1_refactored_processor(config)  # 舊名稱
 }
 ```
 
-#### 4. **🆕 智能日期篩選** （2025-10-03 新增）
+#### 4. **🆕 智能日期篩選** （2025-10-03 新增，2025-10-04 更新）
 - **最新日期篩選**: 保留最新日期的衛星（默認模式）
-- **容差控制**: 允許 ± 12 小時容差，確保 SGP4 準確性
+- **容差控制**: 允許 ± 24 小時容差，基於 SGP4 精度分析
+  - **科學依據**: SGP4 誤差增長率 1-3 km/天，48h 窗口內精度優秀
+  - **數據完整性**: 保留 99.8% 數據（9,015/9,036 顆）
+  - **用途**: 衛星池規劃用 ±24h（強化學習訓練為未來獨立工作）
 - **動態適應**: 根據不同 TLE 檔案自動調整
 - **向後兼容**: 可配置禁用，保持舊行為
-- **效能提升**: 減少 39.8% 處理量（9,039 → 5,444 顆）
 
 **篩選模式**:
 - `latest_date`: 保留最新日期衛星（± 容差時間）
@@ -432,8 +434,8 @@ ProcessingResult(
                 'research_goals': [
                     'dynamic_satellite_pool_planning',
                     'time_space_staggered_coverage',
-                    '3gpp_ntn_handover_events',
-                    'reinforcement_learning_training'
+                    '3gpp_ntn_handover_events'
+                    # 註: reinforcement_learning_training 為未來獨立工作
                 ]
             },
 
@@ -636,8 +638,8 @@ pool_planning_report = {
     'research_goals_alignment': {
         'dynamic_satellite_pool_planning': starlink_pool_met and oneweb_pool_met,
         'time_space_staggered_coverage': True,  # 基於時空錯置原理
-        '3gpp_ntn_handover_events': True,  # A4/A5/D2 事件生成
-        'reinforcement_learning_training': True  # ML 訓練數據生成
+        '3gpp_ntn_handover_events': True  # A3/A4/A5/D2 事件生成
+        # 註: 強化學習訓練為未來獨立工作，不包含在六階段核心流程中
     }
 }
 
@@ -737,7 +739,7 @@ config = {
     'epoch_filter': {
         'enabled': True,          # 啟用日期篩選
         'mode': 'latest_date',    # 篩選模式
-        'tolerance_hours': 12     # 容差範圍（小時）
+        'tolerance_hours': 24     # 容差範圍（小時）- 基於 SGP4 精度分析
     }
 }
 ```
@@ -755,11 +757,11 @@ config = {
         'output_path': 'data/outputs/stage1/epoch_analysis.json'  # 分析報告輸出路徑
     },
 
-    # 🆕 Epoch 篩選配置（2025-10-03 新增）
+    # 🆕 Epoch 篩選配置（2025-10-03 新增，2025-10-04 更新）
     'epoch_filter': {
         'enabled': True,                # 啟用日期篩選
         'mode': 'latest_date',          # 'latest_date' | 'recommended_date' | 'specific_date'
-        'tolerance_hours': 12,          # 容差範圍（小時），確保 SGP4 準確性
+        'tolerance_hours': 24,          # 容差範圍（小時）- 基於 SGP4 精度分析
         # 'specific_date': '2025-10-02'  # 僅在 mode='specific_date' 時使用
     },
 

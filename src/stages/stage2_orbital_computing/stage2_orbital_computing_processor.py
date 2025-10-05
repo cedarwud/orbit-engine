@@ -175,6 +175,8 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
 
             # SGP4 配置
             sgp4_config = self.config.get('sgp4_propagation', {})
+            # ✅ Stage 2 標準值：TEME 和 SGP4 是架構要求，非回退
+            # 這些是 v3.0 架構的固定值，允許作為預設配置
             self.coordinate_system = sgp4_config.get('output_coordinate_system', 'TEME')
             self.propagation_method = sgp4_config.get('method', 'SGP4')
 
@@ -193,7 +195,7 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
         """
         動態計算最優工作器數量 - 基於 CPU 狀態和配置
 
-        優先級：配置文件 > 動態 CPU 檢測 > 保守預設值
+        優先級：配置文件 > 動態 CPU 檢測 > 安全預設值
 
         Returns:
             int: 最優工作器數量
@@ -271,15 +273,24 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
                 return workers
 
             except Exception as cpu_error:
-                logger.warning(f"⚠️ CPU 狀態檢測失敗: {cpu_error}，使用預設配置")
-                # 回退策略：總核心數 - 1（保留一個核心給系統）
+                # ⚠️ CPU 檢測失敗回退：psutil 可能在某些環境不可用
+                # 這是運行時環境問題，不是配置錯誤，允許降級
+                logger.warning(f"⚠️ CPU 狀態檢測失敗: {cpu_error}，使用安全配置")
                 fallback_workers = max(1, total_cpus - 1)
-                logger.info(f"📋 回退配置: {fallback_workers} 個工作器")
+                logger.info(f"📋 降級配置: {fallback_workers} 個工作器（總核心-1）")
                 return fallback_workers
 
         except Exception as e:
-            logger.error(f"❌ 工作器配置失敗: {e}，使用單線程模式")
-            return 1
+            # ❌ Fail-Fast: 系統性錯誤不允許回退
+            # 如果連 CPU 核心數都取不到，說明環境嚴重異常
+            logger.error(f"❌ 工作器配置失敗: {e}")
+            raise RuntimeError(
+                f"無法配置並行工作器: {e}\n"
+                "可能原因:\n"
+                "1. multiprocessing 模組不可用\n"
+                "2. 系統資源限制\n"
+                "請檢查運行環境或在配置文件中手動設置 performance.max_workers"
+            ) from e
 
     def process(self, input_data: Any) -> ProcessingResult:
         """
@@ -394,9 +405,10 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
         if 'stage' in input_data and input_data['stage'] != 'data_loading':
             self.logger.warning(f"Stage 字段值異常: {input_data['stage']}, 預期: data_loading")
 
-        satellites_data = input_data.get('satellites', input_data.get('tle_data', []))
+        # ❌ Fail-Fast: 移除空列表回退
+        satellites_data = input_data.get('satellites') or input_data.get('tle_data')
         if not satellites_data:
-            self.logger.error("衛星數據為空")
+            self.logger.error("衛星數據為空或缺少欄位 (satellites/tle_data)")
             return False
 
         # 🚨 關鍵驗證：檢查是否有 epoch_datetime 字段
@@ -412,7 +424,10 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
     def _extract_satellites_data(self, input_data: Dict[str, Any]) -> List[Dict]:
         """從 Stage 1 輸出中提取衛星數據"""
         try:
-            satellites_data = input_data.get('satellites', input_data.get('tle_data', []))
+            # ❌ Fail-Fast: 移除空列表回退
+            satellites_data = input_data.get('satellites') or input_data.get('tle_data')
+            if not satellites_data:
+                raise ValueError("input_data 缺少 'satellites' 或 'tle_data' 欄位")
 
             # 處理字典格式（Stage 1 新格式）
             if isinstance(satellites_data, dict):

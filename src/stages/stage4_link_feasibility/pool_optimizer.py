@@ -444,8 +444,24 @@ class OptimizationValidator:
                 'target_achievement_rate': 0.0
             }
 
+        # ✅ Grade A+ Fail-Fast: 驗證所需指標必須存在
+        selection_metrics = optimization_result['selection_metrics']
+
+        if 'coverage_rate' not in selection_metrics:
+            raise ValueError(
+                f"優化結果缺少 'coverage_rate' 指標\n"
+                f"星座: {constellation}\n"
+                f"可用指標: {list(selection_metrics.keys())}"
+            )
+        if 'avg_visible' not in selection_metrics:
+            raise ValueError(
+                f"優化結果缺少 'avg_visible' 指標\n"
+                f"星座: {constellation}\n"
+                f"可用指標: {list(selection_metrics.keys())}"
+            )
+
         # Check 1: 覆蓋率檢查
-        coverage_rate = optimization_result['selection_metrics'].get('coverage_rate', 0.0)
+        coverage_rate = selection_metrics['coverage_rate']
         checks['coverage_rate_check'] = {
             'passed': coverage_rate >= 0.95,
             'value': coverage_rate,
@@ -454,7 +470,7 @@ class OptimizationValidator:
         }
 
         # Check 2: 平均可見數檢查
-        avg_visible = optimization_result['selection_metrics'].get('avg_visible', 0.0)
+        avg_visible = selection_metrics['avg_visible']
         checks['avg_visible_check'] = {
             'passed': target_min <= avg_visible <= target_max,
             'value': avg_visible,
@@ -463,6 +479,13 @@ class OptimizationValidator:
         }
 
         # Check 3: 覆蓋空窗檢查
+        # ✅ Grade A+ Fail-Fast: 覆蓋分析必須存在
+        if 'coverage_analysis' not in optimization_result:
+            raise ValueError(
+                f"優化結果缺少 'coverage_analysis'\n"
+                f"星座: {constellation}\n"
+                f"可用字段: {list(optimization_result.keys())}"
+            )
         coverage_gaps = optimization_result['coverage_analysis'].get('coverage_gaps', [])
         checks['coverage_gaps_check'] = {
             'passed': len(coverage_gaps) == 0,
@@ -481,7 +504,14 @@ class OptimizationValidator:
         #   - 對於 LEO 星座覆蓋問題:
         #     * 若選擇比例 < 10%: 可能覆蓋不足
         #     * 若選擇比例 > 80%: 優化效果不明顯（接近全選）
-        selection_ratio = optimization_result['selection_metrics'].get('selection_ratio', 0.0)
+        # ✅ Grade A+ Fail-Fast: selection_ratio 必須存在
+        if 'selection_ratio' not in selection_metrics:
+            raise ValueError(
+                f"優化指標缺少 'selection_ratio'\n"
+                f"星座: {constellation}\n"
+                f"可用指標: {list(selection_metrics.keys())}"
+            )
+        selection_ratio = selection_metrics['selection_ratio']
         checks['pool_size_check'] = {
             'passed': 0.1 <= selection_ratio <= 0.8,
             'value': selection_ratio,
@@ -533,19 +563,33 @@ def optimize_satellite_pool(connectable_satellites: Dict[str, List[Dict[str, Any
             optimized_pools[constellation] = satellites
             continue
 
-        # 獲取目標範圍
-        if constellation in constellation_configs:
-            target_range = constellation_configs[constellation].get('expected_visible_satellites', [10, 15])
-        else:
-            target_range = [10, 15] if constellation == 'starlink' else [3, 6]
+        # ✅ Grade A+ 學術標準: 禁止系統參數使用預設值
+        # 獲取目標範圍 - 必須在配置中明確提供
+        if constellation not in constellation_configs:
+            raise ValueError(
+                f"constellation_configs 缺少 '{constellation}' 配置\n"
+                f"請在配置中提供完整星座設定"
+            )
 
+        if 'expected_visible_satellites' not in constellation_configs[constellation]:
+            raise ValueError(
+                f"constellation_configs['{constellation}'] 缺少 'expected_visible_satellites'\n"
+                "推薦值: Starlink [10, 15], OneWeb [3, 6] (依據 3GPP TR 38.821)"
+            )
+
+        target_range = constellation_configs[constellation]['expected_visible_satellites']
         target_min, target_max = target_range
 
-        # 獲取目標覆蓋率 (從配置讀取，預設 0.95)
-        if constellation in constellation_configs:
-            target_coverage_rate = constellation_configs[constellation].get('target_coverage_rate', 0.95)
-        else:
-            target_coverage_rate = 0.95  # 預設 95% 覆蓋率
+        # 獲取目標覆蓋率 - 必須在配置中明確提供
+        # SOURCE: 3GPP TR 38.821 (2021) Section 6.2 - NTN 系統建議覆蓋率 ≥95%
+        if 'target_coverage_rate' not in constellation_configs[constellation]:
+            raise ValueError(
+                f"constellation_configs['{constellation}'] 缺少 'target_coverage_rate'\n"
+                "推薦值: 0.95 (依據 3GPP TR 38.821 Section 6.2)\n"
+                "NTN 系統建議覆蓋率 ≥95% 以確保服務品質"
+            )
+
+        target_coverage_rate = constellation_configs[constellation]['target_coverage_rate']
 
         # Step 1: 時空分布優化
         pool_selector = PoolSelector(target_min, target_max, target_coverage_rate)

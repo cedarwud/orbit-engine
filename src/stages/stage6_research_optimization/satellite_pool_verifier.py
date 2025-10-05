@@ -176,7 +176,15 @@ class SatellitePoolVerifier:
                     # 🚨 修正：優先使用 visibility_metrics.is_connectable（來自 Stage 4，基於 elevation）
                     # 而非頂層 is_connectable（來自 Stage 5，僅基於信號品質）
                     visibility_metrics = time_point.get('visibility_metrics', {})
-                    is_connectable = visibility_metrics.get('is_connectable', False)
+
+                    # ✅ Fail-Fast: 確保 is_connectable 字段存在
+                    if 'is_connectable' not in visibility_metrics:
+                        raise ValueError(
+                            f"時間點 {timestamp} visibility_metrics 缺少 is_connectable\n"
+                            f"Grade A 標準要求所有數據字段必須存在\n"
+                            f"請確保 Stage 5 提供完整的可見性數據"
+                        )
+                    is_connectable = visibility_metrics['is_connectable']
 
                     # 處理字符串格式（Stage 4 輸出為 "True"/"False" 字符串）
                     if isinstance(is_connectable, str):
@@ -229,11 +237,134 @@ class SatellitePoolVerifier:
             'continuous_coverage_hours': continuous_hours
         }
 
+        # 🚨 新增 (2025-10-05): 軌道週期完整性驗證
+        # 確保時間點涵蓋完整軌道週期，而非集中在某段時間
+        orbital_period_validation = self._validate_orbital_period_coverage(
+            sorted(all_timestamps), constellation
+        )
+
+        # 更新結果
+        result['orbital_period_validation'] = orbital_period_validation
+
         self.logger.info(f"   平均可見: {average_visible:.1f} 顆")
         self.logger.info(f"   覆蓋率: {coverage_rate:.1%}")
         self.logger.info(f"   目標{'✅ 達成' if result['target_met'] else '❌ 未達成'}")
 
+        # 軌道週期驗證日誌
+        if orbital_period_validation['is_complete_period']:
+            self.logger.info(
+                f"   ✅ 軌道週期覆蓋: {orbital_period_validation['time_span_minutes']:.1f} 分鐘 "
+                f"({orbital_period_validation['coverage_ratio']:.1%} 完整週期)"
+            )
+        else:
+            self.logger.warning(
+                f"   ❌ 軌道週期不足: {orbital_period_validation['time_span_minutes']:.1f} 分鐘 "
+                f"< {orbital_period_validation['expected_period_minutes'] * 0.9:.1f} 分鐘最小要求"
+            )
+
         return result
+
+    def _validate_orbital_period_coverage(
+        self,
+        time_points: List[str],
+        constellation: str
+    ) -> Dict[str, Any]:
+        """驗證時間點是否涵蓋完整軌道週期
+
+        🚨 新增 (2025-10-05): 防止時間點集中在短時間段
+
+        Args:
+            time_points: 已排序的時間戳列表
+            constellation: 星座名稱 ('starlink' 或 'oneweb')
+
+        Returns:
+            {
+                'time_span_minutes': float,          # 時間跨度（分鐘）
+                'expected_period_minutes': float,    # 預期軌道週期
+                'coverage_ratio': float,             # 覆蓋比率（實際/預期）
+                'is_complete_period': bool,          # 是否完整週期
+                'validation_passed': bool,           # 驗證通過
+                'message': str                       # 驗證訊息
+            }
+
+        SOURCE: 開普勒第三定律 T = 2π√(a³/μ)
+        依據: ORBITAL_PERIOD_VALIDATION_DESIGN.md 方法 1
+        """
+        # 軌道週期常數
+        # SOURCE: 開普勒第三定律計算
+        # Starlink: 550km altitude → 95 分鐘週期
+        # OneWeb: 1200km altitude → 110 分鐘週期
+        ORBITAL_PERIODS = {
+            'starlink': 95,   # 分鐘 (SOURCE: 6921km 半長軸)
+            'oneweb': 110     # 分鐘 (SOURCE: 7571km 半長軸)
+        }
+
+        if not time_points or len(time_points) < 2:
+            return {
+                'time_span_minutes': 0.0,
+                'expected_period_minutes': ORBITAL_PERIODS.get(constellation, 95),
+                'coverage_ratio': 0.0,
+                'is_complete_period': False,
+                'validation_passed': False,
+                'message': "❌ 時間點不足，無法驗證軌道週期"
+            }
+
+        # 解析時間戳
+        try:
+            timestamps = [
+                datetime.fromisoformat(tp.replace('Z', '+00:00'))
+                for tp in time_points
+            ]
+            timestamps.sort()
+        except Exception as e:
+            self.logger.error(f"時間戳解析失敗: {e}")
+            return {
+                'time_span_minutes': 0.0,
+                'expected_period_minutes': ORBITAL_PERIODS.get(constellation, 95),
+                'coverage_ratio': 0.0,
+                'is_complete_period': False,
+                'validation_passed': False,
+                'message': f"❌ 時間戳解析失敗: {e}"
+            }
+
+        # 計算時間跨度
+        time_span = timestamps[-1] - timestamps[0]
+        time_span_minutes = time_span.total_seconds() / 60.0
+
+        # 預期軌道週期
+        expected_period = ORBITAL_PERIODS.get(constellation, 95)
+
+        # 覆蓋比率
+        coverage_ratio = time_span_minutes / expected_period if expected_period > 0 else 0.0
+
+        # 驗證標準: 時間跨度 >= 90% 軌道週期
+        # SOURCE: ORBITAL_PERIOD_VALIDATION_DESIGN.md Line 102
+        # 理由: 允許 10% 容差，確保涵蓋完整動態行為
+        MIN_COVERAGE_RATIO = 0.9
+        is_complete_period = coverage_ratio >= MIN_COVERAGE_RATIO
+
+        # 生成驗證訊息
+        if is_complete_period:
+            message = (
+                f"✅ 時間跨度 {time_span_minutes:.1f} 分鐘 >= "
+                f"{expected_period * MIN_COVERAGE_RATIO:.1f} 分鐘 "
+                f"(涵蓋 {coverage_ratio:.1%} 軌道週期)"
+            )
+        else:
+            message = (
+                f"❌ 時間跨度不足: {time_span_minutes:.1f} 分鐘 < "
+                f"{expected_period * MIN_COVERAGE_RATIO:.1f} 分鐘最小要求 "
+                f"(僅涵蓋 {coverage_ratio:.1%} 軌道週期)"
+            )
+
+        return {
+            'time_span_minutes': time_span_minutes,
+            'expected_period_minutes': expected_period,
+            'coverage_ratio': coverage_ratio,
+            'is_complete_period': is_complete_period,
+            'validation_passed': is_complete_period,
+            'message': message
+        }
 
     def _identify_coverage_gaps(
         self,
@@ -395,9 +526,13 @@ class SatellitePoolVerifier:
         Returns:
             時空錯置優化分析
         """
+        # ✅ Fail-Fast: 從內部生成的結果直接訪問，不使用默認值
+        # 如果字段缺失，說明生成邏輯有問題，應該拋出錯誤
+        # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
+
         # 1. 檢查調度是否最優
-        starlink_coverage = starlink_verification.get('coverage_rate', 0.0)
-        oneweb_coverage = oneweb_verification.get('coverage_rate', 0.0)
+        starlink_coverage = starlink_verification['coverage_rate']
+        oneweb_coverage = oneweb_verification['coverage_rate']
 
         optimal_scheduling = (
             starlink_coverage >= 0.95 and
@@ -408,21 +543,21 @@ class SatellitePoolVerifier:
         coverage_efficiency = (starlink_coverage + oneweb_coverage) / 2.0
 
         # 3. 估算換手頻率
-        starlink_avg = starlink_verification.get('average_visible_count', 0)
-        oneweb_avg = oneweb_verification.get('average_visible_count', 0)
+        starlink_avg = starlink_verification['average_visible_count']
+        oneweb_avg = oneweb_verification['average_visible_count']
 
         # 基於衛星平均可見數估算換手頻率 (顆/小時)
         handover_frequency_per_hour = (starlink_avg + oneweb_avg) / 2.0
 
         # 4. 空間多樣性
-        starlink_range = starlink_verification.get('max_visible_count', 0) - starlink_verification.get('min_visible_count', 0)
-        oneweb_range = oneweb_verification.get('max_visible_count', 0) - oneweb_verification.get('min_visible_count', 0)
+        starlink_range = starlink_verification['max_visible_count'] - starlink_verification['min_visible_count']
+        oneweb_range = oneweb_verification['max_visible_count'] - oneweb_verification['min_visible_count']
 
         spatial_diversity = min(1.0, (starlink_range + oneweb_range) / 20.0)
 
         # 5. 時間重疊
-        starlink_continuous = starlink_verification.get('continuous_coverage_hours', 0)
-        oneweb_continuous = oneweb_verification.get('continuous_coverage_hours', 0)
+        starlink_continuous = starlink_verification['continuous_coverage_hours']
+        oneweb_continuous = oneweb_verification['continuous_coverage_hours']
 
         temporal_overlap = min(1.0, (starlink_continuous + oneweb_continuous) / 48.0)
 
@@ -440,8 +575,9 @@ class SatellitePoolVerifier:
         oneweb_verification: Dict[str, Any]
     ) -> Dict[str, Any]:
         """評估整體驗證結果"""
-        starlink_met = starlink_verification.get('target_met', False)
-        oneweb_met = oneweb_verification.get('target_met', False)
+        # ✅ Fail-Fast: 從內部生成的結果直接訪問
+        starlink_met = starlink_verification['target_met']
+        oneweb_met = oneweb_verification['target_met']
 
         overall_passed = starlink_met and oneweb_met
 
@@ -450,12 +586,12 @@ class SatellitePoolVerifier:
             'starlink_pool_target_met': starlink_met,
             'oneweb_pool_target_met': oneweb_met,
             'combined_coverage_rate': (
-                starlink_verification.get('coverage_rate', 0.0) +
-                oneweb_verification.get('coverage_rate', 0.0)
+                starlink_verification['coverage_rate'] +
+                oneweb_verification['coverage_rate']
             ) / 2.0,
             'total_coverage_gaps': (
-                starlink_verification.get('coverage_gaps_count', 0) +
-                oneweb_verification.get('coverage_gaps_count', 0)
+                starlink_verification['coverage_gaps_count'] +
+                oneweb_verification['coverage_gaps_count']
             ),
             'verification_timestamp': datetime.now(timezone.utc).isoformat()
         }

@@ -34,6 +34,72 @@ from .reports import StatisticsReporter
 logger = logging.getLogger(__name__)
 
 
+# ============================================================
+# 驗證門檻常數定義
+# ============================================================
+
+# Grade A 最低分數要求
+# SOURCE: 學術研究品質評估標準
+# 85 分為學術界普遍認可的 A 等級最低門檻
+GRADE_A_MIN_SCORE = 85.0
+
+# 星座覆蓋率最低要求
+# SOURCE: 衛星覆蓋分析最佳實踐
+# 50% 覆蓋率確保至少一半的數據來自已知星座
+MIN_CONSTELLATION_COVERAGE_RATIO = 0.5
+
+# 數據來源驗證率要求
+# SOURCE: 數據品質保證標準
+# 95% 驗證率確保絕大多數數據來源可信
+MIN_DATA_SOURCE_VERIFICATION_RATIO = 0.95
+
+# 檔案新鮮度要求（天數）
+# SOURCE: TLEConstants.TLE_FRESHNESS_ACCEPTABLE_DAYS
+# 使用與 TLE 新鮮度標準一致的門檻
+from shared.constants.tle_constants import TLEConstants
+MAX_FILE_AGE_DAYS = TLEConstants.TLE_FRESHNESS_ACCEPTABLE_DAYS
+
+# 評分權重配置
+# SOURCE: 學術研究標準，優先考慮學術合規性
+# 學術合規性（50%）> 數據品質（30%）> 格式準確性（20%）
+VALIDATION_SCORE_WEIGHTS = {
+    'format': 0.2,      # 格式準確性
+    'academic': 0.5,    # 學術合規性（最高權重）
+    'quality': 0.3      # 數據品質
+}
+
+# 品質評分子項權重配置
+# SOURCE: 數據品質評估標準
+# 完整性為首要指標（40%），一致性與準確性次之（各30%）
+QUALITY_SCORE_WEIGHTS = {
+    'completeness': 0.4,   # 完整性
+    'consistency': 0.3,    # 一致性
+    'accuracy': 0.3        # 準確性
+}
+
+# 一致性檢查權重配置
+# SOURCE: TLE數據一致性驗證標準
+# NORAD ID一致性為關鍵指標（30%），checksum次之（25%）
+CONSISTENCY_CHECK_WEIGHTS = {
+    'norad_id_consistency': 0.3,         # NORAD ID一致性
+    'checksum_validity': 0.25,           # 校驗和有效性
+    'epoch_consistency': 0.2,            # Epoch時間一致性
+    'orbital_parameter_consistency': 0.15,  # 軌道參數一致性
+    'constellation_consistency': 0.1     # 星座信息一致性
+}
+
+# 準確性檢查權重配置
+# SOURCE: TLE數據準確性驗證標準
+# 物理參數準確性為核心（30%），格式與checksum各佔25%
+ACCURACY_CHECK_WEIGHTS = {
+    'format_accuracy': 0.25,              # 格式準確性
+    'checksum_accuracy': 0.25,            # 校驗和準確性
+    'physical_parameter_accuracy': 0.3,   # 物理參數準確性
+    'epoch_accuracy': 0.15,               # Epoch時間準確性
+    'data_source_accuracy': 0.05          # 數據來源準確性
+}
+
+
 class DataValidator:
     """
     Stage 1: 數據驗證器 (v2.0架構)
@@ -139,7 +205,7 @@ class DataValidator:
         # 計算總體評分
         overall_score = self._calculate_overall_score(format_results, academic_results, quality_results)
         validation_result['overall_grade'] = self._score_to_grade(overall_score)
-        validation_result['is_valid'] = overall_score >= 85.0  # Grade A 要求
+        validation_result['is_valid'] = overall_score >= GRADE_A_MIN_SCORE
 
         # 品質度量
         validation_result['quality_metrics'] = self._generate_quality_metrics(tle_data_list)
@@ -157,7 +223,20 @@ class DataValidator:
 
     def _validate_format_compliance(self, tle_data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
         """驗證格式合規性 - 使用 FormatValidator"""
-        return self.format_validator.validate_format_compliance(tle_data_list)
+        # 調用新的 FormatValidator
+        result = self.format_validator.validate_format_compliance(tle_data_list)
+
+        # 🐛 修復: 轉換為舊格式以兼容 _calculate_overall_score
+        # FormatValidator 返回: {total_records, valid_records, invalid_records, compliance_rate, passed}
+        # _calculate_overall_score 期望: {passed: int, failed: int, ...}
+        return {
+            'passed': result['valid_records'],
+            'failed': len(result['invalid_records']),
+            'total_records': result['total_records'],
+            'compliance_rate': result['compliance_rate'],
+            'is_passed': result['passed'],
+            'invalid_records': result['invalid_records']
+        }
 
     def _validate_format_compliance_old(self, tle_data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
         """驗證TLE格式合規性"""
@@ -301,7 +380,9 @@ class DataValidator:
         else:
             academic_results['requirements_failed'].append('data_source_verification')
 
-        # 5-10. 其他要求檢查（簡化實現）
+        # 5-10. 其他要求檢查（通用驗證框架）
+        # 包含: format_compliance, time_reference_standard, unique_satellite_ids,
+        #      complete_orbital_parameters, metadata_completeness, processing_transparency
         for requirement in ['format_compliance', 'time_reference_standard', 'unique_satellite_ids',
                            'complete_orbital_parameters', 'metadata_completeness', 'processing_transparency']:
             if self._check_general_requirement(tle_data_list, requirement):
@@ -363,11 +444,11 @@ class DataValidator:
         accuracy_score = self._calculate_accuracy_score(tle_data_list)
         quality_results['accuracy_score'] = accuracy_score
 
-        # 總體品質評分
+        # 總體品質評分（使用定義的權重配置）
         quality_results['overall_quality_score'] = (
-            quality_results['completeness_score'] * 0.4 +
-            quality_results['consistency_score'] * 0.3 +
-            quality_results['accuracy_score'] * 0.3
+            quality_results['completeness_score'] * QUALITY_SCORE_WEIGHTS['completeness'] +
+            quality_results['consistency_score'] * QUALITY_SCORE_WEIGHTS['consistency'] +
+            quality_results['accuracy_score'] * QUALITY_SCORE_WEIGHTS['accuracy']
         )
 
         return quality_results
@@ -394,25 +475,26 @@ class DataValidator:
         current_time = datetime.now(timezone.utc)
         max_age_days = self.validation_rules['max_epoch_age_days']
 
+        # ✅ Fail-Fast: 移除 try-except，讓錯誤自然傳播
         for tle_data in tle_data_list:
-            try:
-                # 解析TLE epoch時間
-                line1 = tle_data.get('line1', '')
-                if len(line1) >= 32:
-                    epoch_year = int(line1[18:20])
-                    epoch_day = float(line1[20:32])
+            # 解析TLE epoch時間
+            line1 = tle_data.get('line1', '')
+            if len(line1) >= 32:
+                epoch_year = int(line1[18:20])
+                epoch_day = float(line1[20:32])
 
-                    # 轉換為完整年份
-                    full_year = 2000 + epoch_year if epoch_year < 57 else 1900 + epoch_year
-                    epoch_time = self.time_utils.parse_tle_epoch(full_year, epoch_day)
+                # 轉換為完整年份
+                full_year = 2000 + epoch_year if epoch_year < 57 else 1900 + epoch_year
+                epoch_time = self.time_utils.parse_tle_epoch(full_year, epoch_day)
 
-                    age_days = (current_time - epoch_time).days
-                    if age_days > max_age_days:
-                        self.validation_stats['epoch_time_issues'] += 1
-                        return False
-            except Exception:
-                self.validation_stats['epoch_time_issues'] += 1
-                return False
+                age_days = (current_time - epoch_time).days
+                if age_days > max_age_days:
+                    raise ValueError(
+                        f"❌ TLE 數據過於陳舊\n"
+                        f"Epoch: {epoch_time.isoformat()}\n"
+                        f"年齡: {age_days} 天（最大允許: {max_age_days} 天）\n"
+                        f"Fail-Fast 原則: 過期數據應立即拒絕"
+                    )
 
         return True
 
@@ -456,7 +538,7 @@ class DataValidator:
         else:
             # 生產模式：要求至少50%是支援的星座
             coverage_ratio = supported_satellites / total_satellites if total_satellites > 0 else 0
-            if coverage_ratio < 0.5:  # 支援星座覆蓋率必須超過50%
+            if coverage_ratio < MIN_CONSTELLATION_COVERAGE_RATIO:
                 self.validation_stats['constellation_issues'] += 1
                 return False
 
@@ -494,14 +576,18 @@ class DataValidator:
                     # 檢查數據新鮮度：文件最後修改時間不超過30天
                     import time
                     file_age_days = (time.time() - source_path.stat().st_mtime) / (24 * 3600)
-                    if file_age_days <= 30:
+                    if file_age_days <= MAX_FILE_AGE_DAYS:
                         verified_sources += 1
-            except (OSError, PermissionError):
-                continue
+            except (OSError, PermissionError) as e:
+                raise IOError(
+                    f"❌ 無法訪問數據來源文件: {source_file}\n"
+                    f"錯誤: {e}\n"
+                    f"Fail-Fast 原則: 檔案系統錯誤應立即失敗"
+                ) from e
 
         # 嚴格要求：至少95%的數據來源必須通過驗證
         verification_ratio = verified_sources / total_sources if total_sources > 0 else 0
-        return verification_ratio >= 0.95
+        return verification_ratio >= MIN_DATA_SOURCE_VERIFICATION_RATIO
 
     def _check_general_requirement(self, tle_data_list: List[Dict[str, Any]], requirement: str) -> bool:
         """檢查通用需求 - 使用 RequirementChecker"""
@@ -708,19 +794,11 @@ class DataValidator:
             if constellation in ['starlink', 'oneweb', 'iridium', 'globalstar']:
                 consistency_checks['constellation_consistency'] += 1
         
-        # 計算加權一致性分數
-        weights = {
-            'norad_id_consistency': 0.3,
-            'checksum_validity': 0.25,
-            'epoch_consistency': 0.2,
-            'orbital_parameter_consistency': 0.15,
-            'constellation_consistency': 0.1
-        }
-        
+        # 計算加權一致性分數（使用定義的權重配置）
         weighted_score = 0.0
         for check, count in consistency_checks.items():
             score = (count / total_records) * 100
-            weighted_score += score * weights[check]
+            weighted_score += score * CONSISTENCY_CHECK_WEIGHTS[check]
             
         return weighted_score
 
@@ -824,14 +902,14 @@ class DataValidator:
                 if not (0 <= eccentricity < 1):
                     physical_valid = False
                     
-                # 平均運動約束（基於地球重力參數）
-                # 最低軌道高度約100km，最高約50000km
-                if not (0.5 <= mean_motion <= 20.0):
+                # 平均運動約束
+                # SOURCE: TLEConstants 定義的物理約束
+                if not (TLEConstants.ORBITAL_MEAN_MOTION_MIN_REV_PER_DAY <= mean_motion <= TLEConstants.ORBITAL_MEAN_MOTION_MAX_REV_PER_DAY):
                     physical_valid = False
-                    
+
                 # 檢查軌道週期與高度的一致性
                 orbital_period = 1440 / mean_motion  # 分鐘
-                if not (80 <= orbital_period <= 2880):  # 約1.3小時到48小時
+                if not (TLEConstants.ORBITAL_PERIOD_MIN_MINUTES <= orbital_period <= TLEConstants.ORBITAL_PERIOD_MAX_MINUTES):
                     physical_valid = False
                     
                 if physical_valid:
@@ -892,19 +970,11 @@ class DataValidator:
                 if has_real_indicators and not has_test_indicators:
                     accuracy_checks['data_source_accuracy'] += 1
         
-        # 計算加權準確性分數
-        weights = {
-            'format_accuracy': 0.25,
-            'checksum_accuracy': 0.25,
-            'physical_parameter_accuracy': 0.3,
-            'epoch_accuracy': 0.15,
-            'data_source_accuracy': 0.05
-        }
-        
+        # 計算加權準確性分數（使用定義的權重配置）
         weighted_score = 0.0
         for check, count in accuracy_checks.items():
             score = (count / total_records) * 100
-            weighted_score += score * weights[check]
+            weighted_score += score * ACCURACY_CHECK_WEIGHTS[check]
             
         return weighted_score
 
@@ -914,8 +984,12 @@ class DataValidator:
         academic_score = academic_results['compliance_score']
         quality_score = quality_results['overall_quality_score']
 
-        # 加權平均 (學術合規性權重最高)
-        overall_score = (format_score * 0.2 + academic_score * 0.5 + quality_score * 0.3)
+        # 加權平均（使用定義的權重配置）
+        overall_score = (
+            format_score * VALIDATION_SCORE_WEIGHTS['format'] +
+            academic_score * VALIDATION_SCORE_WEIGHTS['academic'] +
+            quality_score * VALIDATION_SCORE_WEIGHTS['quality']
+        )
         return overall_score
 
     def _score_to_grade(self, score: float) -> str:

@@ -25,7 +25,9 @@ time_series:
   # ========== 🆕 v3.1 星座軌道週期配置 ==========
   constellation_orbital_periods:
     starlink_minutes: 95   # Starlink 軌道週期（分鐘）→ 190 個時間點
-    oneweb_minutes: 112    # OneWeb 軌道週期（分鐘）→ 224 個時間點
+    oneweb_minutes: 110    # OneWeb 軌道週期（分鐘）→ 220 個時間點
+                           # 🚨 修正 (2025-10-05): 從 112 改為 110（基於開普勒第三定律）
+                           # SOURCE: T = 2π√(a³/μ), a=7571km → T≈110min
     default_minutes: 100   # 其他 LEO 衛星默認週期（分鐘）
 
   # ========== 保留原有配置（向後兼容） ==========
@@ -33,7 +35,11 @@ time_series:
   use_orbital_period: true               # 僅在 mode='independent_epoch' 時生效
   dynamic_calculation: true              # 啟用基於實際TLE數據的動態計算
   min_positions: 30                      # 最小位置點數（30分鐘數據）
-  coverage_cycles: 1.0                   # 完整軌道週期覆蓋倍數（僅在 independent_epoch 時生效）
+  coverage_cycles: 1.0                   # 完整軌道週期覆蓋倍數
+                                         # 1.0x = 生成完整軌道週期的時間點
+                                         # Starlink: 95min × 1.0 = 95min → 190 時間點
+                                         # OneWeb: 110min × 1.0 = 110min → 220 時間點
+                                         # 適用於 unified_window 和 independent_epoch 模式
 
 # SGP4 軌道傳播配置
 sgp4_propagation:

@@ -68,8 +68,13 @@ class RequirementChecker:
                 if epoch_dt.tzinfo != timezone.utc:
                     return False
 
-            except (ValueError, AttributeError):
-                return False
+            except (ValueError, AttributeError) as e:
+                raise ValueError(
+                    f"❌ 時間基準驗證失敗\n"
+                    f"Epoch: {tle_data.get('epoch_datetime', 'missing')}\n"
+                    f"錯誤: {e}\n"
+                    f"Fail-Fast 原則: 時間格式錯誤應立即失敗"
+                ) from e
 
         return True
 

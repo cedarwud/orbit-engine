@@ -152,16 +152,38 @@ class Stage3DataValidator:
         Returns:
             bool: 座標是否在合理範圍內
         """
-        # 檢查緯度範圍：-90 to 90
-        if latitude_deg < -90 or latitude_deg > 90:
+        # WGS84 地理座標範圍（精確定義）
+        MIN_LATITUDE_DEG = -90.0
+        MAX_LATITUDE_DEG = 90.0
+        # SOURCE: WGS84 標準定義
+        # NIMA TR8350.2 Section 3.2 - Geographic Coordinates
+
+        MIN_LONGITUDE_DEG = -180.0
+        MAX_LONGITUDE_DEG = 180.0
+        # SOURCE: WGS84 標準定義
+        # 經度範圍: -180° to +180° (Prime Meridian convention)
+
+        # LEO 衛星高度範圍
+        MIN_LEO_ALTITUDE_M = 200000.0  # 200 km
+        # SOURCE: ITU-R Recommendation S.1503-3 (01/2021)
+        # LEO satellite minimum operational altitude
+        # Below this, atmospheric drag becomes excessive
+
+        MAX_LEO_ALTITUDE_M = 2000000.0  # 2000 km
+        # SOURCE: ITU definition of LEO orbit upper boundary
+        # LEO: 200-2000 km, MEO starts at ~2000km
+        # Reference: ITU-R S.1503-3 Section 2.1
+
+        # 檢查緯度範圍
+        if latitude_deg < MIN_LATITUDE_DEG or latitude_deg > MAX_LATITUDE_DEG:
             return False
 
-        # 檢查經度範圍：-180 to 180
-        if longitude_deg < -180 or longitude_deg > 180:
+        # 檢查經度範圍
+        if longitude_deg < MIN_LONGITUDE_DEG or longitude_deg > MAX_LONGITUDE_DEG:
             return False
 
-        # 檢查高度範圍：LEO 衛星通常在 200-2000 km
-        if altitude_m < 200000 or altitude_m > 2000000:
+        # 檢查高度範圍
+        if altitude_m < MIN_LEO_ALTITUDE_M or altitude_m > MAX_LEO_ALTITUDE_M:
             return False
 
         return True

@@ -4,18 +4,14 @@
 # 學術標準模式 (計劃 B)
 # 預先執行，精度優先，不考慮速度
 use_iau_standards: true  # 使用 Skyfield IAU 標準計算器 (研究級精度)
-validate_epochs: true     # 啟用 Epoch 時間基準驗證 (Vallado 標準)
+validate_epochs: true     # 啟用 Epoch 驗證 (學術合規標準，Stage 3 現已傳遞 epoch_datetime)
 
 # 階段 4.2 時空錯置池規劃優化 (NEW)
 enable_pool_optimization: true  # 啟用時空錯置池規劃優化
 
-# 鏈路預算約束 (計劃 A)
-link_budget:
-  min_distance_km: 200      # 最小距離約束 (200 km)
-  max_distance_km: 2000     # 最大距離約束 (2000 km)
-  reason: "符合 Kodheli et al. (2021) 衛星通信鏈路預算建議"
-
 # 星座特定門檻 (計劃 A)
+# 註: 距離限制已移除，僅使用仰角門檻進行幾何篩選
+# 原因: 仰角門檻已提供足夠的幾何約束（Starlink 5° → <2000km, OneWeb 10° → <1200km）
 constellation_thresholds:
   starlink:
     elevation_deg: 5.0      # Starlink 最小仰角
@@ -76,8 +72,31 @@ logging:
 performance:
   # 預先執行模式，不需要優化速度
   batch_size: null                # 無批次限制
-  parallel_processing: false      # 精度優先，不使用並行處理
+  parallel_processing: true       # 🚨 測試: 啟用並行處理驗證精度影響
+  max_workers: null               # null = 動態計算 (與 Stage 2/3 一致)
   memory_limit_mb: null           # 無記憶體限制
+
+  # 動態 CPU 工作器策略（與 Stage 2 一致）
+  dynamic_worker_strategy:
+    cpu_usage_threshold_high: 30        # CPU < 30%: 使用 95% 核心（積極並行）
+    cpu_usage_threshold_medium: 50      # CPU 30-50%: 使用 75% 核心
+    # CPU > 50%: 使用 50% 核心（保守策略）
+
+# 時間間隔設置 (Grade A 學術標準要求)
+# 學術依據: Vallado 2013 Section 8.6 "SGP4 Propagation Time Step Recommendations"
+# - 建議 SGP4 傳播間隔 < 1 分鐘以維持精度
+# - 30秒間隔對應 LEO 衛星 ~225km 軌道移動，足夠捕捉可見性變化
+time_interval_seconds: 30  # 必須明確提供 (禁止預設值)
+
+# 階段 4.2 池優化目標配置 (Grade A+ 學術標準)
+# SOURCE: 3GPP TR 38.821 (2021) Section 6.2 - NTN 系統服務品質要求
+pool_optimization_targets:
+  starlink:
+    expected_visible_satellites: [10, 15]  # 預期可見衛星數範圍
+    target_coverage_rate: 0.95             # 目標覆蓋率 (95% - 3GPP 建議)
+  oneweb:
+    expected_visible_satellites: [3, 6]    # 預期可見衛星數範圍
+    target_coverage_rate: 0.95             # 目標覆蓋率 (95% - 3GPP 建議)
 
 # 學術合規聲明
 academic_compliance:

@@ -131,4 +131,9 @@ def check_stage3_validation(snapshot_data: dict) -> tuple:
             return False, f"❌ Stage 3 執行狀態異常: {status}"
 
     except Exception as e:
-        return False, f"❌ Stage 3 驗證異常: {e}"
+        # 🚨 Fail-Fast: 驗證邏輯異常時應該拋出
+        raise RuntimeError(
+            f"Stage 3 驗證器邏輯錯誤\n"
+            f"這表示驗證器代碼本身有問題\n"
+            f"詳細錯誤: {e}"
+        ) from e

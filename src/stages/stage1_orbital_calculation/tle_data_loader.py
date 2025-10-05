@@ -33,6 +33,18 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
+# ============================================================
+# ASCII 字符範圍常數定義
+# ============================================================
+
+# ASCII 可打印字符範圍
+# SOURCE: ASCII Standard (ANSI X3.4-1986)
+# 可打印字符範圍：空格(32)到波浪號(126)
+ASCII_PRINTABLE_MIN = 32   # 空格字符
+ASCII_PRINTABLE_MAX = 126  # 波浪號字符 (~)
+
+
 class TLEDataLoader:
     """TLE數據載入器"""
     
@@ -114,14 +126,18 @@ class TLEDataLoader:
                 latest_file = tle_file
                 
                 # 計算衛星數量（每3行為一個衛星記錄）
+                # ✅ Fail-Fast: 檔案讀取失敗立即拋出異常
                 if tle_file.stat().st_size > 0:
                     try:
                         with open(tle_file, 'r', encoding='utf-8') as f:
                             lines = len([l for l in f if l.strip()])
                         latest_satellite_count = lines // 3
                     except Exception as e:
-                        self.logger.warning(f"讀取文件 {tle_file} 時出錯: {e}")
-                        latest_satellite_count = 0
+                        raise IOError(
+                            f"❌ 無法讀取 TLE 文件: {tle_file}\n"
+                            f"錯誤: {e}\n"
+                            f"Fail-Fast 原則: 立即失敗，不使用預設值"
+                        ) from e
         
         result = {
             'files_count': len(tle_files),
@@ -156,33 +172,30 @@ class TLEDataLoader:
             if not info['latest_file']:
                 continue
                 
-            try:
-                # ⚡ 效能優化：sample_mode下只載入部分數據
-                if sample_mode:
-                    # 根據星座配置分配採樣數量（配置驅動）
-                    try:
-                        constellation_config = ConstellationRegistry.get_constellation(constellation)
-                        constellation_sample_size = min(
-                            int(sample_size * constellation_config.sample_ratio),
-                            constellation_config.sample_max
-                        )
-                    except ValueError:
-                        # 未知星座使用默認值
-                        constellation_sample_size = min(sample_size // 10, 5)
-                        self.logger.warning(f"未知星座 {constellation}，使用默認採樣配置")
+            # ⚡ 效能優化：sample_mode下只載入部分數據
+            if sample_mode:
+                # ✅ Fail-Fast: 不支援的星座立即失敗，不使用預設值
+                try:
+                    constellation_config = ConstellationRegistry.get_constellation(constellation)
+                except ValueError as e:
+                    raise ValueError(
+                        f"❌ 不支援的星座: {constellation}\n"
+                        f"支援的星座: {[c.name for c in ConstellationRegistry.SUPPORTED_CONSTELLATIONS]}\n"
+                        f"Fail-Fast 原則: 不使用預設配置"
+                    ) from e
 
-                    satellites = self._load_tle_file(info['latest_file'], constellation, limit=constellation_sample_size)
-                    self.logger.info(f"🧪 {constellation} 採樣載入: {len(satellites)} 顆衛星 (樣本模式)")
-                else:
-                    satellites = self._load_tle_file(info['latest_file'], constellation)
-                    self.logger.info(f"✅ {constellation} 載入完成: {len(satellites)} 顆衛星")
-                
-                all_satellites.extend(satellites)
-                
-            except Exception as e:
-                self.logger.error(f"❌ 載入 {constellation} 數據失敗: {e}")
-                self.load_statistics["load_errors"] += 1
-                continue
+                constellation_sample_size = min(
+                    int(sample_size * constellation_config.sample_ratio),
+                    constellation_config.sample_max
+                )
+                satellites = self._load_tle_file(info['latest_file'], constellation, limit=constellation_sample_size)
+                self.logger.info(f"🧪 {constellation} 採樣載入: {len(satellites)} 顆衛星 (樣本模式)")
+            else:
+                satellites = self._load_tle_file(info['latest_file'], constellation)
+                self.logger.info(f"✅ {constellation} 載入完成: {len(satellites)} 顆衛星")
+
+            all_satellites.extend(satellites)
+            # ✅ Fail-Fast: 載入失敗讓異常自然傳播，不使用 continue
         
         # 🔥 數據完整性檢查
         if len(all_satellites) == 0:
@@ -225,7 +238,10 @@ class TLEDataLoader:
             if limit:
                 max_lines = min(len(lines), limit * 3)  # 每3行為一組
                 lines = lines[:max_lines]
-                self.logger.debug(f"🧪 採樣模式：限制處理 {max_lines} 行 (約 {limit} 顆衛星)")
+                self.logger.debug(
+                    f"🧪 採樣模式：限制處理 {max_lines} 行 "
+                    f"(預期 ~{limit} 顆衛星，實際數量取決於文件格式)"
+                )
             
             # 每3行為一組：衛星名稱、TLE Line 1、TLE Line 2
             for i in range(0, len(lines), 3):
@@ -307,10 +323,10 @@ class TLEDataLoader:
             if norad_id1 != norad_id2:
                 return False
 
-            # 1.4 ASCII 字符檢查
-            if not all(32 <= ord(c) <= 126 for c in line1):
+            # 1.4 ASCII 字符檢查（使用定義的常數）
+            if not all(ASCII_PRINTABLE_MIN <= ord(c) <= ASCII_PRINTABLE_MAX for c in line1):
                 return False
-            if not all(32 <= ord(c) <= 126 for c in line2):
+            if not all(ASCII_PRINTABLE_MIN <= ord(c) <= ASCII_PRINTABLE_MAX for c in line2):
                 return False
 
             # 1.5 檢查關鍵字段可解析性
@@ -345,11 +361,36 @@ class TLEDataLoader:
             return False
     
     def _extract_norad_id(self, tle_line1: str) -> str:
-        """提取NORAD衛星ID"""
+        """
+        提取NORAD衛星ID
+
+        Args:
+            tle_line1: TLE Line 1
+
+        Returns:
+            str: NORAD ID
+
+        Raises:
+            ValueError: 當 TLE Line1 格式無效時
+        """
+        # ✅ Fail-Fast: 格式錯誤立即拋出異常
+        if not tle_line1 or len(tle_line1) < 7:
+            raise ValueError(
+                f"❌ TLE Line1 格式無效，無法提取 NORAD ID\n"
+                f"Line1: {tle_line1[:20] if tle_line1 else 'None'}...\n"
+                f"Fail-Fast 原則: 立即失敗，不返回 UNKNOWN"
+            )
+
         try:
-            return tle_line1[2:7].strip()
-        except Exception:
-            return "UNKNOWN"
+            norad_id = tle_line1[2:7].strip()
+            if not norad_id:
+                raise ValueError("NORAD ID 為空")
+            return norad_id
+        except Exception as e:
+            raise ValueError(
+                f"❌ 無法提取 NORAD ID\n"
+                f"錯誤: {e}"
+            ) from e
 
     def _parse_tle_epoch(self, tle_line1: str) -> Optional['datetime']:
         """
@@ -385,8 +426,13 @@ class TLEDataLoader:
             return epoch_date
 
         except Exception as e:
-            self.logger.debug(f"解析 TLE epoch 失敗: {e}, line1: {tle_line1[:40]}...")
-            return None
+            # ✅ Fail-Fast: Epoch 解析失敗立即拋出異常
+            raise ValueError(
+                f"❌ 無法解析 TLE epoch 時間\n"
+                f"Line1 前40字符: {tle_line1[:40] if tle_line1 else 'None'}...\n"
+                f"錯誤: {e}\n"
+                f"Fail-Fast 原則: 立即失敗，不返回 None"
+            ) from e
 
     def _verify_tle_checksum(self, tle_line: str) -> bool:
         """
@@ -476,8 +522,13 @@ class TLEDataLoader:
             return fixed_line
 
         except Exception as e:
-            self.logger.debug(f"修復 checksum 失敗: {e}, 返回原行")
-            return tle_line
+            # ✅ Fail-Fast: Checksum 修復失敗立即拋出異常
+            raise ValueError(
+                f"❌ 無法修復 TLE checksum\n"
+                f"原始行: {tle_line}\n"
+                f"錯誤: {e}\n"
+                f"Fail-Fast 原則: Checksum 無效時應拒絕數據"
+            ) from e
 
     def get_load_statistics(self) -> Dict[str, Any]:
         """獲取載入統計信息"""

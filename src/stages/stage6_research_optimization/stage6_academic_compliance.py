@@ -74,16 +74,32 @@ class Stage6AcademicComplianceChecker:
                     )
                     self.logger.error(f"❌ 學術標準違規: 檢測到統一時間基準字段 '{field}'")
 
-            # 檢查 constellation_configs 是否正確傳遞
-            constellation_configs = metadata.get('constellation_configs')
-            if not constellation_configs:
-                compliance_result['warnings'].append(
-                    "⚠️ metadata 缺少 constellation_configs (信號計算可能使用預設值)"
+            # ✅ Fail-Fast: 檢查 constellation_configs 是否正確傳遞
+            # constellation_configs 是信號計算的關鍵配置，不應使用默認值
+            if 'constellation_configs' not in metadata:
+                compliance_result['compliant'] = False
+                compliance_result['violations'].append(
+                    "❌ metadata 缺少 constellation_configs (信號計算必要配置)"
                 )
+                self.logger.error("❌ 學術標準違規: 缺少 constellation_configs")
+            else:
+                constellation_configs = metadata['constellation_configs']
+                # 可以進行更深入的驗證
+                if not constellation_configs:
+                    compliance_result['warnings'].append(
+                        "⚠️ constellation_configs 為空"
+                    )
+
+        except (KeyError, ValueError, TypeError, AttributeError) as e:
+            # 預期的數據結構錯誤
+            self.logger.error(f"學術標準合規檢查數據錯誤: {e}")
+            compliance_result['compliant'] = False
+            compliance_result['violations'].append(f"數據結構錯誤: {str(e)}")
 
         except Exception as e:
-            self.logger.error(f"學術標準合規檢查異常: {e}")
-            compliance_result['warnings'].append(f"合規檢查異常: {str(e)}")
+            # 非預期錯誤，記錄並重新拋出
+            self.logger.error(f"學術標準合規檢查內部錯誤: {e}", exc_info=True)
+            raise  # ✅ Fail-Fast: 重新拋出非預期異常
 
         return compliance_result
 
@@ -124,7 +140,13 @@ class Stage6AcademicComplianceChecker:
             validation_result['warnings'].extend(compliance['warnings'])
             validation_result['is_valid'] = True
 
+        except (KeyError, ValueError, TypeError, AttributeError) as e:
+            # 預期的數據結構錯誤
+            validation_result['errors'].append(f"數據結構錯誤: {str(e)}")
+
         except Exception as e:
-            validation_result['errors'].append(f"驗證過程異常: {str(e)}")
+            # 非預期錯誤，記錄並重新拋出
+            self.logger.error(f"輸入合規驗證內部錯誤: {e}", exc_info=True)
+            raise  # ✅ Fail-Fast: 重新拋出非預期異常
 
         return validation_result

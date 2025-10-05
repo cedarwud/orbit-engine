@@ -43,23 +43,68 @@ class TimeSeriesAnalyzer:
     - 信號品質分類與統計
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None, signal_thresholds: Optional[Dict[str, float]] = None):
+    def __init__(self, config: Dict[str, Any], signal_thresholds: Dict[str, float]):
         """
         初始化時間序列分析引擎
 
+        ✅ Grade A 標準: Fail-Fast 配置驗證
+        依據: docs/ACADEMIC_STANDARDS.md Line 265-274
+
         Args:
-            config: 配置字典 (可選)
-            signal_thresholds: 信號門檻配置 (可選)
+            config: 配置字典（必須提供）
+                - signal_calculator: 信號計算器配置
+                - atmospheric_model: 大氣模型參數
+            signal_thresholds: 信號門檻配置（必須提供）
+                - rsrp_excellent, rsrp_good, rsrp_fair, rsrp_poor
+                - rsrq_excellent, rsrq_good, rsrq_fair
+                - sinr_excellent, sinr_good
+
+        Raises:
+            ValueError: 配置為空或缺少必要字段
+            TypeError: 配置類型錯誤
         """
-        self.config = config or {}
-        self.signal_thresholds = signal_thresholds or {}
+        if not config:
+            raise ValueError(
+                "TimeSeriesAnalyzer 初始化失敗：config 不可為空\n"
+                "Grade A 標準禁止使用空配置\n"
+                "必須提供:\n"
+                "  - signal_calculator: 信號計算器配置\n"
+                "  - atmospheric_model: 大氣模型參數\n"
+                "SOURCE: docs/ACADEMIC_STANDARDS.md Line 265-274"
+            )
+
+        if not isinstance(config, dict):
+            raise TypeError(
+                f"config 必須是字典類型，當前類型: {type(config).__name__}"
+            )
+
+        if not signal_thresholds:
+            raise ValueError(
+                "TimeSeriesAnalyzer 初始化失敗：signal_thresholds 不可為空\n"
+                "Grade A 標準禁止使用空門檻或硬編碼預設值\n"
+                "必須明確提供所有信號品質門檻:\n"
+                "  - rsrp_excellent, rsrp_good, rsrp_fair, rsrp_poor\n"
+                "  - rsrq_excellent, rsrq_good, rsrq_fair\n"
+                "  - sinr_excellent, sinr_good\n"
+                "所有門檻必須標註 SOURCE (3GPP TS 38.215)\n"
+                "SOURCE: docs/ACADEMIC_STANDARDS.md Line 265-274"
+            )
+
+        if not isinstance(signal_thresholds, dict):
+            raise TypeError(
+                f"signal_thresholds 必須是字典類型，當前類型: {type(signal_thresholds).__name__}"
+            )
+
+        self.config = config
+        self.signal_thresholds = signal_thresholds
         self.logger = logging.getLogger(__name__)
 
     def analyze_time_series(
         self,
         satellite_id: str,
         time_series: List[Dict[str, Any]],
-        system_config: Dict[str, Any]
+        system_config: Dict[str, Any],
+        constellation: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         分析單顆衛星的完整時間序列
@@ -68,12 +113,14 @@ class TimeSeriesAnalyzer:
         - RSRP (3GPP TS 38.214)
         - RSRQ (3GPP TS 38.214)
         - SINR (3GPP TS 38.214)
+        - 測量偏移 (3GPP TS 38.331) - A3 事件需要
         - 物理參數 (ITU-R P.618)
 
         Args:
             satellite_id: 衛星ID
             time_series: 時間序列數據
             system_config: 系統配置 (包含 tx_power, frequency, gain 等)
+            constellation: 星座名稱 (用於計算測量偏移)
 
         Returns:
         {
@@ -84,6 +131,8 @@ class TimeSeriesAnalyzer:
                         'rsrp_dbm': float,
                         'rsrq_db': float,
                         'sinr_db': float,
+                        'offset_mo_db': float,      # A3 事件: Ofn/Ofp
+                        'cell_offset_db': float,    # A3 事件: Ocn/Ocp
                         'calculation_standard': '3GPP_TS_38.214'
                     },
                     'is_connectable': bool,
@@ -116,11 +165,19 @@ class TimeSeriesAnalyzer:
                 if elevation_deg is None or distance_km is None:
                     continue
 
+                # ✅ 修復: 跳過不可連接的時間點 (負仰角、超出距離等)
+                # Stage 4 已標記 is_connectable=False，Stage 5 應忽略這些時間點
+                # SOURCE: Stage 4 visibility calculation results
+                if not is_connectable:
+                    continue
+
                 # 計算信號品質 (3GPP 標準)
                 signal_quality = self.calculate_3gpp_signal_quality(
                     elevation_deg=elevation_deg,
                     distance_km=distance_km,
-                    system_config=system_config
+                    system_config=system_config,
+                    constellation=constellation,
+                    satellite_id=satellite_id
                 )
 
                 # ✅ 計算物理參數 (ITU-R 標準 + Stage 2 實際速度)
@@ -138,6 +195,8 @@ class TimeSeriesAnalyzer:
                         'rsrp_dbm': signal_quality['rsrp_dbm'],
                         'rsrq_db': signal_quality['rsrq_db'],
                         'sinr_db': signal_quality['sinr_db'],
+                        'offset_mo_db': signal_quality.get('offset_mo_db', 0.0),        # A3 事件: Ofn/Ofp
+                        'cell_offset_db': signal_quality.get('cell_offset_db', 0.0),    # A3 事件: Ocn/Ocp
                         'calculation_standard': '3GPP_TS_38.214'
                     },
                     'is_connectable': is_connectable,
@@ -191,7 +250,9 @@ class TimeSeriesAnalyzer:
         self,
         elevation_deg: float,
         distance_km: float,
-        system_config: Dict[str, Any]
+        system_config: Dict[str, Any],
+        constellation: Optional[str] = None,
+        satellite_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         計算 3GPP 標準信號品質
@@ -200,14 +261,17 @@ class TimeSeriesAnalyzer:
         - RSRP (Reference Signal Received Power)
         - RSRQ (Reference Signal Received Quality) - 使用實際 RSSI
         - SINR (Signal-to-Interference-plus-Noise Ratio) - Johnson-Nyquist 噪聲底
+        - 測量偏移 (3GPP TS 38.331) - A3 事件需要
 
         Args:
             elevation_deg: 仰角 (度)
             distance_km: 距離 (公里)
             system_config: 系統配置
+            constellation: 星座名稱 (用於計算測量偏移)
+            satellite_id: 衛星ID (用於衛星級別偏移)
 
         Returns:
-            Dict: 信號品質參數
+            Dict: 信號品質參數（包含測量偏移）
         """
         try:
             # 提取配置
@@ -218,7 +282,42 @@ class TimeSeriesAnalyzer:
 
             # ✅ 使用 ITU-R P.676-13 官方大氣衰減模型 (ITU-Rpy)
             from .itur_official_atmospheric_model import create_itur_official_model
-            itur_model = create_itur_official_model()
+
+            # ✅ Grade A標準: Fail-Fast 模式 - 大氣參數必須在配置中提供
+            # 依據: docs/ACADEMIC_STANDARDS.md Line 265-274 禁止使用預設值
+            atmospheric_config = self.config.get('atmospheric_model')
+            if not atmospheric_config:
+                raise ValueError(
+                    "atmospheric_model 配置缺失\n"
+                    "Grade A 標準禁止使用預設值\n"
+                    "請在配置文件中提供:\n"
+                    "  atmospheric_model:\n"
+                    "    temperature_k: 283.0  # SOURCE: ITU-R P.835 mid-latitude\n"
+                    "    pressure_hpa: 1013.25  # SOURCE: ICAO Standard\n"
+                    "    water_vapor_density_g_m3: 7.5  # SOURCE: ITU-R P.835"
+                )
+
+            required_params = ['temperature_k', 'pressure_hpa', 'water_vapor_density_g_m3']
+            missing_params = [p for p in required_params if p not in atmospheric_config]
+            if missing_params:
+                raise ValueError(
+                    f"大氣參數缺失: {missing_params}\n"
+                    f"Grade A 標準禁止使用預設值\n"
+                    f"請在 atmospheric_model 配置中提供所有必要參數:\n"
+                    f"  temperature_k: 實測值或 ITU-R P.835 標準值 (200-350K)\n"
+                    f"  pressure_hpa: 實測值或 ICAO 標準值 (500-1100 hPa)\n"
+                    f"  water_vapor_density_g_m3: 實測值或 ITU-R P.835 標準值 (0-30 g/m³)"
+                )
+
+            temperature_k = atmospheric_config['temperature_k']
+            pressure_hpa = atmospheric_config['pressure_hpa']
+            water_vapor_density = atmospheric_config['water_vapor_density_g_m3']
+
+            itur_model = create_itur_official_model(
+                temperature_k=temperature_k,
+                pressure_hpa=pressure_hpa,
+                water_vapor_density_g_m3=water_vapor_density
+            )
             atmospheric_loss_db = itur_model.calculate_total_attenuation(
                 frequency_ghz=frequency_ghz,
                 elevation_deg=elevation_deg
@@ -231,7 +330,23 @@ class TimeSeriesAnalyzer:
 
             # ✅ 使用 3GPP TS 38.214 標準信號計算器
             from .gpp_ts38214_signal_calculator import create_3gpp_signal_calculator
-            signal_calculator = create_3gpp_signal_calculator(self.config)
+
+            # ✅ Grade A 標準: Fail-Fast 配置驗證
+            if 'signal_calculator' not in self.config:
+                raise ValueError(
+                    "信號計算器配置缺失\n"
+                    "Grade A 標準要求明確配置\n"
+                    "必須提供:\n"
+                    "  signal_calculator:\n"
+                    "    bandwidth_mhz: 系統帶寬\n"
+                    "    tx_power_dbm: 發射功率\n"
+                    "    subcarrier_spacing_khz: 子載波間距\n"
+                    "    noise_figure_db: 噪聲係數\n"
+                    "    temperature_k: 接收器溫度"
+                )
+
+            signal_calc_config = self.config['signal_calculator']
+            signal_calculator = create_3gpp_signal_calculator(signal_calc_config)
 
             # 計算完整信號品質指標
             signal_quality = signal_calculator.calculate_complete_signal_quality(
@@ -244,10 +359,19 @@ class TimeSeriesAnalyzer:
                 satellite_density=1.0
             )
 
+            # 🆕 計算 3GPP 測量偏移參數 (A3 事件需要)
+            # SOURCE: 3GPP TS 38.331 v18.3.0 Section 5.5.4.4
+            measurement_offsets = signal_calculator.calculate_measurement_offsets(
+                constellation=constellation or 'unknown',
+                satellite_id=satellite_id
+            )
+
             return {
                 'rsrp_dbm': signal_quality['rsrp_dbm'],
                 'rsrq_db': signal_quality['rsrq_db'],
                 'sinr_db': signal_quality['sinr_db'],
+                'offset_mo_db': measurement_offsets['offset_mo_db'],        # A3 事件: Ofn/Ofp
+                'cell_offset_db': measurement_offsets['cell_offset_db'],    # A3 事件: Ocn/Ocp
                 'rssi_dbm': signal_quality['rssi_dbm'],
                 'noise_power_dbm': signal_quality['noise_power_dbm'],
                 'interference_power_dbm': signal_quality['interference_power_dbm'],
@@ -296,7 +420,42 @@ class TimeSeriesAnalyzer:
 
             # ✅ 使用 ITU-R P.676-13 官方大氣衰減模型 (ITU-Rpy)
             from .itur_official_atmospheric_model import create_itur_official_model
-            itur_model = create_itur_official_model()
+
+            # ✅ Grade A標準: Fail-Fast 模式 - 大氣參數必須在配置中提供
+            # 依據: docs/ACADEMIC_STANDARDS.md Line 265-274 禁止使用預設值
+            atmospheric_config = self.config.get('atmospheric_model')
+            if not atmospheric_config:
+                raise ValueError(
+                    "atmospheric_model 配置缺失\n"
+                    "Grade A 標準禁止使用預設值\n"
+                    "請在配置文件中提供:\n"
+                    "  atmospheric_model:\n"
+                    "    temperature_k: 283.0  # SOURCE: ITU-R P.835 mid-latitude\n"
+                    "    pressure_hpa: 1013.25  # SOURCE: ICAO Standard\n"
+                    "    water_vapor_density_g_m3: 7.5  # SOURCE: ITU-R P.835"
+                )
+
+            required_params = ['temperature_k', 'pressure_hpa', 'water_vapor_density_g_m3']
+            missing_params = [p for p in required_params if p not in atmospheric_config]
+            if missing_params:
+                raise ValueError(
+                    f"大氣參數缺失: {missing_params}\n"
+                    f"Grade A 標準禁止使用預設值\n"
+                    f"請在 atmospheric_model 配置中提供所有必要參數:\n"
+                    f"  temperature_k: 實測值或 ITU-R P.835 標準值 (200-350K)\n"
+                    f"  pressure_hpa: 實測值或 ICAO 標準值 (500-1100 hPa)\n"
+                    f"  water_vapor_density_g_m3: 實測值或 ITU-R P.835 標準值 (0-30 g/m³)"
+                )
+
+            temperature_k = atmospheric_config['temperature_k']
+            pressure_hpa = atmospheric_config['pressure_hpa']
+            water_vapor_density = atmospheric_config['water_vapor_density_g_m3']
+
+            itur_model = create_itur_official_model(
+                temperature_k=temperature_k,
+                pressure_hpa=pressure_hpa,
+                water_vapor_density_g_m3=water_vapor_density
+            )
             atmospheric_loss_db = itur_model.calculate_total_attenuation(
                 frequency_ghz=frequency_ghz,
                 elevation_deg=elevation_deg
@@ -339,6 +498,7 @@ class TimeSeriesAnalyzer:
             propagation_delay_ms = (distance_km * 1000.0) / physics_consts.SPEED_OF_LIGHT * 1000.0
 
             return {
+                'distance_km': distance_km,  # ✅ Stage 6 需要此欄位計算 3GPP 事件
                 'path_loss_db': path_loss_db,
                 'atmospheric_loss_db': atmospheric_loss_db,
                 'doppler_shift_hz': doppler_shift_hz,
@@ -352,6 +512,7 @@ class TimeSeriesAnalyzer:
         except Exception as e:
             self.logger.warning(f"ITU-R 物理計算失敗: {e}")
             return {
+                'distance_km': distance_km if distance_km else None,  # ✅ 保留距離，即使計算失敗
                 'path_loss_db': None,
                 'atmospheric_loss_db': None,
                 'doppler_shift_hz': None,
@@ -361,6 +522,9 @@ class TimeSeriesAnalyzer:
     def classify_signal_quality(self, rsrp: float) -> str:
         """
         分類信號品質
+
+        ✅ Grade A 標準: Fail-Fast 門檻驗證
+        依據: docs/ACADEMIC_STANDARDS.md Line 265-274
 
         基於 RSRP 值進行分類：
         - excellent: >= rsrp_excellent
@@ -373,12 +537,32 @@ class TimeSeriesAnalyzer:
 
         Returns:
             str: 品質等級
+
+        Raises:
+            ValueError: 缺少必要的信號門檻
         """
-        if rsrp >= self.signal_thresholds.get('rsrp_excellent', -80):
+        # ✅ Grade A 標準: 禁止使用硬編碼預設值
+        required_thresholds = ['rsrp_excellent', 'rsrp_good', 'rsrp_fair']
+        missing = [k for k in required_thresholds if k not in self.signal_thresholds]
+
+        if missing:
+            raise ValueError(
+                f"信號品質分級失敗：缺少必要門檻 {missing}\n"
+                f"Grade A 標準禁止使用硬編碼預設值 (-80, -90, -100 dBm)\n"
+                f"必須在配置文件中明確定義所有門檻並標註 SOURCE\n"
+                f"例如:\n"
+                f"  signal_thresholds:\n"
+                f"    rsrp_excellent: -80  # SOURCE: 3GPP TS 38.215 Section 5.1.1\n"
+                f"    rsrp_good: -90       # SOURCE: 3GPP TS 38.215 Section 5.1.1\n"
+                f"    rsrp_fair: -100      # SOURCE: 3GPP TS 38.215 Section 5.1.1\n"
+                f"    rsrp_poor: -110      # SOURCE: 3GPP TS 38.215 Section 5.1.1"
+            )
+
+        if rsrp >= self.signal_thresholds['rsrp_excellent']:
             return 'excellent'
-        elif rsrp >= self.signal_thresholds.get('rsrp_good', -90):
+        elif rsrp >= self.signal_thresholds['rsrp_good']:
             return 'good'
-        elif rsrp >= self.signal_thresholds.get('rsrp_fair', -100):
+        elif rsrp >= self.signal_thresholds['rsrp_fair']:
             return 'fair'
         else:
             return 'poor'

@@ -283,9 +283,9 @@ Stage 4: 鏈路可行性評估與池規劃層 (兩階段處理)
 
 ### ❌ **明確排除職責** (移至後續階段)
 - ❌ **信號品質**: RSRP/RSRQ/SINR 計算 (移至 Stage 5)
-- ❌ **3GPP 事件**: A4/A5/D2 事件檢測 (移至 Stage 6)
-- ❌ **ML 訓練**: 強化學習數據生成 (移至 Stage 6)
-- ❌ **換手決策**: 智能換手算法 (移至後續階段)
+- ❌ **3GPP 事件**: A3/A4/A5/D2 事件檢測 (移至 Stage 6)
+- ❌ **ML 訓練**: 強化學習數據生成 (未來獨立工作，不屬於六階段)
+- ❌ **換手決策**: 智能換手算法 (未來獨立工作)
 
 ## 🔍 星座感知實現
 
@@ -978,7 +978,12 @@ config = {
         'starlink_satellites': {'min': 10, 'max': 15},
         'oneweb_satellites': {'min': 3, 'max': 6},
         'continuous_coverage_hours': 23.5
-    }
+    },
+    # 時間間隔設置 (Grade A 學術標準 - 必須明確提供)
+    # 學術依據: Vallado 2013 Section 8.6 "SGP4 Propagation Time Step Recommendations"
+    # - 建議 SGP4 傳播間隔 < 1 分鐘以維持精度
+    # - 30秒間隔對應 LEO 衛星 ~225km 軌道移動，足夠捕捉可見性變化
+    'time_interval_seconds': 30
 }
 ```
 

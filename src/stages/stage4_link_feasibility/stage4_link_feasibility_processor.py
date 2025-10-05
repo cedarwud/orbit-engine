@@ -98,7 +98,11 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
         # ✅ 初始化模組化組件
         self.service_window_calculator = ServiceWindowCalculator()
         self.satellite_filter = SatelliteFilter(self.service_window_calculator)
-        self.result_builder = ResultBuilder(self.constellation_filter, self.link_budget_analyzer)
+        self.result_builder = ResultBuilder(
+            self.constellation_filter,
+            self.link_budget_analyzer,
+            use_iau_standards=self.use_iau_standards  # 傳遞 IAU 標準使用狀態
+        )
         self.snapshot_manager = SnapshotManager()
 
         self.logger.info("🛰️ Stage 4 鏈路可行性評估處理器初始化完成 (模組化)")
@@ -341,8 +345,15 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
 
                             # 記錄驗證失敗（學術標準要求）
                             if not cross_validation_result.get('validation_passed', True):
+                                # ✅ Grade A+ Fail-Fast: 驗證結果必須包含偏差數據
+                                if 'elevation_difference_deg' not in cross_validation_result:
+                                    raise ValueError(
+                                        f"交叉驗證結果缺少 'elevation_difference_deg'\n"
+                                        f"衛星: {sat_id}, 時間: {timestamp}\n"
+                                        f"可用字段: {list(cross_validation_result.keys())}"
+                                    )
                                 self.logger.debug(
-                                    f"⚠️ 交叉驗證偏差: 仰角 {cross_validation_result.get('elevation_difference_deg', 0):.3f}° "
+                                    f"⚠️ 交叉驗證偏差: 仰角 {cross_validation_result['elevation_difference_deg']:.3f}° "
                                     f"(衛星 {sat_id}, 時間 {timestamp})"
                                 )
 
@@ -408,10 +419,46 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
         """
         self.logger.info("🚀 開始階段 4.2: 時空錯置池規劃優化")
 
+        # ✅ Grade A+ 學術標準: 合併上游配置和本地優化目標
+        # 優先順序: Stage 4 pool_optimization_targets > Stage 1 上游配置
+        constellation_configs = {}
+
+        # Step 1: 從 Stage 4 本地配置獲取優化目標
+        if self.config and 'pool_optimization_targets' in self.config:
+            constellation_configs = self.config['pool_optimization_targets'].copy()
+            self.logger.info("📋 已載入 Stage 4 pool_optimization_targets 配置")
+
+        # Step 2: 如果沒有本地配置，使用上游配置
+        if not constellation_configs and self.upstream_constellation_configs:
+            constellation_configs = self.upstream_constellation_configs.copy()
+            self.logger.info("📋 使用 Stage 1 上游 constellation_configs")
+
+        # Step 3: 如果上游配置存在但本地已有配置，則合併（本地優先）
+        elif constellation_configs and self.upstream_constellation_configs:
+            # 合併配置：本地配置優先，上游配置補充缺失項
+            for constellation, upstream_conf in self.upstream_constellation_configs.items():
+                if constellation not in constellation_configs:
+                    constellation_configs[constellation] = upstream_conf.copy()
+                else:
+                    # 合併單個星座配置：補充上游缺失的字段
+                    for key, value in upstream_conf.items():
+                        if key not in constellation_configs[constellation]:
+                            constellation_configs[constellation][key] = value
+            self.logger.info("📋 已合併 Stage 1 上游配置與 Stage 4 本地配置")
+
+        # Step 4: 檢查是否有配置
+        if not constellation_configs:
+            raise ValueError(
+                "找不到 constellation_configs:\n"
+                "- Stage 1 未提供上游配置\n"
+                "- Stage 4 config 缺少 pool_optimization_targets\n"
+                "請在 stage4_link_feasibility_config.yaml 添加 pool_optimization_targets"
+            )
+
         # 調用池優化器
         optimization_results = optimize_satellite_pool(
             connectable_satellites,
-            self.upstream_constellation_configs or {}
+            constellation_configs
         )
 
         optimized_pools = optimization_results['optimized_pools']
@@ -423,8 +470,20 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
         for constellation, pool in optimized_pools.items():
             if constellation in metrics:
                 m = metrics[constellation]['selection_metrics']
-                # 🔧 修復: 添加安全檢查，避免 coverage_rate 缺失
-                coverage_rate = m.get('coverage_rate', 0.0)
+                # ✅ Grade A+ Fail-Fast: 優化指標必須完整
+                if 'coverage_rate' not in m:
+                    raise ValueError(
+                        f"優化指標缺少 'coverage_rate'\n"
+                        f"星座: {constellation}\n"
+                        f"可用指標: {list(m.keys())}"
+                    )
+                if 'selected_count' not in m or 'candidate_count' not in m:
+                    raise ValueError(
+                        f"優化指標缺少 'selected_count' 或 'candidate_count'\n"
+                        f"星座: {constellation}\n"
+                        f"可用指標: {list(m.keys())}"
+                    )
+                coverage_rate = m['coverage_rate']
                 self.logger.info(f"   {constellation}: {m['selected_count']} 顆選中 (候選: {m['candidate_count']}) - 覆蓋率: {coverage_rate:.1%}")
 
         return optimized_pools, optimization_results
@@ -476,7 +535,8 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
         except Exception as e:
             # ⚠️ 容錯處理：時間戳記解析失敗時使用點數估算
             self.logger.warning(f"⚠️ 覆蓋時間計算時間戳記解析失敗: {e}，使用點數估算")
-            # 預設時間間隔: 30 秒
+
+            # 時間間隔必須從配置中獲取（符合 Grade A 學術標準：禁止預設值）
             # 學術依據:
             #   - Vallado, D. A. (2013). "Fundamentals of Astrodynamics and Applications" (4th ed.)
             #     Section 8.6 "SGP4 Propagator", pp. 927-934
@@ -485,7 +545,13 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
             #   - 足夠捕捉可見性變化而不遺漏短暫連線窗口
             #   - 相較於 60 秒間隔提供更精細的時間解析度（2倍採樣率）
             # SOURCE: Vallado 2013 Section 8.6 "SGP4 Propagation Time Step Recommendations"
-            time_interval_sec = self.config.get('time_interval_seconds', 30)
+            if 'time_interval_seconds' not in self.config:
+                raise ValueError(
+                    "time_interval_seconds 必須在配置中提供\n"
+                    "推薦值: 30 秒 (依據 Vallado 2013 Section 8.6)\n"
+                    "說明: SGP4 傳播間隔應 < 1 分鐘以維持精度"
+                )
+            time_interval_sec = self.config['time_interval_seconds']
             coverage_hours = len(timestamps_sorted) * (time_interval_sec / 3600.0)
 
         # 檢測覆蓋空隙門檻: 5 分鐘

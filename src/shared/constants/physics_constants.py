@@ -75,7 +75,7 @@ class PhysicsConstants:
         from shared.constants.tle_constants import TLEConstants
 
         # 直接返回固定的 TLE 時間精度，不應用任何增長因子
-        return TLEConstants.TLE_REALISTIC_TIME_PRECISION_SECONDS
+        return TLEConstants.TLE_TIME_PRECISION_SECONDS
 
 
 @dataclass

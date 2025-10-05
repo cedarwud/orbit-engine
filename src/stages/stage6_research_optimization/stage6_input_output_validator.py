@@ -145,9 +145,15 @@ class Stage6InputOutputValidator:
 
             return False
 
-        except Exception as e:
-            self.logger.error(f"時間序列驗證異常: {e}")
+        except (KeyError, ValueError, TypeError, AttributeError) as e:
+            # 預期的數據結構錯誤（如缺少字段、類型錯誤等）
+            self.logger.error(f"時間序列數據結構錯誤: {e}")
             return False
+
+        except Exception as e:
+            # 非預期錯誤，記錄並重新拋出
+            self.logger.error(f"時間序列驗證內部錯誤: {e}", exc_info=True)
+            raise  # ✅ Fail-Fast: 重新拋出非預期異常
 
     def validate_output(self, output_data: Any) -> Dict[str, Any]:
         """驗證 Stage 6 輸出數據
@@ -184,7 +190,13 @@ class Stage6InputOutputValidator:
 
             validation_result['is_valid'] = len(validation_result['errors']) == 0
 
+        except (KeyError, ValueError, TypeError, AttributeError) as e:
+            # 預期的數據結構錯誤
+            validation_result['errors'].append(f"數據結構錯誤: {str(e)}")
+
         except Exception as e:
-            validation_result['errors'].append(f"驗證過程異常: {str(e)}")
+            # 非預期錯誤，記錄並重新拋出
+            self.logger.error(f"輸出驗證內部錯誤: {e}", exc_info=True)
+            raise  # ✅ Fail-Fast: 重新拋出非預期異常
 
         return validation_result

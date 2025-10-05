@@ -108,7 +108,7 @@ class LinkBudgetAnalyzer:
 
         檢查項目:
         1. 仰角是否達到星座特定門檻
-        2. 距離是否滿足最小距離要求 (>= 200km)
+        2. 距離約束檢查（當前設定: 無約束，幾何可見性由仰角門檻控制）
 
         Args:
             elevation_deg: 衛星仰角 (度)
@@ -143,10 +143,11 @@ class LinkBudgetAnalyzer:
             failure_reasons.append(
                 f"仰角不足: {elevation_deg:.2f}° < {elevation_threshold:.2f}°"
             )
-        if not distance_ok:
-            # 注: 已移除最大距離約束（與星座仰角門檻數學上不兼容）
+        if not distance_ok and self.min_distance_km > 0:
+            # 注: 當前 min_distance_km = 0（無約束），此條件不會觸發
+            # 若未來啟用距離約束，此錯誤訊息將生效
             failure_reasons.append(
-                f"距離過近: {distance_km:.1f}km < {self.min_distance_km}km (多普勒效應過大)"
+                f"距離過近: {distance_km:.1f}km < {self.min_distance_km}km"
             )
 
         return {
@@ -200,8 +201,22 @@ class LinkBudgetAnalyzer:
         distances = []
 
         for point in time_series:
-            elevation = point.get('elevation_deg', -90.0)
-            distance = point.get('distance_km', float('inf'))
+            # ✅ Grade A+ Fail-Fast: 關鍵幾何參數必須存在
+            if 'elevation_deg' not in point:
+                raise ValueError(
+                    f"time_series 點缺少必需字段 'elevation_deg'\n"
+                    f"該字段應由上游階段 (Stage 2/3) 提供\n"
+                    f"點數據: {list(point.keys())[:5]}"
+                )
+            if 'distance_km' not in point:
+                raise ValueError(
+                    f"time_series 點缺少必需字段 'distance_km'\n"
+                    f"該字段應由上游階段 (Stage 2/3) 提供\n"
+                    f"點數據: {list(point.keys())[:5]}"
+                )
+
+            elevation = point['elevation_deg']
+            distance = point['distance_km']
 
             elevations.append(elevation)
             distances.append(distance)

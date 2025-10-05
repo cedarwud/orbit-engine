@@ -46,14 +46,39 @@ class ITURPhysicsCalculator:
     - P.618-13: 對流層閃爍與信號穩定性
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: Dict[str, Any]):
         """
         初始化 ITU-R 物理計算器
 
+        ✅ Grade A 標準: Fail-Fast 配置驗證
+        依據: docs/ACADEMIC_STANDARDS.md Line 265-274
+
         Args:
-            config: 配置字典 (可選)
+            config: 配置字典（必須提供）
+                必要參數會在實際使用時驗證
+
+        Raises:
+            ValueError: 配置為空
+            TypeError: 配置類型錯誤
         """
-        self.config = config or {}
+        if not config:
+            raise ValueError(
+                "ITURPhysicsCalculator 初始化失敗\n"
+                "Grade A 標準禁止使用空配置\n"
+                "必須提供配置字典\n"
+                "典型配置包含:\n"
+                "  - rx_antenna_diameter_m: 接收天線直徑 (m)\n"
+                "  - rx_antenna_efficiency: 天線效率 (0-1)\n"
+                "  - atmospheric_model: 大氣模型參數\n"
+                "SOURCE: docs/ACADEMIC_STANDARDS.md Line 265-274"
+            )
+
+        if not isinstance(config, dict):
+            raise TypeError(
+                f"config 必須是字典類型，當前類型: {type(config).__name__}"
+            )
+
+        self.config = config
         self.logger = logging.getLogger(__name__)
 
     def calculate_free_space_loss(self, distance_km: float, frequency_ghz: float) -> float:
@@ -128,27 +153,49 @@ class ITURPhysicsCalculator:
         """
         動態計算接收器增益 (基於配置和物理原理)
 
+        ✅ Grade A 標準: Fail-Fast 參數驗證
+        依據: docs/ACADEMIC_STANDARDS.md Line 265-274
+
         依據標準:
         - ITU-R P.580-6: "Radiation diagrams for use in interference calculations"
         - ITU-R P.341-6: "Transmission loss for terrestrial systems"
-
-        優先級:
-        1. 使用配置文件中的實際測量值 (config)
-        2. 回退到 ITU-R 推薦值 (非硬編碼預設值)
 
         Args:
             frequency_ghz: 工作頻率 (GHz)
 
         Returns:
             float: 有效接收器增益 (dB)
+
+        Raises:
+            ValueError: 缺少必要的天線參數
         """
         try:
-            # 從系統配置獲取天線參數，否則使用 ITU-R P.580 推薦值
-            # ⚠️ 注意: 這些是 ITU-R 推薦值，非任意硬編碼預設值
-            antenna_diameter_m = self.config.get('rx_antenna_diameter_m',
-                                               self.get_itur_recommended_antenna_diameter(frequency_ghz))
-            antenna_efficiency = self.config.get('rx_antenna_efficiency',
-                                                self.get_itur_recommended_antenna_efficiency(frequency_ghz))
+            # ✅ Grade A 標準: 禁止使用 ITU-R 推薦值作為回退
+            # 必須在配置中明確提供實際天線參數
+            if 'rx_antenna_diameter_m' not in self.config:
+                itur_recommended = self.get_itur_recommended_antenna_diameter(frequency_ghz)
+                raise ValueError(
+                    f"天線直徑參數缺失\n"
+                    f"Grade A 標準禁止使用 ITU-R 推薦值作為預設\n"
+                    f"必須在配置中提供實際天線參數:\n"
+                    f"  rx_antenna_diameter_m: 實際天線直徑 (m)\n"
+                    f"  SOURCE: 實際硬體規格或測量數據\n"
+                    f"參考: ITU-R P.580-6 推薦值為 {itur_recommended:.2f}m @ {frequency_ghz}GHz"
+                )
+
+            if 'rx_antenna_efficiency' not in self.config:
+                itur_recommended = self.get_itur_recommended_antenna_efficiency(frequency_ghz)
+                raise ValueError(
+                    f"天線效率參數缺失\n"
+                    f"Grade A 標準禁止使用 ITU-R 推薦值作為預設\n"
+                    f"必須在配置中提供實際天線參數:\n"
+                    f"  rx_antenna_efficiency: 實際天線效率 (0-1)\n"
+                    f"  SOURCE: 實際硬體規格或測量數據\n"
+                    f"參考: ITU-R P.580-6 推薦值為 {itur_recommended:.3f} @ {frequency_ghz}GHz"
+                )
+
+            antenna_diameter_m = self.config['rx_antenna_diameter_m']
+            antenna_efficiency = self.config['rx_antenna_efficiency']
 
             # 計算天線增益 (ITU-R標準公式)
             # G = η × (π × D × f / c)²
@@ -199,6 +246,12 @@ class ITURPhysicsCalculator:
         """
         根據 ITU-R P.580-6 標準獲取推薦的天線直徑
 
+        ⚠️ Grade A標準警告:
+        - 此函數僅用於配置參考和文檔說明
+        - 不應作為預設值在實際計算中使用
+        - 實際使用時必須在配置文件中明確指定天線參數
+        - 依據: docs/ACADEMIC_STANDARDS.md Line 265-274
+
         依據標準:
         - ITU-R P.580-6 (2019): Table 1 - "Earth station antenna parameters"
         - ITU-R S.465-6: "Reference radiation pattern for earth station antennas"
@@ -211,7 +264,7 @@ class ITURPhysicsCalculator:
             frequency_ghz: 工作頻率 (GHz)
 
         Returns:
-            float: 推薦天線直徑 (m)
+            float: ITU-R 推薦天線直徑 (m) - 僅供參考
         """
         # ITU-R P.580-6 Table 1: 針對不同頻段的推薦天線尺寸
         if frequency_ghz >= 10.0 and frequency_ghz <= 15.0:  # Ku 頻段
@@ -230,6 +283,12 @@ class ITURPhysicsCalculator:
         """
         根據 ITU-R P.580-6 標準獲取推薦的天線效率
 
+        ⚠️ Grade A標準警告:
+        - 此函數僅用於配置參考和文檔說明
+        - 不應作為預設值在實際計算中使用
+        - 實際使用時必須在配置文件中明確指定天線效率
+        - 依據: docs/ACADEMIC_STANDARDS.md Line 265-274
+
         依據標準:
         - ITU-R P.580-6 (2019): Table 1 - "Antenna aperture efficiency"
         - ITU-R S.580-6: "Radiation diagrams for use in coordination"
@@ -242,7 +301,7 @@ class ITURPhysicsCalculator:
             frequency_ghz: 工作頻率 (GHz)
 
         Returns:
-            float: 推薦天線效率 (0-1)
+            float: ITU-R 推薦天線效率 (0-1) - 僅供參考
         """
         # ITU-R P.580-6 Table 1: 針對不同頻段的典型效率測量值
         if frequency_ghz >= 10.0 and frequency_ghz <= 30.0:  # Ku/Ka 頻段

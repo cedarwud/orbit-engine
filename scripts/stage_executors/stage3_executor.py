@@ -1,5 +1,5 @@
 """
-Stage 3 執行器 - 座標系統轉換層 (v3.0 架構)
+Stage 3 執行器 - 座標系統轉換層 (v3.1 架構)
 
 Author: Extracted from run_six_stages_with_validation.py
 Date: 2025-10-03
@@ -10,7 +10,7 @@ from .executor_utils import clean_stage_outputs, extract_data_from_result, is_sa
 
 def execute_stage3(previous_results):
     """
-    執行 Stage 3: 座標系統轉換層 (v3.0)
+    執行 Stage 3: 座標系統轉換層 (v3.1)
 
     Args:
         previous_results: dict, 必須包含 'stage2' 結果

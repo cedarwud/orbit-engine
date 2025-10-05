@@ -40,11 +40,11 @@ def execute_stage1(previous_results=None):
             'epoch_analysis': {
                 'enabled': True  # 啟用 epoch 動態分析
             },
-            # Epoch 篩選配置
+            # Epoch 篩選配置（符合規格文檔標準）
             'epoch_filter': {
-                'enabled': True,  # 啟用 epoch 篩選
-                'reference_time': 'utc_now',  # 使用當前 UTC 時間
-                'max_age_days': 14.0  # 保留最近 14 天的 TLE
+                'enabled': True,           # 啟用 epoch 篩選
+                'mode': 'latest_date',     # 篩選模式：保留最新日期衛星
+                'tolerance_hours': 24      # 容差範圍：± 24 小時（基於 SGP4 精度分析）
             }
         }
 
@@ -52,7 +52,7 @@ def execute_stage1(previous_results=None):
         stage1_processor = create_stage1_processor(config)
 
         print(f'🔧 配置: {"取樣模式" if use_sampling else "完整模式"}')
-        print('🔧 Epoch 篩選: 啟用 (14天窗口)')
+        print(f'🔧 Epoch 篩選: 啟用 (latest_date 模式，容差 ±{config["epoch_filter"]["tolerance_hours"]}h)')
 
         # 執行處理
         stage1_result = stage1_processor.execute()

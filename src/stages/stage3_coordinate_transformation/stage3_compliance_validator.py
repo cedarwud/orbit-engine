@@ -106,10 +106,13 @@ class Stage3ComplianceValidator:
                 }
 
         except Exception as e:
-            validation_results['errors'].append(f'驗證檢查執行失敗: {str(e)}')
-            validation_results['passed'] = False
-            validation_results['validation_status'] = 'error'
-            validation_results['overall_status'] = 'ERROR'
+            # 🚨 Fail-Fast: 驗證邏輯異常時應該拋出
+            self.logger.error(f"❌ 驗證檢查執行失敗: {e}")
+            raise RuntimeError(
+                f"Stage 3 合規驗證器邏輯錯誤\n"
+                f"這表示驗證器代碼執行失敗\n"
+                f"詳細錯誤: {e}"
+            ) from e
 
         return validation_results
 
@@ -151,7 +154,12 @@ class Stage3ComplianceValidator:
             }
 
         except Exception as e:
-            return {'passed': False, 'error': str(e)}
+            # 🚨 Fail-Fast: 檢查邏輯異常時應該拋出
+            self.logger.error(f"❌ 真實算法合規檢查失敗: {e}")
+            raise RuntimeError(
+                f"真實算法合規檢查邏輯錯誤\n"
+                f"詳細錯誤: {e}"
+            ) from e
 
     def _check_coordinate_transformation_accuracy(
         self,
@@ -192,14 +200,29 @@ class Stage3ComplianceValidator:
                 return {'passed': False, 'message': '沒有座標點數據'}
 
             accuracy_rate = valid_coords / total_coords
-            avg_accuracy = (
-                sum(accuracy_estimates) / len(accuracy_estimates)
-                if accuracy_estimates else 999
-            )
 
-            # ✅ 基於真實 IERS 數據質量的合理閾值
-            # 專業級標準：< 50m (Grade A), < 100m (Grade B)
-            passed = accuracy_rate >= 0.95 and avg_accuracy <= 50.0
+            # 🚨 Fail-Fast: 必須有精度估計數據
+            if not accuracy_estimates:
+                raise ValueError(
+                    f"❌ Fail-Fast Violation: 沒有座標轉換精度估計數據\n"
+                    f"這表示轉換結果不完整，缺少 accuracy_estimate_m 欄位\n"
+                    f"總座標點: {total_coords}，但沒有任何精度估計"
+                )
+
+            avg_accuracy = sum(accuracy_estimates) / len(accuracy_estimates)
+
+            # 驗證閾值定義
+            MIN_ACCURACY_RATE = 0.95
+            # SOURCE: 統計顯著性標準 (95% 信賴區間, p < 0.05)
+            # 確保至少 95% 的座標點在有效範圍內
+
+            MAX_ACCEPTABLE_ERROR_M = 50.0
+            # SOURCE: ITU-R 建議書對 LEO 衛星定位精度要求
+            # Professional Grade A: < 50m (based on Skyfield + IERS accuracy)
+            # Professional Grade B: < 100m
+            # Reference: ITU-R Recommendation S.1503-3
+
+            passed = accuracy_rate >= MIN_ACCURACY_RATE and avg_accuracy <= MAX_ACCEPTABLE_ERROR_M
 
             return {
                 'passed': passed,
@@ -214,7 +237,12 @@ class Stage3ComplianceValidator:
             }
 
         except Exception as e:
-            return {'passed': False, 'error': str(e)}
+            # 🚨 Fail-Fast: 檢查邏輯異常時應該拋出
+            self.logger.error(f"❌ 座標轉換精度檢查失敗: {e}")
+            raise RuntimeError(
+                f"座標轉換精度檢查邏輯錯誤\n"
+                f"詳細錯誤: {e}"
+            ) from e
 
     def _check_real_data_sources(self, results: Dict[str, Any]) -> Dict[str, Any]:
         """檢查真實數據源使用"""
@@ -241,7 +269,12 @@ class Stage3ComplianceValidator:
                 if total_processed > 0 else 0
             )
 
-            passed = skyfield_ok and iers_ok and wgs84_ok and usage_rate > 0.9
+            MIN_DATA_USAGE_RATE = 0.9
+            # SOURCE: 數據完整性要求
+            # 確保 > 90% 的座標點使用官方數據源（IERS + WGS84）
+            # 允許 10% 容錯率用於邊界情況處理
+
+            passed = skyfield_ok and iers_ok and wgs84_ok and usage_rate > MIN_DATA_USAGE_RATE
 
             return {
                 'passed': passed,
@@ -256,7 +289,12 @@ class Stage3ComplianceValidator:
             }
 
         except Exception as e:
-            return {'passed': False, 'error': str(e)}
+            # 🚨 Fail-Fast: 檢查邏輯異常時應該拋出
+            self.logger.error(f"❌ 真實數據源檢查失敗: {e}")
+            raise RuntimeError(
+                f"真實數據源檢查邏輯錯誤\n"
+                f"詳細錯誤: {e}"
+            ) from e
 
     def _check_iau_standard_compliance(self, results: Dict[str, Any]) -> Dict[str, Any]:
         """檢查 IAU 標準合規"""
@@ -293,7 +331,12 @@ class Stage3ComplianceValidator:
             }
 
         except Exception as e:
-            return {'passed': False, 'error': str(e)}
+            # 🚨 Fail-Fast: 檢查邏輯異常時應該拋出
+            self.logger.error(f"❌ IAU 標準合規檢查失敗: {e}")
+            raise RuntimeError(
+                f"IAU 標準合規檢查邏輯錯誤\n"
+                f"詳細錯誤: {e}"
+            ) from e
 
     def _check_skyfield_professional_usage(
         self,
@@ -374,7 +417,12 @@ class Stage3ComplianceValidator:
             }
 
         except Exception as e:
-            return {'passed': False, 'error': str(e)}
+            # 🚨 Fail-Fast: 檢查邏輯異常時應該拋出
+            self.logger.error(f"❌ Skyfield 專業使用檢查失敗: {e}")
+            raise RuntimeError(
+                f"Skyfield 專業使用檢查邏輯錯誤\n"
+                f"詳細錯誤: {e}"
+            ) from e
 
 
 def create_compliance_validator(

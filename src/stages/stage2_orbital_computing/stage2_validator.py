@@ -112,13 +112,23 @@ class Stage2Validator:
                 if 'epoch_datetime' in satellite:
                     valid_epoch_count += 1
                 else:
-                    satellite_id = satellite.get('satellite_id', 'unknown')
+                    # ❌ Fail-Fast: 移除 'unknown' 預設值
+                    satellite_id = satellite.get('satellite_id') or satellite.get('name')
+                    if not satellite_id:
+                        raise ValueError("衛星數據缺少 satellite_id 或 name 欄位 (Fail-Fast)")
                     issues.append(f"衛星 {satellite_id} 缺少 epoch_datetime")
 
             # 檢查是否禁止了 TLE 重新解析
+            # ✅ metadata 可能不存在是合理的（例如測試場景），使用空字典預設值
             metadata = result_data.get('metadata', {})
-            tle_reparse_prohibited = metadata.get('tle_reparse_prohibited', False)
-            epoch_source = metadata.get('epoch_datetime_source', '')
+            # ❌ Fail-Fast: metadata 內的關鍵欄位不應有預設值
+            if 'tle_reparse_prohibited' not in metadata:
+                raise ValueError("metadata 缺少 tle_reparse_prohibited 欄位 (Fail-Fast)")
+            if 'epoch_datetime_source' not in metadata:
+                raise ValueError("metadata 缺少 epoch_datetime_source 欄位 (Fail-Fast)")
+
+            tle_reparse_prohibited = metadata['tle_reparse_prohibited']
+            epoch_source = metadata['epoch_datetime_source']
 
             if not tle_reparse_prohibited:
                 issues.append("未確認禁止 TLE 重新解析")
@@ -141,11 +151,8 @@ class Stage2Validator:
             }
 
         except Exception as e:
-            return {
-                'passed': False,
-                'description': '時間基準驗證',
-                'issues': [f"驗證過程異常: {str(e)}"]
-            }
+            # ❌ Fail-Fast: 驗證過程異常不應回退，直接拋出
+            raise RuntimeError(f"時間基準驗證失敗 (Fail-Fast): {e}") from e
 
     def _check_sgp4_propagation_accuracy(self, orbital_results: Dict[str, Any]) -> Dict[str, Any]:
         """2. sgp4_propagation_accuracy - 軌道傳播精度"""
@@ -164,8 +171,8 @@ class Stage2Validator:
                     # - 低軌 (200 km, r=6578 km): v ≈ 7.78 km/s
                     # - 高軌 (2000 km, r=8378 km): v ≈ 6.90 km/s
                     # SOURCE: Curtis 2014, "Orbital Mechanics for Engineering Students"
-                    LEO_VELOCITY_MIN = 6.5  # km/s (保守下限，允許高軌)
-                    LEO_VELOCITY_MAX = 8.0  # km/s (保守上限，允許低軌和橢圓軌道)
+                    LEO_VELOCITY_MIN = 6.5  # km/s (擴展驗證下限，允許高軌)
+                    LEO_VELOCITY_MAX = 8.0  # km/s (擴展驗證上限，允許低軌和橢圓軌道)
                     # 實際典型值: Starlink ~7.57 km/s, ISS ~7.66 km/s
 
                     sample_pos = result.teme_positions[0]
@@ -205,11 +212,8 @@ class Stage2Validator:
             }
 
         except Exception as e:
-            return {
-                'passed': False,
-                'description': 'SGP4 軌道傳播精度驗證',
-                'issues': [f"驗證過程異常: {str(e)}"]
-            }
+            # ❌ Fail-Fast: 驗證過程異常不應回退，直接拋出
+            raise RuntimeError(f"SGP4 軌道傳播精度驗證失敗 (Fail-Fast): {e}") from e
 
     def _check_time_series_completeness(self, orbital_results: Dict[str, Any]) -> Dict[str, Any]:
         """3. time_series_completeness - 時間序列完整性"""
@@ -252,11 +256,8 @@ class Stage2Validator:
             }
 
         except Exception as e:
-            return {
-                'passed': False,
-                'description': '時間序列完整性驗證',
-                'issues': [f"驗證過程異常: {str(e)}"]
-            }
+            # ❌ Fail-Fast: 驗證過程異常不應回退，直接拋出
+            raise RuntimeError(f"時間序列完整性驗證失敗 (Fail-Fast): {e}") from e
 
     def _check_teme_coordinate_validation(self, orbital_results: Dict[str, Any]) -> Dict[str, Any]:
         """4. teme_coordinate_validation - TEME 座標驗證"""
@@ -277,8 +278,8 @@ class Stage2Validator:
                         # - 最低 LEO (160 km): r = 6538 km
                         # - 最高 LEO (2000 km): r = 8378 km
                         # SOURCE: Vallado 2013, Table 2.1, Orbital Regimes
-                        LEO_RADIUS_MIN = 6500  # km (保守下限，允許極低軌道)
-                        LEO_RADIUS_MAX = 8500  # km (保守上限，允許極高軌道)
+                        LEO_RADIUS_MIN = 6500  # km (擴展驗證下限，允許極低軌道)
+                        LEO_RADIUS_MAX = 8500  # km (擴展驗證上限，允許極高軌道)
                         # 實際典型值: Starlink ~6928 km, ISS ~6778 km, OneWeb ~7578 km
 
                         if hasattr(sample_pos, 'x') and hasattr(sample_pos, 'y') and hasattr(sample_pos, 'z'):
@@ -295,7 +296,10 @@ class Stage2Validator:
                     else:
                         issues.append(f"衛星 {satellite_id} 缺少 TEME 位置數據")
                 else:
-                    coord_sys = getattr(result, 'coordinate_system', 'unknown')
+                    # ❌ Fail-Fast: 不使用預設值，直接檢查屬性
+                    if not hasattr(result, 'coordinate_system'):
+                        raise ValueError(f"衛星 {satellite_id} 缺少 coordinate_system 屬性 (Fail-Fast)")
+                    coord_sys = result.coordinate_system
                     issues.append(f"衛星 {satellite_id} 座標系統錯誤: {coord_sys}")
 
             # ✅ SOURCE: 95% 通過率門檻（同上）
@@ -313,11 +317,8 @@ class Stage2Validator:
             }
 
         except Exception as e:
-            return {
-                'passed': False,
-                'description': 'TEME 座標系統驗證',
-                'issues': [f"驗證過程異常: {str(e)}"]
-            }
+            # ❌ Fail-Fast: 驗證過程異常不應回退，直接拋出
+            raise RuntimeError(f"TEME 座標系統驗證失敗 (Fail-Fast): {e}") from e
 
     def _check_memory_performance(self, result_data: Dict[str, Any]) -> Dict[str, Any]:
         """5. memory_performance_check - 記憶體性能檢查"""
@@ -329,8 +330,16 @@ class Stage2Validator:
 
             # 檢查處理時間 - 基於實際大規模數據處理需求調整標準
             metadata = result_data.get('metadata', {})
-            processing_time = metadata.get('processing_duration_seconds', 0)
-            total_satellites = metadata.get('total_satellites_processed', 0)
+            # ❌ Fail-Fast: 關鍵性能指標不應有預設值
+            if 'processing_duration_seconds' not in metadata:
+                raise ValueError("metadata 缺少 processing_duration_seconds 欄位 (Fail-Fast)")
+            if 'total_satellites_processed' not in metadata:
+                raise ValueError("metadata 缺少 total_satellites_processed 欄位 (Fail-Fast)")
+            if 'total_teme_positions' not in metadata:
+                raise ValueError("metadata 缺少 total_teme_positions 欄位 (Fail-Fast)")
+
+            processing_time = metadata['processing_duration_seconds']
+            total_satellites = metadata['total_satellites_processed']
 
             # ✅ SOURCE: 動態處理時間門檻計算
             # 依據: 實際性能測試數據（9041 顆衛星 188 秒）
@@ -341,7 +350,7 @@ class Stage2Validator:
                 if total_satellites > 1000:
                     # ✅ SOURCE: 大規模數據性能基準
                     # 實測: 0.021 秒/衛星（9041 顆衛星測試）
-                    # 保守值: 0.03 秒/衛星（允許 40% 性能波動）
+                    # 容錯門檻: 0.03 秒/衛星（允許 40% 性能波動）
                     EXPECTED_TIME_PER_SATELLITE = 0.03  # seconds
                     # SOURCE: v3.0 性能測試，允許 1.5倍容錯（系統負載波動）
                     PERFORMANCE_TOLERANCE = 1.5
@@ -368,7 +377,7 @@ class Stage2Validator:
             # SOURCE: Stage 2 v3.0 資源使用測試
             # 計算: 9041 衛星 × 200 點 × 48 bytes/點 ≈ 86 MB (純數據)
             # 加上 Python 對象開銷和 Skyfield 緩存 → 實測 ~600 MB
-            # 保守上限: 2 GB (允許 3倍安全邊際)
+            # 容錯上限: 2 GB (允許 3倍安全邊際)
             process = psutil.Process()
             memory_mb = process.memory_info().rss / 1024 / 1024
             MEMORY_WARNING_THRESHOLD_MB = 2048  # MB (2 GB)
@@ -379,9 +388,8 @@ class Stage2Validator:
                     f"SOURCE: 預期記憶體使用 <1 GB (9041 顆衛星測試)"
                 )
 
-            # 檢查數據結構效率
-            total_satellites = metadata.get('total_satellites_processed', 0)
-            total_positions = metadata.get('total_teme_positions', 0)
+            # 檢查數據結構效率 (metadata 已在上方驗證)
+            total_positions = metadata['total_teme_positions']
             if total_satellites > 0:
                 avg_positions_per_satellite = total_positions / total_satellites
                 if avg_positions_per_satellite < 60:  # 少於1小時數據
@@ -403,11 +411,8 @@ class Stage2Validator:
             }
 
         except Exception as e:
-            return {
-                'passed': False,
-                'description': '記憶體與性能基準驗證',
-                'issues': [f"驗證過程異常: {str(e)}"]
-            }
+            # ❌ Fail-Fast: 驗證過程異常不應回退，直接拋出
+            raise RuntimeError(f"記憶體與性能基準驗證失敗 (Fail-Fast): {e}") from e
 
     def save_validation_snapshot(
         self,

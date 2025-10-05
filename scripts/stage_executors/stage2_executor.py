@@ -9,6 +9,27 @@ from pathlib import Path
 from .executor_utils import clean_stage_outputs, extract_data_from_result, project_root
 
 
+def load_stage2_config(config_path: str) -> dict:
+    """載入 Stage 2 配置文件"""
+    import yaml
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config_dict = yaml.safe_load(f)
+
+        time_config = config_dict.get('time_series_config', {})
+        propagation_config = config_dict.get('propagation_config', {})
+
+        print(f'📊 v3.0 軌道傳播配置載入成功:')
+        print(f'   時間步長: {time_config.get("time_step_seconds", "N/A")}秒')
+        print(f'   座標系統: {propagation_config.get("coordinate_system", "TEME")}')
+        print(f'   SGP4庫: {propagation_config.get("sgp4_library", "skyfield")}')
+
+        return config_dict
+    except Exception as e:
+        print(f'❌ 配置載入失敗: {e}')
+        return {}
+
+
 def execute_stage2(previous_results):
     """
     執行 Stage 2: 軌道狀態傳播層 (v3.0)
@@ -36,7 +57,6 @@ def execute_stage2(previous_results):
 
         if config_path.exists():
             print(f'📄 載入 v3.0 配置: {config_path}')
-            from . import load_stage2_config
             config_dict = load_stage2_config(str(config_path))
 
             from stages.stage2_orbital_computing.stage2_orbital_computing_processor import Stage2OrbitalPropagationProcessor
@@ -61,24 +81,3 @@ def execute_stage2(previous_results):
     except Exception as e:
         print(f'❌ Stage 2 執行異常: {e}')
         return False, None, None
-
-
-def load_stage2_config(config_path: str) -> dict:
-    """載入 Stage 2 配置文件"""
-    import yaml
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config_dict = yaml.safe_load(f)
-
-        time_config = config_dict.get('time_series_config', {})
-        propagation_config = config_dict.get('propagation_config', {})
-
-        print(f'📊 v3.0 軌道傳播配置載入成功:')
-        print(f'   時間步長: {time_config.get("time_step_seconds", "N/A")}秒')
-        print(f'   座標系統: {propagation_config.get("coordinate_system", "TEME")}')
-        print(f'   SGP4庫: {propagation_config.get("sgp4_library", "skyfield")}')
-
-        return config_dict
-    except Exception as e:
-        print(f'❌ 配置載入失敗: {e}')
-        return {}

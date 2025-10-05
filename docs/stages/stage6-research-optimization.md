@@ -1,62 +1,70 @@
-# 🤖 Stage 6: 研究數據生成與優化層 - 完整規格文檔
+# 🤖 Stage 6: 3GPP NTN 事件檢測與研究數據生成 - 完整規格文檔
 
-**最後更新**: 2025-09-28
-**核心職責**: 3GPP NTN 事件檢測與強化學習訓練數據生成
-**學術合規**: Grade A 標準，符合 3GPP TS 38.331 和 ML 研究需求
+**最後更新**: 2025-10-05
+**核心職責**: 3GPP NTN 事件檢測 (A3/A4/A5/D2)
+**學術合規**: Grade A 標準，符合 3GPP TS 38.331 v18.5.1
 **接口標準**: 100% BaseStageProcessor 合規
+
+> **註**: 強化學習訓練數據生成為未來獨立工作，將在 `tools/ml_training_data_generator/` 中實作，不屬於當前六階段核心流程。
 
 ## 📖 概述與目標
 
-**核心職責**: 基於信號品質數據生成研究級 3GPP 事件和 ML 訓練數據
+**核心職責**: 基於信號品質數據生成研究級 3GPP NTN 事件
 **輸入**: Stage 5 的信號品質分析結果
-**輸出**: 3GPP NTN 事件數據 + 強化學習訓練集
-**處理時間**: ~0.2秒 (事件檢測和數據生成)
-**學術標準**: 3GPP TS 38.331 標準事件檢測，支援多種 ML 算法
+**輸出**: 3GPP NTN 事件數據 (A3/A4/A5/D2)
+**處理時間**: ~0.2秒 (事件檢測)
+**學術標準**: 3GPP TS 38.331 v18.5.1 標準事件檢測
 
 ### 🎯 Stage 6 核心價值
-- **3GPP NTN 事件**: 完整的 A4/A5/D2 事件檢測和報告
-- **ML 訓練數據**: 為 DQN/A3C/PPO/SAC 算法準備訓練集
-- **實時決策支援**: 毫秒級換手決策推理支援
+- **3GPP NTN 事件**: 完整的 A3/A4/A5/D2 事件檢測和報告
+- **標準合規**: 嚴格遵循 3GPP TS 38.331 v18.5.1 規範
 - **研究數據完整性**: 連續不間斷的衛星覆蓋環境數據
+- 🔮 **未來擴展**: ML 訓練數據生成 (待獨立實作)
 
 ## 🚨 研究目標對齊
 
 ### ✅ **基於 final.md 的核心需求**
 ```
-核心研究目標:
+核心研究目標 (六階段範圍):
 1. 衛星池規劃: Starlink 10-15顆, OneWeb 3-6顆
-2. 3GPP NTN 支援: A4/A5/D2 事件完整實現
+2. 3GPP NTN 支援: A3/A4/A5/D2 事件完整實現
+
+未來工作 (獨立實作):
 3. 強化學習優化: DQN/A3C/PPO/SAC 算法支援
 4. 實時決策: < 100ms 換手決策響應
 ```
 
-### ✅ **Stage 6 實現對應**
+### ✅ **Stage 6 當前實現**
 ```
-Stage 6 實現:
-1. 動態衛星池規劃和維護
-2. 標準 3GPP TS 38.331 事件檢測
-3. 多算法 ML 訓練數據生成
-4. 毫秒級推理決策支援
+Stage 6 核心功能:
+1. 標準 3GPP TS 38.331 事件檢測 (A3/A4/A5/D2)
+2. 動態衛星池狀態驗證
+3. 換手事件統計與分析
+
+未來擴展 (待實作):
+4. ML 訓練數據生成 (tools/ml_training_data_generator/)
+5. 強化學習決策算法 (tools/rl_decision_engine/)
 ```
 
 **學術依據**:
-> *"LEO satellite handover optimization requires both standardized 3GPP event detection and machine learning-based decision algorithms. The integration of these approaches enables real-time handover decisions in highly dynamic satellite environments."*
-> — 3GPP TR 38.821 V16.1.0 (2019-12) Solutions for NR to support non-terrestrial networks
+> *"Non-Terrestrial Networks require standardized measurement reporting events (A3/A4/A5/D2) to enable UE mobility management in LEO satellite scenarios."*
+> — 3GPP TS 38.331 v18.5.1 Section 5.5.4 Measurement reporting events
 
 ## 🏗️ 架構設計
 
-### 重構後組件架構
+### 當前組件架構
 ```
 ┌─────────────────────────────────────────────────────────┐
-│       Stage 6: 研究數據生成與優化層 (重構版)             │
+│       Stage 6: 3GPP NTN 事件檢測層                       │
 ├─────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-│  │3GPP Event   │  │ML Training  │  │Pool         │    │
-│  │Detector     │  │Data Gen     │  │Optimizer    │    │
-│  │             │  │             │  │             │    │
-│  │• A4 事件     │  │• 狀態空間    │  │• 時空錯置    │    │
-│  │• A5 事件     │  │• 動作空間    │  │• 動態覆蓋    │    │
-│  │• D2 事件     │  │• 獎勵函數    │  │• 連續服務    │    │
+│  │3GPP Event   │  │Pool         │  │Handover     │    │
+│  │Detector     │  │Verifier     │  │Decision     │    │
+│  │             │  │             │  │Evaluator    │    │
+│  │• A3 事件     │  │• 時空錯置    │  │• 候選評估    │    │
+│  │• A4 事件     │  │• 動態覆蓋    │  │• 決策計算    │    │
+│  │• A5 事件     │  │• 連續服務    │  │• 事件分析    │    │
+│  │• D2 事件     │  │             │  │             │    │
 │  └─────────────┘  └─────────────┘  └─────────────┘    │
 │           │              │              │             │
 │           └──────────────┼──────────────┘             │
@@ -66,10 +74,14 @@ Stage 6 實現:
 │  │      (BaseStageProcessor 合規)               │    │
 │  │                                              │    │
 │  │ • 3GPP TS 38.331 標準事件檢測                │    │
-│  │ • DQN/A3C/PPO/SAC 訓練數據                   │    │
-│  │ • 實時決策推理支援                           │    │
+│  │ • 衛星池狀態驗證                             │    │
+│  │ • 換手事件統計分析                           │    │
 │  │ • ProcessingResult 標準輸出                  │    │
 │  └──────────────────────────────────────────────┘    │
+│                                                      │
+│  🔮 未來擴展 (獨立模塊):                              │
+│  • ML 訓練數據生成 (tools/ml_training_data_gen/)   │
+│  • 強化學習決策引擎 (tools/rl_decision_engine/)     │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -78,6 +90,11 @@ Stage 6 實現:
 ### ✅ **Stage 6 專屬職責**
 
 #### 1. **3GPP NTN 事件檢測**
+- **A3 事件**: 鄰近衛星變得優於服務衛星加偏移
+  - 觸發條件: Mn + Ofn + Ocn – Hys > Mp + Ofp + Ocp + Off
+  - 標準依據: 3GPP TS 38.331 v18.5.1 Section 5.5.4.4
+  - **新增日期**: 2025-10-04
+  - **適用場景**: 固定 UE，基於相對信號強度的換手觸發
 - **A4 事件**: 鄰近衛星變得優於門檻值
   - 觸發條件: Mn + Ofn + Ocn – Hys > Thresh
   - 標準依據: 3GPP TS 38.331 v18.5.1 Section 5.5.4.5
@@ -88,29 +105,92 @@ Stage 6 實現:
   - 觸發條件: (Ml1 – Hys > Thresh1) AND (Ml2 + Hys < Thresh2)
   - 標準依據: 3GPP TS 38.331 v18.5.1 Section 5.5.4.15a
 
-#### 2. **強化學習訓練數據生成**
+#### 2. **衛星池狀態驗證**
+- **時空錯置驗證**: 確保任意時刻維持目標可見衛星數
+- **覆蓋率檢查**: 驗證軌道週期內 95%+ 時間滿足池狀態
+- **動態輪替分析**: 監控衛星進入/離開池的動態行為
+
+#### 3. **換手決策評估** (基於 3GPP 事件)
+- **候選衛星評估**: 基於 A3/A4 事件分析換手候選
+- **決策品質分析**: 評估換手時機和候選選擇
+- **事件統計**: 彙總各類 3GPP 事件發生頻率和分佈
+
+---
+
+### 🔮 **未來工作: 強化學習訓練數據生成** (獨立模塊)
+
+> **實作位置**: `tools/ml_training_data_generator/`
+
+**規劃內容**:
 - **狀態空間**: 衛星位置、信號強度、仰角、距離等多維狀態
 - **動作空間**: 換手決策(保持/切換至候選衛星1/2/3...)
 - **獎勵函數**: 基於QoS、中斷時間、信號品質的複合獎勵
+- **依賴**: 需要 Stage 6 的 3GPP 事件輸出作為訓練數據來源
 - **經驗回放**: 大量真實換手場景存儲供算法學習
 
-#### 3. **動態衛星池驗證與監控**
-- **Starlink 池驗證**: 驗證 Stage 4.2 是否達成 10-15顆衛星連續可見
-- **OneWeb 池驗證**: 驗證 Stage 4.2 是否達成 3-6顆衛星連續可見
-- **時間序列遍歷**: 遍歷 time_series[] 計算每個時間點的可見數
-- **覆蓋率報告**: 生成覆蓋率統計和空窗期分析
+---
 
-#### 4. **實時決策支援**
-- **毫秒級響應**: 支援真實時間的換手決策推理 (< 100ms)
-- **多候選評估**: 同時評估3-5個換手候選的優劣
-- **自適應門檻**: 根據環境動態調整RSRP/距離門檻
-- **決策可追溯**: 完整的決策過程記錄和分析
-
-### ❌ **明確排除職責** (留給後續研究)
-- ❌ **實際換手執行**: 僅生成決策建議，不執行實際換手
+### ❌ **明確排除職責** (留給後續研究或未來工作)
+- ❌ **ML 訓練數據**: 強化學習訓練數據生成 (未來獨立工作)
+- ❌ **實時決策支援**: 毫秒級換手決策推理 (未來獨立工作)
+- ❌ **實際換手執行**: 僅生成事件檢測結果，不執行實際換手
 - ❌ **硬體控制**: 不涉及實際射頻設備控制
 - ❌ **網路協議**: 不處理實際的 NTN 協議棧
 - ❌ **用戶數據**: 不處理實際用戶業務數據
+
+## ⚠️ 常見錯誤與防範指引
+
+### 🚨 **P0 級別錯誤: 忽略時間序列遍歷** (2025-10-05 發現並修復)
+
+#### 錯誤症狀
+- 事件數量遠低於預期（<5% 預期值）
+- 參與衛星數極少（<10% 總衛星數）
+- 驗證通過但實際功能不正確
+
+#### 根本原因
+```python
+# ❌ 錯誤實現: 只處理單個快照或 summary
+signal_analysis = stage5_result.data['signal_analysis']
+for sat_id, sat_data in signal_analysis.items():
+    rsrp = sat_data['summary']['average_rsrp_dbm']  # 只用平均值
+    detect_events(rsrp)  # 只檢測一次
+# 結果: 僅 114 個事件（預期 ~3000）
+```
+
+#### 正確做法
+```python
+# ✅ 正確實現: 遍歷完整時間序列
+# Step 1: 收集所有時間戳
+all_timestamps = set()
+for sat_id, sat_data in signal_analysis.items():
+    for time_point in sat_data['time_series']:  # ← 必須遍歷 time_series
+        all_timestamps.add(time_point['timestamp'])
+
+# Step 2: 對每個時間點檢測事件
+for timestamp in sorted(all_timestamps):
+    visible_satellites = get_visible_at(timestamp)  # 該時刻可見的衛星
+    serving_sat = select_serving(visible_satellites)
+    neighbors = [s for s in visible_satellites if s != serving_sat]
+    detect_events(serving_sat, neighbors, timestamp)  # 每個時間點都檢測
+
+# 結果: 3,322 個事件（符合預期）
+```
+
+#### 防範檢查清單
+- [ ] 確認代碼遍歷 `time_series` 而非只用 `summary`
+- [ ] 驗證事件數量 ≥ 1,250（生產標準）
+- [ ] 檢查時間覆蓋率 ≥ 80%
+- [ ] 確認參與衛星數 ≥ 80 顆
+
+#### 驗證標準（已更新至生產級別）
+```python
+# Stage 6 驗證框架
+MIN_EVENTS_TEST = 1250  # 基於 25,088 檢測機會 × 5% 檢測率
+MIN_COVERAGE_RATE = 0.8  # 80% 時間點必須處理
+MIN_PARTICIPATING_SATELLITES = 80  # 至少 71% 衛星參與
+```
+
+---
 
 ## 🔬 3GPP 標準事件實現
 
@@ -118,6 +198,67 @@ Stage 6 實現:
 
 **✅ 正確的 3GPP 事件檢測實現**:
 ```python
+def detect_a3_event_3gpp_standard(self, serving_satellite, neighbor_satellites):
+    """3GPP TS 38.331 A3 事件檢測: 鄰近衛星變得優於服務衛星加偏移
+
+    新增日期: 2025-10-04
+    適用場景: 固定 UE，基於相對信號強度的換手觸發
+    """
+
+    # 3GPP 標準參數
+    hysteresis = self.config['hysteresis_db']       # 2 dB
+    a3_offset = self.config.get('a3_offset_db', 3.0)  # 3 dB
+
+    # 提取服務衛星測量值和偏移參數
+    serving_rsrp = serving_satellite['signal_quality']['rsrp_dbm']
+    serving_offset_mo = serving_satellite['signal_quality'].get('offset_mo_db', 0.0)
+    serving_cell_offset = serving_satellite['signal_quality'].get('cell_offset_db', 0.0)
+
+    a3_events = []
+
+    for neighbor in neighbor_satellites:
+        neighbor_rsrp = neighbor['signal_quality']['rsrp_dbm']
+        neighbor_offset_mo = neighbor['signal_quality'].get('offset_mo_db', 0.0)
+        neighbor_cell_offset = neighbor['signal_quality'].get('cell_offset_db', 0.0)
+
+        # 3GPP 標準 A3 觸發條件
+        # Mn + Ofn + Ocn - Hys > Mp + Ofp + Ocp + Off
+        left_side = neighbor_rsrp + neighbor_offset_mo + neighbor_cell_offset - hysteresis
+        right_side = serving_rsrp + serving_offset_mo + serving_cell_offset + a3_offset
+        trigger_condition = left_side > right_side
+
+        if trigger_condition:
+            a3_event = {
+                'event_type': 'A3',
+                'event_id': f"A3_{neighbor['satellite_id']}_{int(time.time() * 1000)}",
+                'timestamp': datetime.utcnow().isoformat(),
+                'serving_satellite': serving_satellite['satellite_id'],
+                'neighbor_satellite': neighbor['satellite_id'],
+                'measurements': {
+                    'serving_rsrp_dbm': serving_rsrp,
+                    'neighbor_rsrp_dbm': neighbor_rsrp,
+                    'serving_offset_mo_db': serving_offset_mo,
+                    'serving_cell_offset_db': serving_cell_offset,
+                    'neighbor_offset_mo_db': neighbor_offset_mo,
+                    'neighbor_cell_offset_db': neighbor_cell_offset,
+                    'hysteresis_db': hysteresis,
+                    'a3_offset_db': a3_offset,
+                    'trigger_margin_db': left_side - right_side
+                },
+                'relative_comparison': {
+                    'rsrp_difference': neighbor_rsrp - serving_rsrp,
+                    'neighbor_better': True,
+                    'handover_recommended': True
+                },
+                'gpp_parameters': {
+                    'time_to_trigger_ms': self.config['time_to_trigger_ms']
+                },
+                'standard_reference': '3GPP_TS_38.331_v18.5.1_Section_5.5.4.4'
+            }
+            a3_events.append(a3_event)
+
+    return a3_events
+
 def detect_a4_event_3gpp_standard(self, serving_satellite, neighbor_satellites):
     """3GPP TS 38.331 A4 事件檢測: 鄰近衛星變得優於門檻值"""
 
@@ -222,20 +363,23 @@ def detect_a5_event_3gpp_standard(self, serving_satellite, neighbor_satellites):
 - ✅ `signal_analysis[satellite_id]` - 每顆衛星的完整信號品質數據
   - `signal_quality` - 信號品質指標 **[3GPP 事件核心]**
     - `rsrp_dbm` - 參考信號接收功率 (dBm)
+      - **A3 事件**: 服務衛星 vs 鄰近衛星相對比較
       - **A4 事件**: 判斷鄰近衛星是否優於門檻
       - **A5 事件**: 雙門檻比較 (服務 vs 鄰近)
     - `rsrq_db` - 參考信號接收品質 (dB)
     - `rs_sinr_db` - 信號干擾噪聲比 (dB)
+    - `offset_mo_db` - 測量物件偏移 (Ofn/Ofp) **[A3 事件核心]**
+    - `cell_offset_db` - 小區偏移 (Ocn/Ocp) **[A3 事件核心]**
     - `calculation_standard: '3GPP_TS_38.214'` - 標準確認
 
-  - `physical_parameters` - 物理參數 **[D2 事件與 ML 核心]**
+  - `physical_parameters` - 物理參數 **[D2 事件核心]**
     - `path_loss_db` - 路徑損耗
     - `atmospheric_loss_db` - 大氣衰減
     - `doppler_shift_hz` - 都卜勒頻移
     - `propagation_delay_ms` - 傳播延遲
     - `distance_km` - 斜距 (公里) **[D2 事件核心]**
 
-  - `quality_assessment` - 品質評估 **[ML 訓練核心]**
+  - `quality_assessment` - 品質評估 **[換手決策核心]**
     - `quality_level` - 品質等級 (excellent/good/fair/poor)
     - `is_usable` - 可用性標記
     - `quality_score` - 標準化分數 (0-1)
@@ -327,32 +471,71 @@ stage5_result = stage5_processor.execute(stage4_result.data)
 # Stage 6 訪問信號品質數據
 signal_analysis = stage5_result.data['signal_analysis']
 
-# 3GPP NTN A4 事件檢測
+# 🚨 重要: 3GPP 事件檢測必須遍歷完整時間序列
+# ❌ 錯誤做法: 只處理 summary 或單個時間點
+# ✅ 正確做法: 遍歷每顆衛星的 time_series，逐時間點檢測
+
+# 3GPP NTN A4 事件檢測 - 完整時間序列遍歷版本
 a4_threshold = config['a4_threshold_dbm']  # -100.0 dBm
 hysteresis = config['hysteresis_db']       # 2.0 dB
 
 a4_events = []
-for neighbor_id, neighbor_data in signal_analysis.items():
-    neighbor_rsrp = neighbor_data['signal_quality']['rsrp_dbm']
 
-    # 3GPP TS 38.331 Section 5.5.4.5 標準條件
-    if neighbor_rsrp - hysteresis > a4_threshold:
-        a4_event = {
-            'event_type': 'A4',
-            'event_id': f"A4_{neighbor_id}_{int(time.time() * 1000)}",
-            'timestamp': datetime.utcnow().isoformat(),
-            'neighbor_satellite': neighbor_id,
-            'measurements': {
-                'neighbor_rsrp_dbm': neighbor_rsrp,
-                'threshold_dbm': a4_threshold,
-                'hysteresis_db': hysteresis,
-                'trigger_margin_db': neighbor_rsrp - a4_threshold
-            },
-            'standard_reference': '3GPP_TS_38.331_v18.5.1_Section_5.5.4.5'
-        }
-        a4_events.append(a4_event)
+# Step 1: 收集所有唯一時間戳
+all_timestamps = set()
+for sat_id, sat_data in signal_analysis.items():
+    for time_point in sat_data['time_series']:
+        all_timestamps.add(time_point['timestamp'])
 
-# ML 訓練數據生成 (DQN 範例)
+# Step 2: 遍歷每個時間點進行事件檢測
+for timestamp in sorted(all_timestamps):
+    # 獲取該時刻可見的衛星
+    visible_satellites = []
+    for sat_id, sat_data in signal_analysis.items():
+        for tp in sat_data['time_series']:
+            if tp['timestamp'] == timestamp and tp.get('is_connectable', False):
+                visible_satellites.append({
+                    'satellite_id': sat_id,
+                    'rsrp_dbm': tp['signal_quality']['rsrp_dbm'],
+                    'timestamp': timestamp
+                })
+                break
+
+    # 選擇服務衛星（使用中位數 RSRP 策略）
+    if len(visible_satellites) < 2:
+        continue
+
+    visible_satellites.sort(key=lambda x: x['rsrp_dbm'])
+    serving_sat = visible_satellites[len(visible_satellites) // 2]
+    neighbors = [s for s in visible_satellites if s['satellite_id'] != serving_sat['satellite_id']]
+
+    # 檢測 A4 事件
+    for neighbor in neighbors:
+        neighbor_rsrp = neighbor['rsrp_dbm']
+
+        # 3GPP TS 38.331 Section 5.5.4.5 標準條件
+        if neighbor_rsrp - hysteresis > a4_threshold:
+            a4_event = {
+                'event_type': 'A4',
+                'event_id': f"A4_{neighbor['satellite_id']}_{int(time.time() * 1000)}",
+                'timestamp': timestamp,
+                'serving_satellite': serving_sat['satellite_id'],
+                'neighbor_satellite': neighbor['satellite_id'],
+                'measurements': {
+                    'neighbor_rsrp_dbm': neighbor_rsrp,
+                    'threshold_dbm': a4_threshold,
+                    'hysteresis_db': hysteresis,
+                    'trigger_margin_db': neighbor_rsrp - a4_threshold
+                },
+                'standard_reference': '3GPP_TS_38.331_v18.5.1_Section_5.5.4.5'
+            }
+            a4_events.append(a4_event)
+
+# 預期結果: 112 衛星 × 224 時間點 ≈ 1,500-3,000 事件（基於 5-10% 檢測率）
+
+# 註: ML 訓練數據生成為未來獨立工作
+# 以下為規劃範例 (DQN 狀態向量結構)，實際實作將在 tools/ml_training_data_generator/ 中
+"""
 dqn_state_vectors = []
 for satellite_id, signal_data in signal_analysis.items():
     state_vector = [
@@ -365,6 +548,7 @@ for satellite_id, signal_data in signal_analysis.items():
         signal_data['signal_quality']['rs_sinr_db']
     ]
     dqn_state_vectors.append(state_vector)
+"""
 
 # ⚠️ 動態衛星池規劃驗證 - 正確的逐時間點驗證方法
 def verify_pool_maintenance(connectable_satellites, constellation, target_min, target_max):
@@ -459,12 +643,12 @@ pool_planning = {
 
 #### Stage 5 數據依賴關係
 - **信號品質精度**: 影響 3GPP 事件檢測準確性
-  - A4/A5 事件: 需要 RSRP 精度 ±1dBm
+  - A3/A4/A5 事件: 需要 RSRP 精度 ±1dBm
   - 錯誤的 RSRP → 錯誤的事件觸發 → 影響研究數據品質
-- **物理參數完整性**: 影響 D2 事件和 ML 訓練
+- **物理參數完整性**: 影響 D2 事件檢測
   - D2 事件: 需要精確距離測量 (±100m)
-  - ML 訓練: 需要完整的狀態向量 (7維以上)
-- **品質評估標記**: 影響衛星池規劃
+  - 完整的物理參數用於事件分析
+- **品質評估標記**: 影響換手決策評估
   - `is_usable` 標記過濾低品質衛星
   - `quality_score` 用於衛星排序和選擇
 
@@ -473,19 +657,21 @@ pool_planning = {
 #### 研究數據生成完整性
 Stage 6 作為最終階段，整合所有前階段數據，生成以下研究級輸出：
 
-**1. 3GPP NTN 事件數據庫**:
-- ✅ A4 事件: 1000+ 鄰近衛星優於門檻事件
-- ✅ A5 事件: 500+ 雙門檻換手觸發事件
-- ✅ D2 事件: 300+ 基於距離的換手事件
+**1. 3GPP NTN 事件數據庫** (當前實作):
+- ✅ A3 事件: 相對信號強度換手事件 **[新增 2025-10-04]**
+- ✅ A4 事件: 鄰近衛星優於門檻事件
+- ✅ A5 事件: 雙門檻換手觸發事件
+- ✅ D2 事件: 基於距離的換手事件
 - ✅ 完整的 3GPP TS 38.331 標準參數記錄
 - ✅ 事件時間序列，支援時序分析
 
-**2. 強化學習訓練數據集**:
-- ✅ DQN 數據集: 50,000+ 狀態-動作-獎勵樣本
-- ✅ A3C 數據集: 策略梯度和價值估計
-- ✅ PPO 數據集: 策略比率和裁剪比
-- ✅ SAC 數據集: 連續動作和軟 Q 值
-- ✅ 完整的經驗回放緩衝區
+**2. 強化學習訓練數據集** (🔮 未來工作):
+> **註**: 此部分為未來獨立工作，將在 `tools/ml_training_data_generator/` 中實作
+- 規劃: DQN 數據集 (狀態-動作-獎勵樣本)
+- 規劃: A3C 數據集 (策略梯度和價值估計)
+- 規劃: PPO 數據集 (策略比率和裁剪比)
+- 規劃: SAC 數據集 (連續動作和軟 Q 值)
+- 規劃: 完整的經驗回放緩衝區
 
 **3. 動態衛星池規劃報告**:
 - ✅ Starlink 池維持: 10-15顆目標達成率
@@ -531,7 +717,7 @@ Stage 5: 信號品質分析
   └─ 2000+ 衛星信號品質數據
     ↓
 Stage 6: 研究數據生成 **[最終階段]**
-  ├─ gpp_events[] (A4/A5/D2, 1500+ 事件)
+  ├─ gpp_events[] (A3/A4/A5/D2, 1500+ 事件)
   ├─ ml_training_data[] (50,000+ 樣本)
   ├─ satellite_pool_planning (池規劃報告)
   └─ real_time_decision_support (決策系統)
@@ -548,7 +734,7 @@ Stage 6: 研究數據生成 **[最終階段]**
 | **星座分離** | Stage 1/2 配置 | ✅ Starlink 90-95min, OneWeb 109-115min |
 | **仰角門檻** | Stage 4 篩選 | ✅ Starlink 5°, OneWeb 10° |
 | **池維持目標** | Stage 4/6 統計 | ✅ Starlink 10-15顆, OneWeb 3-6顆 |
-| **3GPP NTN 事件** | Stage 6 檢測 | ✅ A4/A5/D2 完整實現 |
+| **3GPP NTN 事件** | Stage 6 檢測 | ✅ A3/A4/A5/D2 完整實現 |
 | **強化學習** | Stage 6 生成 | ✅ DQN/A3C/PPO/SAC 支援 |
 | **歷史離線分析** | Stage 1-6 設計 | ✅ 基於 TLE 歷史數據 |
 

@@ -64,13 +64,14 @@ class Stage6ValidationFramework:
             'validation_timestamp': datetime.now(timezone.utc).isoformat()
         }
 
-        # 執行 5 項檢查
+        # 執行 6 項檢查 (新增時間覆蓋率驗證)
         check_methods = [
             ('gpp_event_standard_compliance', self.validate_gpp_event_compliance),
             ('ml_training_data_quality', self.validate_ml_training_data_quality),
             ('satellite_pool_optimization', self.validate_satellite_pool_optimization),
             ('real_time_decision_performance', self.validate_real_time_decision_performance),
-            ('research_goal_achievement', self.validate_research_goal_achievement)
+            ('research_goal_achievement', self.validate_research_goal_achievement),
+            ('event_temporal_coverage', self.validate_event_temporal_coverage)  # 🚨 P0-3 新增
         ]
 
         for check_name, check_method in check_methods:
@@ -79,16 +80,29 @@ class Stage6ValidationFramework:
                 validation_results['check_details'][check_name] = check_result
                 validation_results['checks_performed'] += 1
 
-                if check_result.get('passed', False):
+                # ✅ Fail-Fast: 確保內部結果完整性
+                if 'passed' not in check_result:
+                    raise ValueError(
+                        f"驗證方法 {check_name} 返回結果缺少 'passed' 字段\n"
+                        f"內部結果必須保證完整性"
+                    )
+
+                if check_result['passed']:
                     validation_results['checks_passed'] += 1
 
-            except Exception as e:
-                self.logger.error(f"驗證檢查 {check_name} 失敗: {e}", exc_info=True)
+            except (KeyError, ValueError, TypeError) as e:
+                # 預期的數據結構錯誤
+                self.logger.error(f"驗證檢查 {check_name} 數據錯誤: {e}")
                 validation_results['check_details'][check_name] = {
                     'passed': False,
                     'error': str(e)
                 }
                 validation_results['checks_performed'] += 1
+
+            except Exception as e:
+                # 非預期錯誤，記錄並重新拋出
+                self.logger.error(f"驗證檢查 {check_name} 內部錯誤: {e}", exc_info=True)
+                raise  # ✅ Fail-Fast: 重新拋出非預期異常
 
         # 計算總體狀態
         success_rate = (
@@ -98,8 +112,8 @@ class Stage6ValidationFramework:
 
         validation_results['validation_details']['success_rate'] = success_rate
 
-        # 至少 4/5 項通過才算整體通過
-        if validation_results['checks_passed'] >= 4:
+        # 至少 5/6 項通過才算整體通過 (83% 通過率)
+        if validation_results['checks_passed'] >= 5:
             validation_results['validation_status'] = 'passed'
             validation_results['overall_status'] = 'PASS'
         else:
@@ -142,15 +156,25 @@ class Stage6ValidationFramework:
             result['details']['a5_count'] = len(a5_events)
             result['details']['d2_count'] = len(d2_events)
 
-            # 🚨 P0 修正: 調整為實際測試環境
+            # 🚨 P0 修正: 調整為生產標準 (2025-10-05)
             # SOURCE: 基於 LEO NTN 換手頻率研究
             # 依據: 3GPP TR 38.821 Section 6.3.2 - 典型換手率 10-30 次/分鐘
-            # 測試環境: 當前數據集為單時間點快照，事件數量有限
-            # 理由:
-            #   - 測試門檻：10 事件（單時間點快照）
-            #   - 生產目標：1000 事件（完整時間窗口）
-            MIN_EVENTS_TEST = 10
-            TARGET_EVENTS_PRODUCTION = 1000
+            #
+            # 數據來源分析:
+            # - Stage 5 輸出: 112 衛星 × 224 時間點 = 25,088 檢測機會
+            # - 典型檢測率: 5-10% (LEO NTN 場景)
+            # - 預期事件數: 25,088 × 5% = 1,254 (保守) ~ 2,509 (樂觀)
+            #
+            # 修正前問題:
+            # - 舊門檻: 10 事件 (臨時測試值)
+            # - 實際輸出: 114 事件 (僅單時間點快照)
+            # - 誤判為通過: 114 > 10 ✅ (錯誤)
+            #
+            # 修正後標準:
+            # - 生產門檻: 1,250 事件 (25,088 × 5%)
+            # - 遍歷完整時間序列後預期: 1,500-2,500 事件
+            MIN_EVENTS_TEST = 1250  # 生產標準: 5% 檢測率
+            TARGET_EVENTS_PRODUCTION = 2500  # 樂觀目標: 10% 檢測率
 
             if total_events >= MIN_EVENTS_TEST:
                 result['passed'] = True
@@ -191,7 +215,14 @@ class Stage6ValidationFramework:
             ml_data = output_data.get('ml_training_data', {})
             dataset_summary = ml_data.get('dataset_summary', {})
 
-            total_samples = dataset_summary.get('total_samples', 0)
+            # ✅ Fail-Fast: 檢查字段存在性，不使用默認值掩蓋缺失
+            if 'total_samples' not in dataset_summary:
+                result['passed'] = False
+                result['issues'].append("dataset_summary 缺少 total_samples 字段")
+                result['recommendations'].append("檢查 ML 訓練數據生成器輸出")
+                return result
+
+            total_samples = dataset_summary['total_samples']
             result['details']['total_samples'] = total_samples
 
             # 🚨 P0 修正: 調整為實際測試環境
@@ -241,9 +272,21 @@ class Stage6ValidationFramework:
             pool_verification = output_data.get('pool_verification', {})
             overall_verification = pool_verification.get('overall_verification', {})
 
-            # 修正：使用正確的欄位名稱 overall_passed
-            overall_passed = overall_verification.get('overall_passed', False)
-            combined_coverage_rate = overall_verification.get('combined_coverage_rate', 0.0)
+            # ✅ Fail-Fast: 檢查字段存在性，不使用默認值掩蓋缺失
+            if 'overall_passed' not in overall_verification:
+                result['passed'] = False
+                result['issues'].append("overall_verification 缺少 overall_passed 字段")
+                result['recommendations'].append("檢查衛星池驗證器輸出")
+                return result
+
+            if 'combined_coverage_rate' not in overall_verification:
+                result['passed'] = False
+                result['issues'].append("overall_verification 缺少 combined_coverage_rate 字段")
+                result['recommendations'].append("檢查衛星池驗證器輸出")
+                return result
+
+            overall_passed = overall_verification['overall_passed']
+            combined_coverage_rate = overall_verification['combined_coverage_rate']
 
             result['details']['overall_passed'] = overall_passed
             result['details']['combined_coverage_rate'] = combined_coverage_rate
@@ -256,8 +299,15 @@ class Stage6ValidationFramework:
                 result['score'] = combined_coverage_rate
                 result['issues'].append(f"池覆蓋率不足: {combined_coverage_rate:.1%}")
 
+        except (KeyError, ValueError, TypeError) as e:
+            # 預期的數據結構錯誤
+            result['passed'] = False
+            result['issues'].append(f"數據結構錯誤: {str(e)}")
+
         except Exception as e:
-            result['issues'].append(f"驗證異常: {str(e)}")
+            # 非預期錯誤，記錄並重新拋出
+            self.logger.error(f"衛星池驗證內部錯誤: {e}", exc_info=True)
+            raise  # ✅ Fail-Fast: 重新拋出非預期異常
 
         return result
 
@@ -277,9 +327,21 @@ class Stage6ValidationFramework:
         try:
             decision_support = output_data.get('decision_support', {})
 
-            # 檢查是否有決策記錄
-            decision_count = decision_support.get('decision_count', 0)
-            recommendations = decision_support.get('current_recommendations', [])
+            # ✅ Fail-Fast: 檢查字段存在性
+            if 'decision_count' not in decision_support:
+                result['passed'] = False
+                result['issues'].append("decision_support 缺少 decision_count 字段")
+                result['recommendations'].append("檢查決策支援模組輸出")
+                return result
+
+            if 'current_recommendations' not in decision_support:
+                result['passed'] = False
+                result['issues'].append("decision_support 缺少 current_recommendations 字段")
+                result['recommendations'].append("檢查決策支援模組輸出")
+                return result
+
+            decision_count = decision_support['decision_count']
+            recommendations = decision_support['current_recommendations']
 
             result['details']['decision_count'] = decision_count
             result['details']['has_recommendations'] = len(recommendations) > 0
@@ -292,8 +354,15 @@ class Stage6ValidationFramework:
             else:
                 result['issues'].append("未執行任何決策支援")
 
+        except (KeyError, ValueError, TypeError) as e:
+            # 預期的數據結構錯誤
+            result['passed'] = False
+            result['issues'].append(f"數據結構錯誤: {str(e)}")
+
         except Exception as e:
-            result['issues'].append(f"驗證異常: {str(e)}")
+            # 非預期錯誤，記錄並重新拋出
+            self.logger.error(f"決策性能驗證內部錯誤: {e}", exc_info=True)
+            raise  # ✅ Fail-Fast: 重新拋出非預期異常
 
         return result
 
@@ -314,18 +383,32 @@ class Stage6ValidationFramework:
         try:
             metadata = output_data.get('metadata', {})
 
-            # 檢查核心指標是否達成
-            events_detected = metadata.get('total_events_detected', 0)
-            ml_samples = metadata.get('ml_training_samples', 0)
-            pool_verified = metadata.get('pool_verification_passed', False)
+            # ✅ Fail-Fast: 檢查核心指標字段存在性
+            required_fields = {
+                'total_events_detected': 'total_events_detected',
+                'ml_training_samples': 'ml_training_samples',
+                'pool_verification_passed': 'pool_verification_passed'
+            }
+
+            for field_name, field_desc in required_fields.items():
+                if field_name not in metadata:
+                    result['passed'] = False
+                    result['issues'].append(f"metadata 缺少 {field_desc} 字段")
+                    result['recommendations'].append("檢查處理器 metadata 輸出")
+                    return result
+
+            events_detected = metadata['total_events_detected']
+            ml_samples = metadata['ml_training_samples']
+            pool_verified = metadata['pool_verification_passed']
 
             result['details']['events_detected'] = events_detected
             result['details']['ml_samples'] = ml_samples
             result['details']['pool_verified'] = pool_verified
 
-            # 🚨 P0 修正: 調整為實際測試環境
-            # 測試門檻: 10+ 事件, 0+ 樣本（暫時），池驗證不強制
-            MIN_EVENTS = 10
+            # 🚨 P0 修正: 調整為生產標準 (2025-10-05)
+            # 依據: 與 validate_gpp_event_compliance 一致
+            # 生產門檻: 1,250+ 事件, 0+ 樣本（ML 為未來工作），池驗證必須通過
+            MIN_EVENTS = 1250
             MIN_SAMPLES = 0
 
             score_components = []
@@ -365,6 +448,92 @@ class Stage6ValidationFramework:
                 result['recommendations'].append("✅ 所有研究目標達成")
             else:
                 result['recommendations'].append(f"需達成 80%+ 指標 (當前: {result['score']:.1%})")
+
+        except Exception as e:
+            result['issues'].append(f"驗證異常: {str(e)}")
+
+        return result
+
+    def validate_event_temporal_coverage(self, output_data: Dict[str, Any]) -> Dict[str, Any]:
+        """驗證檢查 6: 時間覆蓋率驗證 (🚨 P0-3 新增)
+
+        檢查事件是否遍歷完整時間序列，而非僅處理單時間點快照
+
+        依據:
+        - Stage 5 輸出: 112 衛星, 224 唯一時間點
+        - 預期: 事件應分佈在 80%+ 時間點上
+        - 防止: 僅處理單快照導致事件數嚴重不足
+        """
+        result = {
+            'passed': False,
+            'score': 0.0,
+            'details': {},
+            'issues': [],
+            'recommendations': []
+        }
+
+        try:
+            gpp_events = output_data.get('gpp_events', {})
+
+            # 檢查是否有 time_series_coverage 數據
+            event_summary = gpp_events.get('event_summary', {})
+
+            if 'time_coverage_rate' not in event_summary:
+                result['passed'] = False
+                result['issues'].append("缺少 time_coverage_rate 數據")
+                result['recommendations'].append("檢查事件檢測器是否遍歷時間序列")
+                return result
+
+            time_coverage_rate = event_summary['time_coverage_rate']
+            total_timestamps = event_summary.get('total_time_points', 0)
+            processed_timestamps = event_summary.get('time_points_processed', 0)
+            participating_satellites = event_summary.get('participating_satellites', 0)
+
+            result['details']['time_coverage_rate'] = time_coverage_rate
+            result['details']['total_timestamps'] = total_timestamps
+            result['details']['processed_timestamps'] = processed_timestamps
+            result['details']['participating_satellites'] = participating_satellites
+
+            # 驗證標準:
+            # - 時間覆蓋率 >= 80% (允許部分時間點無可見衛星)
+            # - 總時間點 >= 200 (確保有足夠數據)
+            # - 參與衛星 >= 80 (至少 71% 衛星參與)
+            MIN_COVERAGE_RATE = 0.8
+            MIN_TOTAL_TIMESTAMPS = 200
+            MIN_PARTICIPATING_SATELLITES = 80
+
+            issues_found = []
+
+            if time_coverage_rate < MIN_COVERAGE_RATE:
+                issues_found.append(
+                    f"時間覆蓋率不足: {time_coverage_rate:.1%} < {MIN_COVERAGE_RATE:.1%}"
+                )
+
+            if total_timestamps < MIN_TOTAL_TIMESTAMPS:
+                issues_found.append(
+                    f"總時間點不足: {total_timestamps} < {MIN_TOTAL_TIMESTAMPS}"
+                )
+
+            if participating_satellites < MIN_PARTICIPATING_SATELLITES:
+                issues_found.append(
+                    f"參與衛星不足: {participating_satellites} < {MIN_PARTICIPATING_SATELLITES}"
+                )
+
+            if issues_found:
+                result['passed'] = False
+                result['score'] = time_coverage_rate
+                result['issues'].extend(issues_found)
+                result['recommendations'].append(
+                    "確保事件檢測器遍歷所有時間點，而非僅處理單次快照"
+                )
+            else:
+                result['passed'] = True
+                result['score'] = 1.0
+                result['recommendations'].append(
+                    f"✅ 時間覆蓋率達標: {time_coverage_rate:.1%} "
+                    f"({processed_timestamps}/{total_timestamps} 時間點, "
+                    f"{participating_satellites} 衛星參與)"
+                )
 
         except Exception as e:
             result['issues'].append(f"驗證異常: {str(e)}")

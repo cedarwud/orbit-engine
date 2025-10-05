@@ -123,15 +123,12 @@ class EpochAnalyzer:
             if epoch_dt.strftime('%Y-%m-%d') == target_date:
                 hour_counts[epoch_dt.hour] += 1
 
-        # 找出最密集的時段
+        # ✅ Fail-Fast: 無數據時立即失敗
         if not hour_counts:
-            return {
-                'target_date': target_date,
-                'hourly_distribution': {},
-                'most_dense_hour': 0,
-                'most_dense_count': 0,
-                'most_dense_percentage': 0.0
-            }
+            raise ValueError(
+                f"❌ 指定日期無衛星數據: {target_date}\n"
+                f"Fail-Fast 原則: 無數據應立即失敗而非返回空結果"
+            )
 
         most_dense_hour = max(hour_counts, key=hour_counts.get)
         total_on_date = sum(hour_counts.values())
@@ -263,13 +260,26 @@ class EpochFilter:
                 {
                     'enabled': bool,
                     'mode': str,  # 'latest_date' | 'recommended_date' | 'specific_date'
-                    'tolerance_hours': int,
+                    'tolerance_hours': int,  # 必須提供（enabled=True時）
                     'specific_date': str  # 可選
                 }
+
+        Raises:
+            ValueError: 當enabled=True但缺少必要配置時
         """
         self.enabled = config.get('enabled', False)
         self.mode = config.get('mode', 'latest_date')
-        self.tolerance_hours = config.get('tolerance_hours', 12)
+
+        # ✅ Grade A 標準: 啟用時禁止使用預設值
+        if self.enabled and 'tolerance_hours' not in config:
+            raise ValueError(
+                "tolerance_hours 必須在配置中提供\n"
+                "推薦值: 24小時（基於 SGP4 精度分析）\n"
+                "SOURCE: SGP4 誤差增長率 1-3km/天，48h 窗口內精度優秀\n"
+                "Grade A 標準禁止使用預設值"
+            )
+        self.tolerance_hours = config.get('tolerance_hours', 24)  # disabled時允許預設值，改為 24h
+
         self.specific_date = config.get('specific_date', None)
 
         logger.info(f"🔍 Epoch 篩選器初始化 (enabled={self.enabled}, mode={self.mode})")
@@ -296,8 +306,11 @@ class EpochFilter:
         elif self.mode == 'specific_date':
             return self._filter_by_specific_date(satellites)
         else:
-            logger.warning(f"⚠️ 無效的篩選模式: {self.mode}，保留所有衛星")
-            return satellites
+            raise ValueError(
+                f"❌ 無效的 Epoch 篩選模式: {self.mode}\n"
+                f"支援的模式: latest_date, recommended_date, specific_date\n"
+                f"Fail-Fast 原則: 無效配置應立即失敗"
+            )
 
     def _filter_by_latest_date(self, satellites: List[Dict], epoch_analysis: Dict) -> List[Dict]:
         """保留最新日期的衛星（當天範圍，可含小容差）"""

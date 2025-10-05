@@ -89,7 +89,8 @@ class SignalAnalysisWorkerManager:
                 time_series_analysis = time_series_analyzer.analyze_time_series(
                     satellite_id=satellite_id,
                     time_series=time_series,
-                    system_config=system_config
+                    system_config=system_config,
+                    constellation=constellation  # A3 事件需要星座資訊
                 )
 
                 # 存儲分析結果
@@ -219,7 +220,8 @@ def _process_single_satellite_worker(
         time_series_analysis = time_series_analyzer.analyze_time_series(
             satellite_id=satellite_id,
             time_series=time_series,
-            system_config=system_config
+            system_config=system_config,
+            constellation=constellation  # A3 事件需要星座資訊
         )
 
         # 返回分析結果

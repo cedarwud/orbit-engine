@@ -38,23 +38,60 @@ class ITUROfficalAtmosphericModel:
     """
 
     def __init__(self,
-                 temperature_k: float = 283.0,
-                 pressure_hpa: float = 1013.25,
-                 water_vapor_density_g_m3: float = 7.5):
+                 temperature_k: float,
+                 pressure_hpa: float,
+                 water_vapor_density_g_m3: float):
         """
         初始化 ITU-R P.676 官方模型
 
+        ⚠️ CRITICAL: 必須提供實測大氣參數，禁止使用預設值
+        依據: docs/ACADEMIC_STANDARDS.md Line 266-274
+
         Args:
-            temperature_k: 溫度 (Kelvin), 默認 283K (10°C, ITU-R P.835 mid-latitude)
-            pressure_hpa: 氣壓 (hPa), 默認 1013.25 hPa (ICAO標準海平面)
-            water_vapor_density_g_m3: 水蒸氣密度 (g/m³), 默認 7.5 g/m³ (ITU-R P.835)
+            temperature_k: 溫度 (Kelvin)
+                - 必須從氣象站實測或使用 ITU-R P.835 標準大氣模型
+                - 參考範圍: 200-350K
+                - 常用值: 283K (10°C, ITU-R P.835 mid-latitude)
+            pressure_hpa: 氣壓 (hPa)
+                - 必須從氣象站實測或使用 ICAO 標準大氣
+                - 參考範圍: 500-1100 hPa
+                - 常用值: 1013.25 hPa (ICAO 標準海平面)
+            water_vapor_density_g_m3: 水蒸氣密度 (g/m³)
+                - 必須從濕度計算或使用 ITU-R P.835 標準
+                - 參考範圍: 0-30 g/m³
+                - 常用值: 7.5 g/m³ (ITU-R P.835 mid-latitude)
+
+        Raises:
+            ValueError: 當參數超出物理範圍時
         """
+        # ✅ Grade A標準: 驗證參數範圍
+        if not (200 <= temperature_k <= 350):
+            raise ValueError(
+                f"溫度超出物理範圍: {temperature_k}K\n"
+                f"有效範圍: 200-350K\n"
+                f"請提供實測值或使用 ITU-R P.835 標準大氣溫度"
+            )
+
+        if not (500 <= pressure_hpa <= 1100):
+            raise ValueError(
+                f"氣壓超出合理範圍: {pressure_hpa} hPa\n"
+                f"有效範圍: 500-1100 hPa\n"
+                f"請提供實測值或使用 ICAO 標準大氣壓力"
+            )
+
+        if not (0 <= water_vapor_density_g_m3 <= 30):
+            raise ValueError(
+                f"水蒸氣密度超出合理範圍: {water_vapor_density_g_m3} g/m³\n"
+                f"有效範圍: 0-30 g/m³\n"
+                f"請提供實測值或使用 ITU-R P.835 標準水蒸氣密度"
+            )
+
         self.temperature_k = temperature_k
         self.pressure_hpa = pressure_hpa
         self.water_vapor_density = water_vapor_density_g_m3
 
-        logger.debug(
-            f"ITU-Rpy 官方模型已初始化: "
+        logger.info(
+            f"✅ ITU-R P.676 官方模型已初始化 (Grade A): "
             f"T={temperature_k}K, P={pressure_hpa}hPa, ρ={water_vapor_density_g_m3}g/m³"
         )
 
@@ -256,65 +293,39 @@ class ITUROfficalAtmosphericModel:
                 f"錯誤: {e}"
             ) from e
 
-    def _calculate_scintillation_loss(self, elevation_deg: float, frequency_ghz: float) -> float:
-        """
-        計算低仰角閃爍損耗 (簡化版，保留向後兼容)
-
-        ⚠️ 已棄用: 建議使用 calculate_scintillation_itur_p618() 官方模型
-
-        學術依據:
-        - ITU-R P.618-13 (12/2017) Annex I: "Method for the prediction of amplitude scintillations"
-        - Karasawa, Y., et al. (1988): "Tropospheric scintillation"
-
-        Args:
-            elevation_deg: 仰角 (度)
-            frequency_ghz: 頻率 (GHz)
-
-        Returns:
-            scintillation_db: 閃爍損耗 (dB)
-        """
-        # ITU-R P.618-13: 閃爍效應主要影響低仰角路徑 (<10°)
-        if elevation_deg >= 10.0:
-            return 0.0
-
-        # 基礎閃爍係數 (簡化線性模型)
-        # SOURCE: Karasawa et al. (1988) 實驗測量
-        base_scintillation_coeff = 0.1  # dB/degree
-        base_scintillation = base_scintillation_coeff * (10.0 - elevation_deg)
-
-        # 頻率依賴性修正
-        # SOURCE: ITU-R P.618-13 Eq. (50)
-        reference_freq_ghz = 10.0  # ITU-R P.618-13 參考頻率
-        frequency_factor = 1.0 / math.sqrt(frequency_ghz / reference_freq_ghz)
-
-        scintillation_db = base_scintillation * frequency_factor
-
-        # 物理上限 (基於 ITU-R P.618-13 測量數據)
-        max_scintillation_db = 2.0  # dB
-        return min(scintillation_db, max_scintillation_db)
 
 
-def create_itur_official_model(temperature_k: float = 283.0,
-                               pressure_hpa: float = 1013.25,
-                               water_vapor_density_g_m3: float = 7.5) -> ITUROfficalAtmosphericModel:
+def create_itur_official_model(temperature_k: float,
+                               pressure_hpa: float,
+                               water_vapor_density_g_m3: float) -> ITUROfficalAtmosphericModel:
     """
     創建 ITU-R P.676 官方模型實例 (ITU-Rpy)
 
-    這是與自實現版本 (create_itur_p676_model) 完全兼容的工廠函數
-    可以作為 drop-in replacement 使用
+    ⚠️ CRITICAL: 必須提供實測大氣參數
+    依據: docs/ACADEMIC_STANDARDS.md Line 266-274
 
     Args:
-        temperature_k: 溫度 (K)
-        pressure_hpa: 氣壓 (hPa)
-        water_vapor_density_g_m3: 水蒸氣密度 (g/m³)
+        temperature_k: 溫度 (K) - 必須提供，無預設值
+            SOURCE 建議: ITU-R P.835 標準大氣模型或氣象站實測
+        pressure_hpa: 氣壓 (hPa) - 必須提供，無預設值
+            SOURCE 建議: ICAO 標準大氣或氣象站實測
+        water_vapor_density_g_m3: 水蒸氣密度 (g/m³) - 必須提供，無預設值
+            SOURCE 建議: ITU-R P.835 或從相對濕度計算
 
     Returns:
         model: ITU-R P.676-13 官方模型實例
 
+    Raises:
+        ValueError: 當參數超出物理範圍時
+
     Example:
-        >>> model = create_itur_official_model(temperature_k=288.15, pressure_hpa=1013.25)
+        >>> # 使用 ITU-R P.835 mid-latitude 標準值
+        >>> model = create_itur_official_model(
+        ...     temperature_k=283.0,      # SOURCE: ITU-R P.835
+        ...     pressure_hpa=1013.25,     # SOURCE: ICAO Standard Atmosphere
+        ...     water_vapor_density_g_m3=7.5  # SOURCE: ITU-R P.835
+        ... )
         >>> attenuation = model.calculate_total_attenuation(frequency_ghz=12.5, elevation_deg=15.0)
-        >>> print(f"大氣衰減: {attenuation:.3f} dB")
     """
     return ITUROfficalAtmosphericModel(temperature_k, pressure_hpa, water_vapor_density_g_m3)
 

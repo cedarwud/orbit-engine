@@ -60,11 +60,50 @@ class AcademicChecker:
         return True
 
     def _check_epoch_freshness(self, tle_data_list: List[Dict[str, Any]]) -> bool:
-        """檢查 Epoch 新鮮度"""
-        # 簡化檢查：確保有 epoch_datetime
+        """
+        檢查 Epoch 新鮮度（完整驗證）
+
+        要求:
+        1. epoch_datetime 字段存在
+        2. 可解析為有效日期時間
+        3. 時間範圍合理（非未來日期，未過於陳舊）
+
+        SOURCE: Vallado (2013) - TLE數據有效性標準
+        """
+        from datetime import datetime, timezone, timedelta
+        from shared.constants.tle_constants import TLEConstants
+
+        now = datetime.now(timezone.utc)
+        max_age = timedelta(days=TLEConstants.TLE_FRESHNESS_ACCEPTABLE_DAYS)
+
         for tle_data in tle_data_list:
             if 'epoch_datetime' not in tle_data:
                 return False
+
+            try:
+                # 解析epoch時間
+                epoch_str = tle_data['epoch_datetime']
+                if isinstance(epoch_str, datetime):
+                    epoch_dt = epoch_str
+                else:
+                    epoch_dt = datetime.fromisoformat(
+                        epoch_str.replace('Z', '+00:00')
+                    )
+
+                # 檢查時間範圍
+                if epoch_dt > now:  # 未來日期不合理
+                    return False
+                if (now - epoch_dt) > max_age:  # 過於陳舊
+                    return False
+
+            except (ValueError, AttributeError, TypeError) as e:
+                raise ValueError(
+                    f"❌ Epoch 新鮮度檢查失敗\n"
+                    f"衛星ID: {tle_data.get('satellite_id', 'unknown')}\n"
+                    f"錯誤: {e}\n"
+                    f"Fail-Fast 原則: 數據格式錯誤應立即失敗"
+                ) from e
+
         return True
 
     def _check_constellation_coverage(self, tle_data_list: List[Dict[str, Any]]) -> bool:
@@ -73,9 +112,16 @@ class AcademicChecker:
         return 'unknown' not in constellations and len(constellations) > 0
 
     def _check_data_source(self, tle_data_list: List[Dict[str, Any]]) -> bool:
-        """檢查數據來源"""
+        """
+        檢查數據來源
+
+        ✅ Fail-Fast: 所有數據必須有明確來源
+        """
         for tle_data in tle_data_list:
-            if 'data_source' in tle_data:
-                return True
-        # 如果沒有數據來源標記，仍然通過（兼容舊數據）
+            if 'data_source' not in tle_data and 'source_file' not in tle_data:
+                raise ValueError(
+                    f"❌ TLE 數據缺少 data_source/source_file 字段\n"
+                    f"衛星ID: {tle_data.get('satellite_id', 'unknown')}\n"
+                    f"Fail-Fast 原則: 所有數據必須有明確來源"
+                )
         return True

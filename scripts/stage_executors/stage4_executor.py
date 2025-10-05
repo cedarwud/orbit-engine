@@ -36,7 +36,8 @@ def execute_stage4(previous_results):
         from stages.stage4_link_feasibility.stage4_link_feasibility_processor import Stage4LinkFeasibilityProcessor
 
         # 載入 Stage 4 學術標準配置
-        stage4_config_path = Path('/orbit-engine/config/stage4_link_feasibility_config.yaml')
+        from .executor_utils import project_root
+        stage4_config_path = project_root / "config/stage4_link_feasibility_config.yaml"
         if stage4_config_path.exists():
             import yaml
             with open(stage4_config_path, 'r', encoding='utf-8') as f:
@@ -60,6 +61,14 @@ def execute_stage4(previous_results):
             error_msg = '; '.join(result.errors) if result and result.errors else "無結果或數據"
             print(f'❌ Stage 4 執行失敗: {error_msg}')
             return False, result, processor
+
+        # 保存 Stage 4 驗證快照
+        if hasattr(processor, 'save_validation_snapshot'):
+            snapshot_saved = processor.save_validation_snapshot(result.data)
+            if snapshot_saved:
+                print('✅ Stage 4 驗證快照已保存')
+            else:
+                print('⚠️ Stage 4 驗證快照保存失敗')
 
         return True, result, processor
 

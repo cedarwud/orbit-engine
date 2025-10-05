@@ -97,7 +97,8 @@ class Stage3TransformationEngine:
         # 重組結果按衛星分組
         geographic_coordinates = self._reorganize_results(
             batch_results,
-            satellite_map
+            satellite_map,
+            teme_data  # ✅ 傳入 teme_data 供保留元數據
         )
 
         # 更新精度統計
@@ -137,10 +138,24 @@ class Stage3TransformationEngine:
 
                     dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
 
+                    # 🚨 Fail-Fast: 驗證必須存在的欄位
+                    if 'position_teme_km' not in teme_point:
+                        raise ValueError(
+                            f"❌ Fail-Fast Violation: Missing 'position_teme_km' for satellite {satellite_id}, point {point_idx}\n"
+                            f"This indicates corrupted TEME data from Stage 3 data extractor.\n"
+                            f"Cannot proceed with Skyfield conversion without position vector."
+                        )
+                    if 'velocity_teme_km_s' not in teme_point:
+                        raise ValueError(
+                            f"❌ Fail-Fast Violation: Missing 'velocity_teme_km_s' for satellite {satellite_id}, point {point_idx}\n"
+                            f"This indicates corrupted TEME data from Stage 3 data extractor.\n"
+                            f"Cannot proceed with Skyfield conversion without velocity vector."
+                        )
+
                     # 準備批量數據
                     batch_point = {
-                        'position_teme_km': teme_point.get('position_teme_km', [0, 0, 0]),
-                        'velocity_teme_km_s': teme_point.get('velocity_teme_km_s', [0, 0, 0]),
+                        'position_teme_km': teme_point['position_teme_km'],
+                        'velocity_teme_km_s': teme_point['velocity_teme_km_s'],
                         'datetime_utc': dt
                     }
 
@@ -148,7 +163,8 @@ class Stage3TransformationEngine:
                     satellite_map[len(batch_data) - 1] = (satellite_id, point_idx, timestamp_str)
 
                 except Exception as e:
-                    self.logger.warning(f"準備數據失敗 {satellite_id}: {e}")
+                    self.logger.error(f"❌ 準備數據失敗 {satellite_id}: {e}")
+                    raise  # 🚨 Fail-Fast: 不隱藏錯誤
 
         return batch_data, satellite_map
 
@@ -192,7 +208,8 @@ class Stage3TransformationEngine:
     def _reorganize_results(
         self,
         batch_results: List[CoordinateTransformResult],
-        satellite_map: Dict[int, Tuple[str, int, str]]
+        satellite_map: Dict[int, Tuple[str, int, str]],
+        teme_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         重組結果按衛星分組
@@ -200,6 +217,7 @@ class Stage3TransformationEngine:
         Args:
             batch_results: 批量轉換結果
             satellite_map: 索引映射
+            teme_data: TEME 原始數據（用於提取衛星元數據）
 
         Returns:
             按衛星分組的地理座標數據
@@ -246,8 +264,16 @@ class Stage3TransformationEngine:
             points_list.sort(key=lambda x: x[0])
             converted_time_series = [point[1] for point in points_list]
 
+            # ✅ Grade A 學術標準: 保留上游衛星元數據
+            # 從 teme_data 中提取 Stage 1/2 的元數據
+            sat_metadata = teme_data.get(satellite_id, {})
+
             geographic_coordinates[satellite_id] = {
                 'time_series': converted_time_series,
+                # 🔑 保留 Stage 1/2 的衛星元數據供 Stage 4+ 使用
+                'epoch_datetime': sat_metadata.get('epoch_datetime'),  # Stage 1 Epoch 時間
+                'algorithm_used': sat_metadata.get('algorithm_used'),  # Stage 2 算法（SGP4）
+                'coordinate_system_source': sat_metadata.get('coordinate_system'),  # TEME
                 'transformation_metadata': {
                     'coordinate_system': 'WGS84_Official',
                     'reference_frame': 'ITRS_IERS',

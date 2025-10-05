@@ -196,9 +196,15 @@ class UnifiedTimeWindowManager:
             raise ValueError(f"❌ 無效的時間序列模式: {self.mode}")
 
         # 生成時間序列
-        num_points = orbital_period_seconds // self.interval_seconds
-        time_series = []
+        # 🚨 修正 (2025-10-05): 支援延長觀測窗口以涵蓋完整軌道週期
+        # 讀取 coverage_cycles 參數（默認 1.0，OneWeb 建議 1.2）
+        coverage_cycles = self.time_series_config.get('coverage_cycles', 1.0)
 
+        # 計算總觀測時長（軌道週期 × 覆蓋倍數）
+        total_duration_seconds = int(orbital_period_seconds * coverage_cycles)
+        num_points = total_duration_seconds // self.interval_seconds
+
+        time_series = []
         for i in range(num_points):
             time_point = start_time + timedelta(seconds=i * self.interval_seconds)
             time_series.append(time_point)
@@ -274,7 +280,7 @@ class UnifiedTimeWindowManager:
         # - 衛星機動導致 epoch 分散
         # - 允許 20% 衛星在容差外（仍可用，但精度稍低）
         # SOURCE: Starlink 星座分析，95% 衛星 TLE 更新間隔 <24 小時
-        # 保守門檻: 80% 符合率
+        # 寬鬆門檻: 80% 符合率（允許部分衛星epoch偏差）
         REFERENCE_TIME_COMPLIANCE_THRESHOLD = 80.0  # percent
         is_valid = compliance_rate >= REFERENCE_TIME_COMPLIANCE_THRESHOLD
 
