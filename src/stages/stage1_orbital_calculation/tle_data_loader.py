@@ -269,6 +269,11 @@ class TLEDataLoader:
                 # 解析 TLE epoch 時間
                 epoch_datetime = self._parse_tle_epoch(fixed_line1)
 
+                # 🔑 提取 mean_motion (每天繞地球圈數)
+                # SOURCE: TLE Format Specification - Line 2, columns 53-63
+                # mean_motion單位: revs/day (每天繞地球圈數)
+                mean_motion = self._extract_mean_motion(fixed_line2)
+
                 satellite_data = {
                     "name": satellite_name,
                     "constellation": constellation,
@@ -279,6 +284,7 @@ class TLEDataLoader:
                     "norad_id": self._extract_norad_id(fixed_line1),
                     "satellite_id": self._extract_norad_id(fixed_line1),  # 兼容性別名
                     "epoch_datetime": epoch_datetime.isoformat() if epoch_datetime else None,
+                    "mean_motion": mean_motion,  # 🔑 新增字段
                     "source_file": file_path
                 }
                 
@@ -389,6 +395,45 @@ class TLEDataLoader:
         except Exception as e:
             raise ValueError(
                 f"❌ 無法提取 NORAD ID\n"
+                f"錯誤: {e}"
+            ) from e
+
+    def _extract_mean_motion(self, tle_line2: str) -> float:
+        """
+        從 TLE Line 2 提取平均運動速率 (mean motion)
+
+        SOURCE: TLE Format Specification - Line 2, columns 53-63
+        mean_motion: 每天繞地球圈數 (revolutions per day)
+
+        Args:
+            tle_line2: TLE Line 2
+
+        Returns:
+            float: mean_motion (revs/day)
+
+        Raises:
+            ValueError: 當 TLE Line2 格式無效或無法解析時
+        """
+        if not tle_line2 or len(tle_line2) < 63:
+            raise ValueError(
+                f"❌ TLE Line2 格式無效，無法提取 mean_motion\n"
+                f"Line2: {tle_line2[:20] if tle_line2 else 'None'}..."
+            )
+
+        try:
+            # TLE Line 2 格式: columns 53-63 = mean motion (revs/day)
+            mean_motion_str = tle_line2[52:63].strip()
+            mean_motion = float(mean_motion_str)
+
+            if mean_motion <= 0:
+                raise ValueError(f"mean_motion 必須 > 0，實際值: {mean_motion}")
+
+            return mean_motion
+
+        except Exception as e:
+            raise ValueError(
+                f"❌ 無法提取 mean_motion\n"
+                f"Line2: {tle_line2}\n"
                 f"錯誤: {e}"
             ) from e
 

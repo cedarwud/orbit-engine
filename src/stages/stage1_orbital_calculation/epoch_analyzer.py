@@ -144,9 +144,10 @@ class EpochAnalyzer:
         return distribution
 
     def _analyze_constellation_distribution(self, satellites: List[Dict]) -> Dict[str, Any]:
-        """分析星座分布"""
+        """分析星座分布（含轨道周期统计）"""
         constellation_counts = defaultdict(int)
         constellation_latest_epochs = {}
+        constellation_orbital_periods = defaultdict(list)  # 新增：收集各星座的轨道周期
 
         for satellite in satellites:
             name_upper = satellite['name'].upper()
@@ -169,6 +170,16 @@ class EpochAnalyzer:
             elif epoch_dt_naive > constellation_latest_epochs[constellation]:
                 constellation_latest_epochs[constellation] = epoch_dt_naive
 
+            # 🔑 新增：从TLE mean_motion计算轨道周期
+            # SOURCE: TLE Format Specification (NASA/NORAD)
+            # mean_motion单位：每天绕地球圈数
+            # orbital_period = 1440分钟 / mean_motion
+            if 'mean_motion' in satellite:
+                mean_motion = satellite['mean_motion']
+                if mean_motion > 0:  # 避免除零
+                    orbital_period_minutes = 1440.0 / mean_motion
+                    constellation_orbital_periods[constellation].append(orbital_period_minutes)
+
         distribution = {}
         for constellation, count in constellation_counts.items():
             latest_epoch = constellation_latest_epochs.get(constellation)
@@ -178,9 +189,21 @@ class EpochAnalyzer:
             # 確保輸出格式包含時區標記
             latest_epoch_str = latest_epoch.isoformat() + 'Z'
 
+            # 计算轨道周期统计
+            periods = constellation_orbital_periods.get(constellation, [])
+            orbital_period_stats = {}
+            if periods:
+                orbital_period_stats = {
+                    'min_minutes': round(min(periods), 2),
+                    'max_minutes': round(max(periods), 2),
+                    'avg_minutes': round(sum(periods) / len(periods), 2),
+                    'sample_count': len(periods)
+                }
+
             distribution[constellation] = {
                 'count': count,
-                'latest_epoch': latest_epoch_str
+                'latest_epoch': latest_epoch_str,
+                'orbital_period_stats': orbital_period_stats  # 新增字段
             }
 
         return distribution

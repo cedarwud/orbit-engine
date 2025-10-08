@@ -150,15 +150,73 @@ def check_stage4_validation(snapshot_data: dict) -> tuple:
 
         # 🔧 取樣模式: 跳過嚴格的覆蓋時間和可見衛星數檢查
         if not is_sampling_mode:
-            # 🚨 修正 (2025-10-05): 覆蓋時間驗證應基於軌道週期，而非 24 小時
-            # - OneWeb 軌道週期: 110 分鐘 = 1.83 小時
-            # - Starlink 軌道週期: 95 分鐘 = 1.58 小時
-            # - 合理標準: 覆蓋時間 ≥ 最長軌道週期 (1.83h)，因為軌道是週期性的
-            # SOURCE: 軌道力學基礎，衛星軌道在一個週期後會重複
-            MIN_COVERAGE_HOURS = 1.5  # 小於 OneWeb 週期，考慮部分軌道覆蓋即可
+            # 🚨 修正 (2025-10-06): 覆蓋時間驗證應基於時間窗口長度，而非軌道週期
+            # - 連續覆蓋時間 = 在觀測窗口內，至少有一顆衛星可見的總時長
+            # - 軌道週期 = 單顆衛星繞地球一圈的時間（不同概念！）
+            # - unified_window 模式下，各星座時間窗口長度 = 各自軌道週期 × coverage_cycles
+            #   * Starlink: 95min × 1.0 = 95min = 1.58h
+            #   * OneWeb: 110min × 1.0 = 110min = 1.83h
+            # - 驗證邏輯: 連續覆蓋時間應接近時間窗口長度（表示無明顯空窗）
+            # SOURCE: 衛星通信系統設計，連續覆蓋 = 多顆衛星接力提供服務
 
-            if continuous_coverage_hours < MIN_COVERAGE_HOURS:
-                return False, f"❌ Stage 4 NTPU 連續覆蓋時間不足: {continuous_coverage_hours:.1f}h (需要 ≥{MIN_COVERAGE_HOURS}h)"
+            # 🚨 修正 (2025-10-06): 連續覆蓋時間驗證 - 基於TLE實際軌道週期
+            # - 連續覆蓋時間 = 時空錯置池在觀測窗口內至少有一顆衛星可見的總時長
+            # - 理想值 = 觀測窗口長度（說明卫星池完美錯置）
+            # - 實際限制: TLE數據的軌道週期誤差（各顆衛星±1-2分鐘）
+            # - 驗證標準: 連續覆蓋時間 ≥ TLE最小軌道週期（轉換為小時）
+            # SOURCE: Stage 1 epoch_analysis.json - orbital_period_stats.min_minutes
+
+            # 嘗試從Stage 1讀取TLE軌道週期統計
+            import json
+            from pathlib import Path
+
+            epoch_analysis_file = Path('data/outputs/stage1/epoch_analysis.json')
+            tle_orbital_periods = None
+
+            if epoch_analysis_file.exists():
+                try:
+                    with open(epoch_analysis_file, 'r', encoding='utf-8') as f:
+                        epoch_analysis = json.load(f)
+                    tle_orbital_periods = epoch_analysis.get('constellation_distribution', {})
+                except Exception as e:
+                    print(f"⚠️  無法讀取epoch_analysis.json: {e}")
+
+            # 檢查是否有星座特定的覆蓋數據
+            if 'by_constellation' in ntpu_coverage:
+                by_const = ntpu_coverage['by_constellation']
+
+                for const_name, const_data in by_const.items():
+                    if 'continuous_coverage_hours' in const_data:
+                        const_coverage = const_data['continuous_coverage_hours']
+
+                        # 🔑 動態獲取TLE最小軌道週期作為閾值
+                        min_required_hours = None
+
+                        if tle_orbital_periods and const_name.upper() in tle_orbital_periods:
+                            orbital_stats = tle_orbital_periods[const_name.upper()].get('orbital_period_stats', {})
+                            min_period_minutes = orbital_stats.get('min_minutes')
+                            if min_period_minutes:
+                                min_required_hours = min_period_minutes / 60.0
+                                threshold_source = f"TLE最小軌道週期 {min_period_minutes:.1f}min"
+
+                        # 回退: 使用配置值（98%容差，考慮邊界效應）
+                        if min_required_hours is None:
+                            CONSTELLATION_WINDOW_LENGTH = {
+                                'starlink': 1.58,  # 95 min
+                                'oneweb': 1.83     # 110 min
+                            }
+                            window_length = CONSTELLATION_WINDOW_LENGTH.get(const_name.lower(), 1.5)
+                            min_required_hours = window_length * 0.98  # 98%容差
+                            threshold_source = f"配置值 {window_length:.2f}h × 98%"
+
+                        if const_coverage < min_required_hours:
+                            return False, f"❌ Stage 4 {const_name} 連續覆蓋時間不足: {const_coverage:.2f}h (需要 ≥{min_required_hours:.2f}h，基於{threshold_source})"
+            else:
+                # 回退: 如果沒有星座特定數據，使用統一標準
+                MIN_COVERAGE_HOURS = 1.79  # OneWeb TLE最小週期約 1.79h (98%容差)
+
+                if continuous_coverage_hours < MIN_COVERAGE_HOURS:
+                    return False, f"❌ Stage 4 NTPU 連續覆蓋時間不足: {continuous_coverage_hours:.2f}h (需要 ≥{MIN_COVERAGE_HOURS:.2f}h)"
 
             # 平均可見衛星數檢查（保持原邏輯）
             if avg_satellites_visible < 10.0:  # Starlink 目標範圍下限

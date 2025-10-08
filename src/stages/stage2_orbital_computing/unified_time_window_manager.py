@@ -164,11 +164,14 @@ class UnifiedTimeWindowManager:
             時間序列（UTC datetime 列表）
         """
         if self.mode == 'unified_window':
-            # 統一時間窗口模式
+            # 統一時間窗口模式：共享參考時刻，但各星座使用其軌道週期生成時間序列
             if self.reference_time is None:
                 raise RuntimeError("❌ 參考時刻未載入，請先呼叫 load_reference_time()")
 
             start_time = self.reference_time
+
+            # 🔑 關鍵修改: 根據星座獲取對應的軌道週期
+            # Starlink: 95min, OneWeb: 110min
             orbital_period_seconds = self.get_orbital_period_seconds(satellite_name)
 
         elif self.mode == 'independent_epoch':
@@ -196,11 +199,13 @@ class UnifiedTimeWindowManager:
             raise ValueError(f"❌ 無效的時間序列模式: {self.mode}")
 
         # 生成時間序列
-        # 🚨 修正 (2025-10-05): 支援延長觀測窗口以涵蓋完整軌道週期
-        # 讀取 coverage_cycles 參數（默認 1.0，OneWeb 建議 1.2）
+        # 🚨 修正 (2025-10-06): 支援星座特定的觀測窗口長度
+        # unified_window 模式: 共享參考時刻，但各星座生成符合其軌道週期的時間序列
+        # - Starlink (95min): 生成 95min × coverage_cycles 的時間點
+        # - OneWeb (110min): 生成 110min × coverage_cycles 的時間點
         coverage_cycles = self.time_series_config.get('coverage_cycles', 1.0)
 
-        # 計算總觀測時長（軌道週期 × 覆蓋倍數）
+        # 計算總觀測時長（星座特定軌道週期 × 覆蓋倍數）
         total_duration_seconds = int(orbital_period_seconds * coverage_cycles)
         num_points = total_duration_seconds // self.interval_seconds
 
@@ -208,6 +213,9 @@ class UnifiedTimeWindowManager:
         for i in range(num_points):
             time_point = start_time + timedelta(seconds=i * self.interval_seconds)
             time_series.append(time_point)
+
+        logger.debug(f"   {satellite_name}: 生成 {len(time_series)} 時間點 "
+                    f"({total_duration_seconds/60:.1f}min = {orbital_period_seconds/60:.0f}min × {coverage_cycles})")
 
         return time_series
 

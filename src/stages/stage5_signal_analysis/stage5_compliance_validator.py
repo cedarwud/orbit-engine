@@ -341,7 +341,7 @@ class Stage5ComplianceValidator:
 
         檢查項目:
         1. 所有信號品質計算是否使用 3GPP_TS_38.214 標記
-        2. RSRP 範圍是否在 3GPP 規定的 -140 to -44 dBm
+        2. RSRP 範圍是否在物理合理範圍 -140 to -20 dBm (LEO場景允許 > -44 dBm)
         3. RSRQ/SINR 是否存在且在合理範圍
 
         Args:
@@ -405,9 +405,14 @@ class Stage5ComplianceValidator:
                     self.logger.debug(f"衛星 {sat_id} RSRP 為 None")
                     continue
 
-                if rsrp < -140 or rsrp > -44:
+                # SOURCE: 3GPP TS 38.215 v18.1.0 Section 5.1.1
+                # - UE 報告量化範圍: -140 to -44 dBm (用於 RRC 訊息報告)
+                # - 物理 RSRP 可以 > -44 dBm (近距離、高增益、LEO 衛星場景)
+                # - 學術研究應保留真實計算值，不應截斷至報告範圍
+                # - 物理上限: -20 dBm (考慮 LEO 衛星近距離高增益場景)
+                if rsrp < -140 or rsrp > -20:
                     self.logger.debug(
-                        f"衛星 {sat_id} RSRP 超出 3GPP 範圍: {rsrp} dBm (標準範圍: -140 to -44)"
+                        f"衛星 {sat_id} RSRP 超出物理範圍: {rsrp:.1f} dBm (物理範圍: -140 to -20 dBm，3GPP UE報告範圍: -140 to -44 dBm)"
                     )
                     continue
 
