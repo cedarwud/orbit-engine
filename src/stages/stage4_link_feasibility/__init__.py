@@ -22,18 +22,11 @@ from .constellation_filter import (
     create_constellation_filter
 )
 
-from .ntpu_visibility_calculator import (
-    NTPUVisibilityCalculator,
-    create_ntpu_visibility_calculator
-)
-
 __all__ = [
     'Stage4LinkFeasibilityProcessor',
     'create_stage4_processor',
     'ConstellationFilter',
-    'create_constellation_filter',
-    'NTPUVisibilityCalculator',
-    'create_ntpu_visibility_calculator'
+    'create_constellation_filter'
 ]
 
 __version__ = '3.0.0'

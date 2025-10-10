@@ -407,6 +407,11 @@ class Stage3ResultsManager:
 
                     geographic_coordinates[sat_id] = {
                         'time_series': time_series,
+                        # 🔑 保留 Stage 1/2 的衛星元數據（修復 epoch_datetime 遺失問題）
+                        'epoch_datetime': sat_group.attrs.get('epoch_datetime'),  # Stage 1 Epoch 時間
+                        'algorithm_used': sat_group.attrs.get('algorithm_used'),  # Stage 2 算法
+                        'coordinate_system_source': sat_group.attrs.get('coordinate_system_source'),  # TEME
+                        'constellation': sat_group.attrs.get('constellation'),  # Stage 2 constellation
                         'transformation_metadata': json.loads(sat_group.attrs['metadata'])
                     }
 
@@ -499,6 +504,17 @@ class Stage3ResultsManager:
                         sat_data.get('transformation_metadata', {}),
                         default=str
                     )
+
+                    # ✅ 保存 Stage 1/2 的衛星元數據（修復 epoch_datetime 遺失問題）
+                    # 確保 Stage 4 Epoch 驗證可以通過
+                    if 'epoch_datetime' in sat_data:
+                        sat_group.attrs['epoch_datetime'] = sat_data['epoch_datetime']
+                    if 'algorithm_used' in sat_data:
+                        sat_group.attrs['algorithm_used'] = sat_data['algorithm_used']
+                    if 'coordinate_system_source' in sat_data:
+                        sat_group.attrs['coordinate_system_source'] = sat_data['coordinate_system_source']
+                    if 'constellation' in sat_data:
+                        sat_group.attrs['constellation'] = sat_data['constellation']
 
             # 記錄文件大小
             file_size_mb = cache_file.stat().st_size / (1024 * 1024)

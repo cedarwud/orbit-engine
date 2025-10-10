@@ -206,10 +206,16 @@ class Stage3DataExtractor:
                         for ts, pos, vel in zip(timestamps, positions, velocities)
                     ]
 
+                    # ✅ Grade A 學術標準: 保留完整的衛星元數據
+                    # 確保數據完整性從 Stage 1 → Stage 2 → Stage 3 → Stage 4 傳遞
                     teme_coordinates[sat_id] = {
                         'satellite_id': sat_id,
                         'constellation': sat_group.attrs.get('constellation', constellation_name),
-                        'time_series': time_series
+                        'time_series': time_series,
+                        # 🔑 保留 Stage 1/2 的元數據，供下游階段使用
+                        'epoch_datetime': sat_group.attrs.get('epoch_datetime'),  # Stage 1 Epoch 時間
+                        'algorithm_used': sat_group.attrs.get('algorithm_used'),  # Stage 2 算法（SGP4）
+                        'coordinate_system': 'TEME'  # Stage 2 座標系統
                     }
 
                     total_satellites += 1

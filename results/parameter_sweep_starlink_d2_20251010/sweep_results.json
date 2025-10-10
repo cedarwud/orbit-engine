@@ -1,0 +1,274 @@
+[
+  {
+    "iteration": 1,
+    "parameters": {
+      "starlink_d2_threshold1_km": 1892,
+      "starlink_d2_threshold2_km": 1183
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 2,
+    "parameters": {
+      "starlink_d2_threshold1_km": 1892,
+      "starlink_d2_threshold2_km": 1380
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 3,
+    "parameters": {
+      "starlink_d2_threshold1_km": 1892,
+      "starlink_d2_threshold2_km": 1577
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 4,
+    "parameters": {
+      "starlink_d2_threshold1_km": 1892,
+      "starlink_d2_threshold2_km": 1750
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 5,
+    "parameters": {
+      "starlink_d2_threshold1_km": 1950,
+      "starlink_d2_threshold2_km": 1183
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 6,
+    "parameters": {
+      "starlink_d2_threshold1_km": 1950,
+      "starlink_d2_threshold2_km": 1380
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 7,
+    "parameters": {
+      "starlink_d2_threshold1_km": 1950,
+      "starlink_d2_threshold2_km": 1577
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 8,
+    "parameters": {
+      "starlink_d2_threshold1_km": 1950,
+      "starlink_d2_threshold2_km": 1750
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 9,
+    "parameters": {
+      "starlink_d2_threshold1_km": 2000,
+      "starlink_d2_threshold2_km": 1183
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 10,
+    "parameters": {
+      "starlink_d2_threshold1_km": 2000,
+      "starlink_d2_threshold2_km": 1380
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 11,
+    "parameters": {
+      "starlink_d2_threshold1_km": 2000,
+      "starlink_d2_threshold2_km": 1577
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 12,
+    "parameters": {
+      "starlink_d2_threshold1_km": 2000,
+      "starlink_d2_threshold2_km": 1750
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 13,
+    "parameters": {
+      "starlink_d2_threshold1_km": 2146,
+      "starlink_d2_threshold2_km": 1183
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 14,
+    "parameters": {
+      "starlink_d2_threshold1_km": 2146,
+      "starlink_d2_threshold2_km": 1380
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 15,
+    "parameters": {
+      "starlink_d2_threshold1_km": 2146,
+      "starlink_d2_threshold2_km": 1577
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  },
+  {
+    "iteration": 16,
+    "parameters": {
+      "starlink_d2_threshold1_km": 2146,
+      "starlink_d2_threshold2_km": 1750
+    },
+    "metrics": {
+      "a3_count": 481,
+      "a4_count": 2562,
+      "a5_count": 0,
+      "d2_count": 0,
+      "total_events": 0,
+      "time_points_processed": 220,
+      "participating_satellites": 130
+    },
+    "output_file": "/home/sat/orbit-engine/data/validation_snapshots/stage6_validation.json"
+  }
+]

@@ -166,57 +166,72 @@ def check_stage4_validation(snapshot_data: dict) -> tuple:
             # - 驗證標準: 連續覆蓋時間 ≥ TLE最小軌道週期（轉換為小時）
             # SOURCE: Stage 1 epoch_analysis.json - orbital_period_stats.min_minutes
 
-            # 嘗試從Stage 1讀取TLE軌道週期統計
+            # ✅ Fail-Fast: 從Stage 1讀取TLE軌道週期統計（必須存在）
             import json
             from pathlib import Path
 
             epoch_analysis_file = Path('data/outputs/stage1/epoch_analysis.json')
-            tle_orbital_periods = None
 
-            if epoch_analysis_file.exists():
-                try:
-                    with open(epoch_analysis_file, 'r', encoding='utf-8') as f:
-                        epoch_analysis = json.load(f)
-                    tle_orbital_periods = epoch_analysis.get('constellation_distribution', {})
-                except Exception as e:
-                    print(f"⚠️  無法讀取epoch_analysis.json: {e}")
+            # Fail-Fast: epoch_analysis.json 必須存在
+            if not epoch_analysis_file.exists():
+                return False, "❌ Stage 1 epoch_analysis.json 不存在（需要 TLE 軌道週期數據進行動態驗證）"
 
-            # 檢查是否有星座特定的覆蓋數據
-            if 'by_constellation' in ntpu_coverage:
-                by_const = ntpu_coverage['by_constellation']
+            # Fail-Fast: 必須能成功讀取
+            try:
+                with open(epoch_analysis_file, 'r', encoding='utf-8') as f:
+                    epoch_analysis = json.load(f)
+            except Exception as e:
+                return False, f"❌ 無法讀取 Stage 1 epoch_analysis.json: {e}"
 
-                for const_name, const_data in by_const.items():
-                    if 'continuous_coverage_hours' in const_data:
-                        const_coverage = const_data['continuous_coverage_hours']
+            # Fail-Fast: constellation_distribution 必須存在
+            if 'constellation_distribution' not in epoch_analysis:
+                return False, "❌ epoch_analysis.json 缺少必需字段 'constellation_distribution'"
 
-                        # 🔑 動態獲取TLE最小軌道週期作為閾值
-                        min_required_hours = None
+            tle_orbital_periods = epoch_analysis['constellation_distribution']
 
-                        if tle_orbital_periods and const_name.upper() in tle_orbital_periods:
-                            orbital_stats = tle_orbital_periods[const_name.upper()].get('orbital_period_stats', {})
-                            min_period_minutes = orbital_stats.get('min_minutes')
-                            if min_period_minutes:
-                                min_required_hours = min_period_minutes / 60.0
-                                threshold_source = f"TLE最小軌道週期 {min_period_minutes:.1f}min"
+            # Fail-Fast: 必須有星座特定的覆蓋數據（by_constellation）
+            if 'by_constellation' not in ntpu_coverage:
+                return False, "❌ ntpu_coverage 缺少必需字段 'by_constellation'（需要按星座統計 continuous_coverage_hours）"
 
-                        # 回退: 使用配置值（98%容差，考慮邊界效應）
-                        if min_required_hours is None:
-                            CONSTELLATION_WINDOW_LENGTH = {
-                                'starlink': 1.58,  # 95 min
-                                'oneweb': 1.83     # 110 min
-                            }
-                            window_length = CONSTELLATION_WINDOW_LENGTH.get(const_name.lower(), 1.5)
-                            min_required_hours = window_length * 0.98  # 98%容差
-                            threshold_source = f"配置值 {window_length:.2f}h × 98%"
+            by_const = ntpu_coverage['by_constellation']
 
-                        if const_coverage < min_required_hours:
-                            return False, f"❌ Stage 4 {const_name} 連續覆蓋時間不足: {const_coverage:.2f}h (需要 ≥{min_required_hours:.2f}h，基於{threshold_source})"
-            else:
-                # 回退: 如果沒有星座特定數據，使用統一標準
-                MIN_COVERAGE_HOURS = 1.79  # OneWeb TLE最小週期約 1.79h (98%容差)
+            # Fail-Fast: by_constellation 不能為空
+            if not by_const:
+                return False, "❌ ntpu_coverage.by_constellation 為空（需要 Starlink/OneWeb 覆蓋統計）"
 
-                if continuous_coverage_hours < MIN_COVERAGE_HOURS:
-                    return False, f"❌ Stage 4 NTPU 連續覆蓋時間不足: {continuous_coverage_hours:.2f}h (需要 ≥{MIN_COVERAGE_HOURS:.2f}h)"
+            for const_name, const_data in by_const.items():
+                # Fail-Fast: continuous_coverage_hours 必須存在
+                if 'continuous_coverage_hours' not in const_data:
+                    return False, f"❌ ntpu_coverage.by_constellation.{const_name} 缺少必需字段 'continuous_coverage_hours'"
+
+                const_coverage = const_data['continuous_coverage_hours']
+
+                # Fail-Fast: TLE 軌道週期統計必須存在
+                if const_name.upper() not in tle_orbital_periods:
+                    return False, f"❌ epoch_analysis.json 缺少 {const_name.upper()} 星座的 TLE 軌道週期統計"
+
+                orbital_stats = tle_orbital_periods[const_name.upper()].get('orbital_period_stats', {})
+
+                # Fail-Fast: orbital_period_stats 不能為空
+                if not orbital_stats:
+                    return False, f"❌ epoch_analysis.json 中 {const_name.upper()} 的 orbital_period_stats 為空"
+
+                # Fail-Fast: min_minutes 必須存在
+                if 'min_minutes' not in orbital_stats:
+                    return False, f"❌ epoch_analysis.json 中 {const_name.upper()} orbital_period_stats 缺少 'min_minutes'"
+
+                min_period_minutes = orbital_stats['min_minutes']
+
+                # Fail-Fast: min_minutes 必須 > 0
+                if min_period_minutes <= 0:
+                    return False, f"❌ {const_name.upper()} TLE 最小軌道週期無效: {min_period_minutes}min (必須 > 0)"
+
+                min_required_hours = min_period_minutes / 60.0
+                threshold_source = f"TLE最小軌道週期 {min_period_minutes:.1f}min"
+
+                # 驗證連續覆蓋時間
+                if const_coverage < min_required_hours:
+                    return False, f"❌ Stage 4 {const_name} 連續覆蓋時間不足: {const_coverage:.2f}h (需要 ≥{min_required_hours:.2f}h，基於{threshold_source})"
 
             # 平均可見衛星數檢查（保持原邏輯）
             if avg_satellites_visible < 10.0:  # Starlink 目標範圍下限

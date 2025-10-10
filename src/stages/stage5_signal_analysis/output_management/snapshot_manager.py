@@ -49,7 +49,7 @@ class SnapshotManager:
             # 第 1 層: 結構驗證 - 檢查頂層必要字段
             # ============================================================================
 
-            required_top_level = ['analysis_summary', 'metadata']
+            required_top_level = ['analysis_summary', 'metadata', 'signal_analysis']
             missing = [f for f in required_top_level if f not in processing_results]
             if missing:
                 raise ValueError(
@@ -59,6 +59,7 @@ class SnapshotManager:
 
             analysis_summary = processing_results['analysis_summary']
             metadata = processing_results['metadata']
+            signal_analysis = processing_results['signal_analysis']
 
             # 驗證類型
             if not isinstance(analysis_summary, dict):
@@ -69,6 +70,11 @@ class SnapshotManager:
             if not isinstance(metadata, dict):
                 raise ValueError(
                     f"metadata 類型錯誤: {type(metadata).__name__} (期望: dict)"
+                )
+
+            if not isinstance(signal_analysis, dict):
+                raise ValueError(
+                    f"signal_analysis 類型錯誤: {type(signal_analysis).__name__} (期望: dict)"
                 )
 
             # ============================================================================
@@ -114,6 +120,7 @@ class SnapshotManager:
                     'total_time_points_processed': analysis_summary['total_time_points_processed']
                 },
                 'metadata': metadata,
+                'signal_analysis': signal_analysis,  # 🔑 Stage 6 依賴此字段進行事件檢測
                 'validation_results': validation_results
             }
 

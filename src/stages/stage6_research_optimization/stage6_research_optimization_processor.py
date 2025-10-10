@@ -92,34 +92,6 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
     - 所有常數有明確 SOURCE 標註
     """
 
-    # ============================================================
-    # 數據快照預設值 (用於數據缺失情況，有學術依據)
-    # ============================================================
-
-    # 仰角預設值（保守估計）
-    # SOURCE: ITU-R Recommendation S.1257
-    # 典型覆蓋: 10° (低仰角邊緣) ~ 90° (天頂)
-    # 最佳服務: 30° ~ 60° (平衡覆蓋範圍與信號品質)
-    # 選擇 45°: 中位值，適合保守估計
-    DEFAULT_ELEVATION_DEG = 45.0
-    # 說明: 45° 是 0-90° 的中點，用於數據缺失時的保守估計
-
-    # 距離不可達標記
-    # SOURCE: LEO 衛星幾何限制
-    # 地球半徑: 6371 km, Starlink 軌道高度: 550 km
-    # 最大視距: sqrt((6371+550)^2 - 6371^2) ≈ 2300 km
-    # 依據: Vallado (2013) "Fundamentals of Astrodynamics"
-    DISTANCE_UNREACHABLE = 9999.0  # km
-    # 說明: 9999.0 km 作為「數據缺失」的明確標記，而非真實距離
-
-    # 鏈路裕度預設值（保守估計）
-    # SOURCE: ITU-R P.618-13 Section 2.2
-    # 典型鏈路裕度: 3-15 dB (依服務品質要求)
-    # 選擇 10.0 dB: 中等服務品質（Good Quality）
-    # 參考: 3GPP TS 38.321 (適用於NR)
-    DEFAULT_LINK_MARGIN_DB = 10.0
-    # 說明: 10 dB 對應 CQI 9-11，適合保守估計
-
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """初始化 Stage 6 處理器
 
@@ -250,6 +222,9 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
         """執行主要的研究優化流程"""
         self.logger.info("🔍 開始研究數據生成與優化流程...")
 
+        # Step 0.5: 提取並應用動態 D2 閾值（優先於配置文件）
+        self._apply_dynamic_thresholds(input_data)
+
         # Step 1: 3GPP 事件檢測
         gpp_events = self._detect_gpp_events(input_data)
 
@@ -276,6 +251,98 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
         output['validation_results'] = validation_results
 
         return output
+
+    def _apply_dynamic_thresholds(self, input_data: Dict[str, Any]):
+        """從 Stage 4 metadata 提取並應用動態 D2 閾值
+
+        優先級:
+        1. Stage 4 動態閾值分析（基於當前 TLE 數據）
+        2. Stage 6 配置文件預設值
+
+        學術依據:
+        - 3GPP TS 38.331 v18.5.1 Section 5.5.4.15a (D2 閾值為可配置參數)
+        - 自適應網路配置（Adaptive Network Configuration）
+        """
+        try:
+            # ✅ Grade A+ 要求: Fail-fast 而非靜默回退
+            # 從 Stage 4/5 的 metadata 中提取動態閾值
+            metadata = input_data.get('metadata', {})
+            dynamic_thresholds = metadata.get('dynamic_d2_thresholds', {})
+
+            if not dynamic_thresholds:
+                # ❌ 違反 fail-fast 原則: 不應該靜默回退到配置文件
+                # ✅ 應該明確報錯，讓開發者修復數據流問題
+                error_msg = (
+                    "❌ Stage 4 動態閾值分析缺失 (違反數據流完整性)\n"
+                    f"\n檢查項目:\n"
+                    f"  1. Stage 4 是否生成 metadata.dynamic_d2_thresholds?\n"
+                    f"  2. Stage 5 是否正確傳遞 Stage 4 metadata?\n"
+                    f"  3. 當前輸入 metadata 可用字段: {list(metadata.keys())}\n"
+                    f"\n學術標準要求:\n"
+                    f"  - 數據流必須完整，不允許靜默回退\n"
+                    f"  - Stage 4 生成的動態閾值是基於當前 TLE 數據的自適應參數\n"
+                    f"  - 使用靜態配置文件預設值會導致參數與實際衛星配置不符\n"
+                    f"\n如需暫時禁用此檢查（僅用於調試）:\n"
+                    f"  在 Stage 6 配置中添加: allow_missing_dynamic_thresholds: true"
+                )
+
+                # 允許配置覆蓋（僅用於調試/測試）
+                if not self.config.get('allow_missing_dynamic_thresholds', False):
+                    self.logger.error(error_msg)
+                    raise ValueError(error_msg)
+                else:
+                    self.logger.warning("⚠️ 動態閾值缺失，但配置允許回退到預設值（調試模式）")
+                    self.logger.warning(error_msg)
+                    return
+
+            self.logger.info("🔬 發現 Stage 4 動態閾值分析，開始應用...")
+
+            # 提取 Starlink 建議閾值
+            starlink_analysis = dynamic_thresholds.get('starlink', {})
+            starlink_thresholds = starlink_analysis.get('recommended_thresholds', {})
+
+            if starlink_thresholds and 'd2_threshold1_km' in starlink_thresholds:
+                old_t1 = self.gpp_detector.config.get('starlink', {}).get('d2_threshold1_km', 'N/A')
+                old_t2 = self.gpp_detector.config.get('starlink', {}).get('d2_threshold2_km', 'N/A')
+
+                # 更新配置
+                if 'starlink' not in self.gpp_detector.config:
+                    self.gpp_detector.config['starlink'] = {}
+
+                self.gpp_detector.config['starlink']['d2_threshold1_km'] = starlink_thresholds['d2_threshold1_km']
+                self.gpp_detector.config['starlink']['d2_threshold2_km'] = starlink_thresholds['d2_threshold2_km']
+
+                self.logger.info(
+                    f"✅ Starlink D2 閾值已更新（數據驅動）:\n"
+                    f"   Threshold1: {old_t1} → {starlink_thresholds['d2_threshold1_km']} km\n"
+                    f"   Threshold2: {old_t2} → {starlink_thresholds['d2_threshold2_km']} km\n"
+                    f"   數據來源: Stage 4 候選衛星距離分佈分析"
+                )
+
+            # 提取 OneWeb 建議閾值
+            oneweb_analysis = dynamic_thresholds.get('oneweb', {})
+            oneweb_thresholds = oneweb_analysis.get('recommended_thresholds', {})
+
+            if oneweb_thresholds and 'd2_threshold1_km' in oneweb_thresholds:
+                old_t1 = self.gpp_detector.config.get('oneweb', {}).get('d2_threshold1_km', 'N/A')
+                old_t2 = self.gpp_detector.config.get('oneweb', {}).get('d2_threshold2_km', 'N/A')
+
+                # 更新配置
+                if 'oneweb' not in self.gpp_detector.config:
+                    self.gpp_detector.config['oneweb'] = {}
+
+                self.gpp_detector.config['oneweb']['d2_threshold1_km'] = oneweb_thresholds['d2_threshold1_km']
+                self.gpp_detector.config['oneweb']['d2_threshold2_km'] = oneweb_thresholds['d2_threshold2_km']
+
+                self.logger.info(
+                    f"✅ OneWeb D2 閾值已更新（數據驅動）:\n"
+                    f"   Threshold1: {old_t1} → {oneweb_thresholds['d2_threshold1_km']} km\n"
+                    f"   Threshold2: {old_t2} → {oneweb_thresholds['d2_threshold2_km']} km\n"
+                    f"   數據來源: Stage 4 候選衛星距離分佈分析"
+                )
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ 動態閾值應用失敗，回退到配置文件預設值: {e}")
 
     def _detect_gpp_events(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """檢測 3GPP 事件
@@ -443,27 +510,30 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
                 )
             is_connectable = latest_point['is_connectable']
 
-            # ✅ 修正: 確保 distance_km 存在於 physical_parameters
-            # 依據: handover_decision_evaluator.py Lines 293-300 從 physical_parameters 讀取
-            # 問題: 之前放在 visibility_metrics，導致 evaluator 讀取失敗 → distance = 9999.0
+            # ✅ Fail-Fast: 確保 distance_km 存在於 physical_parameters
+            # 依據: ACADEMIC_STANDARDS.md Lines 265-274 - 禁止使用預設值
             if 'distance_km' not in physical_parameters:
-                self.logger.warning(
-                    f"衛星 {satellite_id} 缺少 distance_km 數據，"
-                    f"添加到 physical_parameters 標記為不可達 {self.DISTANCE_UNREACHABLE} km "
-                    f"(SOURCE: Vallado 2013)"
+                raise ValueError(
+                    f"衛星 {satellite_id} physical_parameters 缺少 distance_km\n"
+                    f"Grade A 標準禁止使用預設值（ACADEMIC_STANDARDS.md Lines 265-274）\n"
+                    f"請確保 Stage 5 提供完整的 physical_parameters 數據"
                 )
-                physical_parameters['distance_km'] = self.DISTANCE_UNREACHABLE
 
-            # 構建 visibility_metrics（從 physical_parameters 推導）
+            # ✅ Fail-Fast: 確保 elevation_deg 存在於 physical_parameters
+            if 'elevation_deg' not in physical_parameters:
+                raise ValueError(
+                    f"衛星 {satellite_id} physical_parameters 缺少 elevation_deg\n"
+                    f"Grade A 標準禁止使用預設值（ACADEMIC_STANDARDS.md Lines 265-274）\n"
+                    f"請確保 Stage 5 提供完整的 physical_parameters 數據"
+                )
+
+            # 構建 visibility_metrics（從 physical_parameters 提取）
             visibility_metrics = {
                 'is_connectable': is_connectable,
-                # ✅ 修正: 使用類常數 DEFAULT_ELEVATION_DEG
-                # SOURCE: ITU-R S.1257 (45° 中位值保守估計)
-                'elevation_deg': self.DEFAULT_ELEVATION_DEG
-                # ❌ 移除 distance_km: 統一存放在 physical_parameters 避免數據結構不一致
+                'elevation_deg': physical_parameters['elevation_deg']
             }
 
-            # 構建 quality_assessment（從 summary 推導）
+            # 構建 quality_assessment（從 summary 提取）
             # ✅ Fail-Fast: 確保 average_quality_level 字段存在
             if 'average_quality_level' not in summary:
                 raise ValueError(
@@ -472,11 +542,18 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
                     f"請確保 Stage 5 提供完整的 summary 數據"
                 )
 
+            # ✅ Fail-Fast: 確保 link_margin_db 存在於 summary
+            # 註：link_margin_db 應由 Stage 5 從信號品質計算得出
+            if 'link_margin_db' not in summary:
+                raise ValueError(
+                    f"衛星 {satellite_id} summary 缺少 link_margin_db\n"
+                    f"Grade A 標準禁止使用預設值（ACADEMIC_STANDARDS.md Lines 265-274）\n"
+                    f"請確保 Stage 5 提供完整的鏈路裕度計算結果"
+                )
+
             quality_assessment = {
                 'quality_level': summary['average_quality_level'],
-                # ✅ 修正: 使用類常數 DEFAULT_LINK_MARGIN_DB
-                # SOURCE: ITU-R P.618-13, 3GPP TS 38.321
-                'link_margin_db': self.DEFAULT_LINK_MARGIN_DB
+                'link_margin_db': summary['link_margin_db']
             }
 
             # ✅ Fail-Fast: 確保 constellation 字段存在
@@ -541,13 +618,22 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
 
             # 提取服务卫星和候选卫星
             # 修正：從 time_series 提取最新時間點的詳細數據
+            # ✅ Grade A+ Fail-Fast: 添加錯誤處理，數據不完整時跳過該衛星
             serving_satellite_id, serving_data = satellites_by_rsrp[0]
-            serving_satellite = self._extract_latest_snapshot(serving_satellite_id, serving_data)
+            try:
+                serving_satellite = self._extract_latest_snapshot(serving_satellite_id, serving_data)
+            except ValueError as e:
+                self.logger.warning(f"服務衛星 {serving_satellite_id} 數據不完整，無法進行決策: {e}")
+                return {'supported': False, 'error': f'Serving satellite data incomplete: {str(e)}'}
 
             candidate_satellites = []
             for sat_id, sat_data in satellites_by_rsrp[1:6]:  # 最多5个候选
-                candidate_snapshot = self._extract_latest_snapshot(sat_id, sat_data)
-                candidate_satellites.append(candidate_snapshot)
+                try:
+                    candidate_snapshot = self._extract_latest_snapshot(sat_id, sat_data)
+                    candidate_satellites.append(candidate_snapshot)
+                except ValueError as e:
+                    self.logger.warning(f"候選衛星 {sat_id} 數據不完整，跳過: {e}")
+                    continue  # 跳過數據不完整的候選衛星
 
             # 提取相關的 3GPP 事件
             all_events = []

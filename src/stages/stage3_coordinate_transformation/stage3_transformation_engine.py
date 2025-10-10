@@ -274,6 +274,7 @@ class Stage3TransformationEngine:
                 'epoch_datetime': sat_metadata.get('epoch_datetime'),  # Stage 1 Epoch 時間
                 'algorithm_used': sat_metadata.get('algorithm_used'),  # Stage 2 算法（SGP4）
                 'coordinate_system_source': sat_metadata.get('coordinate_system'),  # TEME
+                'constellation': sat_metadata.get('constellation'),  # Stage 2 constellation (starlink/oneweb)
                 'transformation_metadata': {
                     'coordinate_system': 'WGS84_Official',
                     'reference_frame': 'ITRS_IERS',

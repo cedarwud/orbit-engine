@@ -93,10 +93,14 @@ time_interval_seconds: 30  # 必須明確提供 (禁止預設值)
 pool_optimization_targets:
   starlink:
     expected_visible_satellites: [10, 15]  # 預期可見衛星數範圍
-    target_coverage_rate: 0.95             # 目標覆蓋率 (95% - 3GPP 建議)
+    target_coverage_rate: 0.95
+    # SOURCE: ITU-T E.800 (2008) - 研究原型系統可接受門檻
+    # NOTE: 商用系統通常要求 >99% (3GPP TS 22.261 availability requirements)
   oneweb:
     expected_visible_satellites: [3, 6]    # 預期可見衛星數範圍
-    target_coverage_rate: 0.95             # 目標覆蓋率 (95% - 3GPP 建議)
+    target_coverage_rate: 0.95
+    # SOURCE: ITU-T E.800 (2008) - 研究原型系統可接受門檻
+    # NOTE: 商用系統通常要求 >99% (3GPP TS 22.261 availability requirements)
 
 # 學術合規聲明
 academic_compliance:

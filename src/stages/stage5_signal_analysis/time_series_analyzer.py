@@ -497,6 +497,28 @@ class TimeSeriesAnalyzer:
             # 傳播延遲 (精確計算)
             propagation_delay_ms = (distance_km * 1000.0) / physics_consts.SPEED_OF_LIGHT * 1000.0
 
+            # ✅ 計算 ECEF 位置 (Stage 6 D2 事件需要)
+            # SOURCE: Bowring (1985) "The accuracy of geodetic latitude and height equations"
+            position_ecef_m = None
+            if time_point:
+                try:
+                    # Stage 4 在 time_point['position'] 中提供 lat/lon/alt
+                    # 參見: stage4_link_feasibility_processor.py:373-377
+                    position = time_point.get('position', {})
+                    if 'latitude_deg' in position and 'longitude_deg' in position and 'altitude_km' in position:
+                        lat_deg = position['latitude_deg']
+                        lon_deg = position['longitude_deg']
+                        alt_km = position['altitude_km']
+                        alt_m = alt_km * 1000.0  # 轉換為米
+
+                        # Geodetic → ECEF 轉換
+                        from .coordinate_converter import geodetic_to_ecef
+                        ecef_x, ecef_y, ecef_z = geodetic_to_ecef(lat_deg, lon_deg, alt_m)
+                        position_ecef_m = [ecef_x, ecef_y, ecef_z]
+                except Exception as e:
+                    self.logger.debug(f"⚠️ ECEF 位置計算失敗: {e}")
+                    position_ecef_m = None
+
             return {
                 'distance_km': distance_km,  # ✅ Stage 6 需要此欄位計算 3GPP 事件
                 'path_loss_db': path_loss_db,
@@ -504,6 +526,7 @@ class TimeSeriesAnalyzer:
                 'doppler_shift_hz': doppler_shift_hz,
                 'radial_velocity_ms': radial_velocity_ms,
                 'propagation_delay_ms': propagation_delay_ms,
+                'position_ecef_m': position_ecef_m,  # ✅ Stage 6 D2 事件需要此欄位
                 'itur_compliance': 'P.618-13',
                 'atmospheric_model': 'ITU-R_P.676-13',
                 'doppler_source': 'stage2_actual_velocity' if time_point else 'unavailable'
