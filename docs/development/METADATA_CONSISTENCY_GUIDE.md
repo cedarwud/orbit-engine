@@ -94,7 +94,7 @@ metadata['academic_compliance'] = {
 
 ```bash
 # 運行檢查
-python scripts/validate_metadata_consistency.py
+python tools/validate_metadata_consistency.py
 
 # 輸出範例
 ============================================================
@@ -155,7 +155,7 @@ python scripts/validate_metadata_consistency.py
 cat docs/development/CODE_REVIEW_CHECKLIST.md
 
 # 2. 修改代碼後：運行一致性檢查
-python scripts/validate_metadata_consistency.py
+python tools/validate_metadata_consistency.py
 
 # 3. 修改通過後：運行完整測試
 export ORBIT_ENGINE_TEST_MODE=1
@@ -169,7 +169,7 @@ python scripts/run_six_stages_with_validation.py --stage 1
 ```yaml
 - name: Metadata 一致性檢查
   run: |
-    python scripts/validate_metadata_consistency.py
+    python tools/validate_metadata_consistency.py
     if [ $? -ne 0 ]; then
       echo "❌ Metadata 一致性檢查失敗"
       exit 1
@@ -182,7 +182,7 @@ python scripts/run_six_stages_with_validation.py --stage 1
 
 ```bash
 #!/bin/bash
-python scripts/validate_metadata_consistency.py || exit 1
+python tools/validate_metadata_consistency.py || exit 1
 ```
 
 ---
@@ -244,7 +244,7 @@ tx_power_dbw = 40.0  # 基於FCC文件推算，±3dB不確定性
 **步驟 1**: 檢查當前狀態
 
 ```bash
-python scripts/validate_metadata_consistency.py
+python tools/validate_metadata_consistency.py
 ```
 
 如果輸出：
@@ -275,7 +275,7 @@ python scripts/run_six_stages_with_validation.py --stage 1
 **步驟 4**: 驗證遷移成功
 
 ```bash
-python scripts/validate_metadata_consistency.py
+python tools/validate_metadata_consistency.py
 # 應輸出：✅ 所有檢查通過！
 ```
 

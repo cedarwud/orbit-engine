@@ -66,7 +66,7 @@
 - [ ] **3.1 Metadata 一致性**
   - [ ] 運行自動化檢查腳本：
     ```bash
-    python scripts/validate_metadata_consistency.py
+    python tools/validate_metadata_consistency.py
     ```
   - [ ] 檢查 `academic_compliance` 聲明是否準確
   - [ ] 驗證所有聲稱的數據來源都可驗證
@@ -157,7 +157,7 @@ metadata['academic_compliance'] = {
 
 ```bash
 # 1. Metadata 一致性檢查
-python scripts/validate_metadata_consistency.py
+python tools/validate_metadata_consistency.py
 
 # 2. 運行完整流程測試
 export ORBIT_ENGINE_TEST_MODE=1
