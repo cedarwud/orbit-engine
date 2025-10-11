@@ -171,7 +171,11 @@ class BaseStageProcessor(BaseProcessor):
                     if hasattr(self, 'save_results'):
                         # 為保存創建完整的數據結構
                         save_data = result.data.copy()
-                        save_data['metadata'] = result.metadata
+                        # 🔧 修復: 合併 metadata 而非覆蓋，保留 result.data 中的 constellation_configs 等字段
+                        if 'metadata' in save_data:
+                            save_data['metadata'].update(result.metadata)  # 合併基類添加的字段
+                        else:
+                            save_data['metadata'] = result.metadata
                         output_path = self.save_results(save_data)
                         result.metadata['output_file'] = output_path
                         self.logger.info(f"✅ 輸出已保存至: {output_path}")
