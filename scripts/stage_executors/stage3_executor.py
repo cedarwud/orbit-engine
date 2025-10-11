@@ -5,7 +5,9 @@ Author: Extracted from run_six_stages_with_validation.py
 Date: 2025-10-03
 """
 
-from .executor_utils import clean_stage_outputs, extract_data_from_result, is_sampling_mode
+import yaml
+from pathlib import Path
+from .executor_utils import clean_stage_outputs, extract_data_from_result, is_sampling_mode, project_root
 
 
 def execute_stage3(previous_results):
@@ -32,37 +34,52 @@ def execute_stage3(previous_results):
 
         from stages.stage3_coordinate_transformation.stage3_coordinate_transform_processor import Stage3CoordinateTransformProcessor
 
-        # 根據環境變量決定是否使用取樣模式
-        use_sampling = is_sampling_mode()
+        # ✅ 從 YAML 載入配置
+        config_path = project_root / "config/stage3_coordinate_transformation.yaml"
 
-        # v3.1 重構：禁用預篩選器（Stage 1 已完成日期篩選）
-        stage3_config = {
-            'enable_geometric_prefilter': False,  # v3.1: 直接禁用
-            'coordinate_config': {
-                'source_frame': 'TEME',
-                'target_frame': 'WGS84',
-                'time_corrections': True,
-                'polar_motion': True,
-                'nutation_model': 'IAU2000A'
-            },
-            'skyfield_config': {
-                'ephemeris_file': 'de421.bsp',
-                'auto_download': True
-            },
-            'precision_config': {
-                'target_accuracy_m': 0.5
+        if config_path.exists():
+            with open(config_path, 'r', encoding='utf-8') as f:
+                stage3_config = yaml.safe_load(f)
+            print(f"✅ 已載入 Stage 3 配置: {config_path}")
+        else:
+            print(f"⚠️ 未找到配置文件: {config_path}")
+            print("⚠️ 使用預設配置")
+            stage3_config = {
+                'geometric_prefilter': {'enabled': False},
+                'coordinate_config': {
+                    'source_frame': 'TEME',
+                    'target_frame': 'WGS84',
+                    'time_corrections': True,
+                    'polar_motion': True,
+                    'nutation_model': 'IAU2000A'
+                },
+                'precision_config': {'target_accuracy_m': 0.5}
             }
+
+        # 向後兼容：扁平化配置結構 (適配處理器)
+        config_compat = {
+            'enable_geometric_prefilter': stage3_config.get('geometric_prefilter', {}).get('enabled', False),
+            'coordinate_config': stage3_config.get('coordinate_config', {}),
+            'precision_config': stage3_config.get('precision_config', {}),
+            'cache_config': stage3_config.get('cache_config', {}),
+            'parallel_config': stage3_config.get('parallel_config', {})
         }
 
-        print('🆕 Stage 3: 預篩選已禁用 (v3.1) - Stage 1 已完成 Epoch 篩選')
-
+        # 根據環境變量決定是否使用取樣模式
+        use_sampling = is_sampling_mode()
         if use_sampling:
-            stage3_config['sample_mode'] = True
-            stage3_config['sample_size'] = 50
+            config_compat['sample_mode'] = True
+            config_compat['sample_size'] = 50
 
-        stage3 = Stage3CoordinateTransformProcessor(config=stage3_config)
-        mode_msg = "取樣模式" if use_sampling else "完整模式"
-        print(f'✅ Stage 3 配置: {mode_msg}')
+        print(f"📋 配置摘要:")
+        print(f"   源座標系: {config_compat['coordinate_config']['source_frame']}")
+        print(f"   目標座標系: {config_compat['coordinate_config']['target_frame']}")
+        print(f"   歲差章動模型: {config_compat['coordinate_config']['nutation_model']}")
+        print(f"   目標精度: {config_compat['precision_config']['target_accuracy_m']}m")
+        print(f"   幾何預篩選: {'啟用' if config_compat['enable_geometric_prefilter'] else '禁用'}")
+        print(f"   處理模式: {'取樣模式' if use_sampling else '完整模式'}")
+
+        stage3 = Stage3CoordinateTransformProcessor(config=config_compat)
 
         # 提取 Stage 2 數據
         stage2_data = extract_data_from_result(previous_results['stage2'])
