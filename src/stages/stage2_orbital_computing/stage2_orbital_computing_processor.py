@@ -369,16 +369,11 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
             validation_results = self.validator.run_validation_checks(result_data, satellites_data, orbital_results)
             result_data['validation'] = validation_results
 
-            # 📋 保存驗證快照
-            self.validator.save_validation_snapshot(
-                result_data=result_data,
-                processing_stats=self.processing_stats,
-                coordinate_system=self.coordinate_system
-            )
-
             # 💾 保存主要結果文件 (移自 execute() 覆蓋)
             output_file = self.result_manager.save_results(result_data)
             logger.info(f"✅ Stage 2 結果已保存至: {output_file}")
+
+            # 📋 註：驗證快照保存已委託給基類 execute() 通過 save_validation_snapshot() 調用
 
             return create_processing_result(
                 status=ProcessingStatus.SUCCESS,
@@ -830,6 +825,25 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
             'processing_grade': self.processing_stats['processing_grade'],
             'architecture_version': self.processing_stats['architecture_version']
         }
+
+    def save_validation_snapshot(self, result_data: Dict[str, Any]) -> bool:
+        """
+        保存驗證快照 - 委託給 Stage 2 專用驗證器
+
+        此方法供基類 execute() 調用，確保使用 Stage 2 專用的詳細快照格式
+        而非基類的通用格式，避免驗證腳本格式不匹配問題。
+
+        Args:
+            result_data: 處理結果數據
+
+        Returns:
+            bool: 是否成功保存快照
+        """
+        return self.validator.save_validation_snapshot(
+            result_data=result_data,
+            processing_stats=self.processing_stats,
+            coordinate_system=self.coordinate_system
+        )
 
 
 def create_stage2_processor(config: Optional[Dict[str, Any]] = None) -> Stage2OrbitalPropagationProcessor:
