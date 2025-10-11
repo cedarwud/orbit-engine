@@ -84,7 +84,7 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """初始化軌道狀態傳播處理器"""
-        super().__init__(stage_name="orbital_computing", config=config or {})
+        super().__init__(stage_number=2, stage_name="orbital_computing", config=config or {})
 
         self.logger = logging.getLogger(f"{__name__}.Stage2OrbitalComputingProcessor")
 
@@ -376,10 +376,15 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
                 coordinate_system=self.coordinate_system
             )
 
+            # 💾 保存主要結果文件 (移自 execute() 覆蓋)
+            output_file = self.result_manager.save_results(result_data)
+            logger.info(f"✅ Stage 2 結果已保存至: {output_file}")
+
             return create_processing_result(
                 status=ProcessingStatus.SUCCESS,
                 data=result_data,
-                message=f"成功完成 {self.processing_stats['successful_propagations']} 顆衛星的軌道狀態傳播"
+                message=f"成功完成 {self.processing_stats['successful_propagations']} 顆衛星的軌道狀態傳播",
+                metadata={'output_file': output_file}  # 輸出文件路徑供 executor 使用
             )
 
         except Exception as e:
@@ -825,52 +830,6 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
             'processing_grade': self.processing_stats['processing_grade'],
             'architecture_version': self.processing_stats['architecture_version']
         }
-
-    def execute(self, input_data: Optional[Any] = None) -> Dict[str, Any]:
-        """
-        執行階段處理 (兼容現有接口)
-
-        Args:
-            input_data: 輸入數據 (可選，自動載入 Stage 1 輸出)
-
-        Returns:
-            處理結果字典
-        """
-        try:
-            self.logger.info("🚀 開始執行 Stage 2 軌道狀態傳播")
-
-            # 如果沒有提供輸入數據，嘗試載入 Stage 1 輸出
-            if input_data is None:
-                input_data = self.result_manager.load_stage1_output()
-
-            # 調用主要處理方法
-            result = self.process(input_data)
-
-            # 保存結果到文件
-            if result.status == ProcessingStatus.SUCCESS:
-                output_file = self.result_manager.save_results(result.data)
-                self.logger.info(f"✅ Stage 2 結果已保存至: {output_file}")
-
-                # 轉換為字典格式
-                result_dict = result.data.copy()
-                result_dict['output_file'] = output_file
-                result_dict['success'] = True
-                return result_dict
-            else:
-                return {
-                    'success': False,
-                    'stage': 'stage2_orbital_computing',
-                    'satellites': {},
-                    'error': result.metadata.get('message', 'Unknown error')
-                }
-
-        except Exception as e:
-            self.logger.error(f"Stage 2 執行失敗: {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'stage': 'stage2_orbital_computing'
-            }
 
 
 def create_stage2_processor(config: Optional[Dict[str, Any]] = None) -> Stage2OrbitalPropagationProcessor:
