@@ -3,13 +3,18 @@
 Astropy 物理常數適配器
 
 整合 Astropy 官方物理常數 (CODATA 2018/2022)
-替代自定義物理常數，確保學術標準合規
+確保學術標準合規和計算一致性
 
 學術優勢:
 - ✅ Astropy 自動追蹤 CODATA 更新 (2018 → 2022)
 - ✅ 單位自動轉換，減少人為錯誤
 - ✅ 學術界標準，論文審稿認可
 - ✅ 持續維護，無需手動更新常數值
+
+Fail-Fast 原則:
+- ✅ Astropy 為必需依賴，不可用時立即報錯
+- ✅ 確保所有執行使用相同標準常數（CODATA 2022）
+- ✅ 避免降級運行導致的精度不一致
 
 參考文獻:
 - Astropy Collaboration (2024): "Astropy: A community Python package for astronomy"
@@ -18,15 +23,10 @@ Astropy 物理常數適配器
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
-try:
-    from astropy import constants as const
-    from astropy import units as u
-    ASTROPY_AVAILABLE = True
-except ImportError:
-    ASTROPY_AVAILABLE = False
-    logging.warning("Astropy 未安裝，使用 CODATA 2018 備用常數")
+# Fail-Fast: Astropy 是必需依賴，不可用時應立即報錯
+from astropy import constants as const
+from astropy import units as u
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +41,9 @@ class AstropyPhysicsConstants:
 
     def __post_init__(self):
         """初始化並記錄 CODATA 版本"""
-        if ASTROPY_AVAILABLE:
-            # Astropy 7.0+ 使用 CODATA 2022
-            codata_version = "CODATA 2022" if hasattr(const, 'codata2022') else "CODATA 2018"
-            logger.info(f"✅ Astropy 物理常數已載入 ({codata_version})")
-        else:
-            logger.warning("⚠️ Astropy 不可用，使用 CODATA 2018 備用值")
+        # Astropy 7.0+ 使用 CODATA 2022
+        codata_version = "CODATA 2022" if hasattr(const, 'codata2022') else "CODATA 2018"
+        logger.info(f"✅ Astropy 物理常數已載入 ({codata_version})")
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # 基礎物理常數 (CODATA)
@@ -59,10 +56,7 @@ class AstropyPhysicsConstants:
 
         SOURCE: CODATA 2018/2022
         """
-        if ASTROPY_AVAILABLE:
-            return float(const.c.value)  # 299792458.0 m/s (exact)
-        else:
-            return 299792458.0  # CODATA 2018 備用值
+        return float(const.c.value)  # 299792458.0 m/s (exact)
 
     @property
     def BOLTZMANN_CONSTANT(self) -> float:
@@ -71,10 +65,7 @@ class AstropyPhysicsConstants:
 
         SOURCE: CODATA 2019 重新定義
         """
-        if ASTROPY_AVAILABLE:
-            return float(const.k_B.value)  # 1.380649e-23 J/K (exact since 2019)
-        else:
-            return 1.380649e-23
+        return float(const.k_B.value)  # 1.380649e-23 J/K (exact since 2019)
 
     @property
     def PLANCK_CONSTANT(self) -> float:
@@ -83,10 +74,7 @@ class AstropyPhysicsConstants:
 
         SOURCE: CODATA 2019 重新定義
         """
-        if ASTROPY_AVAILABLE:
-            return float(const.h.value)  # 6.62607015e-34 J·s (exact since 2019)
-        else:
-            return 6.62607015e-34
+        return float(const.h.value)  # 6.62607015e-34 J·s (exact since 2019)
 
     @property
     def GRAVITATIONAL_CONSTANT(self) -> float:
@@ -95,10 +83,7 @@ class AstropyPhysicsConstants:
 
         SOURCE: CODATA 2018/2022
         """
-        if ASTROPY_AVAILABLE:
-            return float(const.G.value)  # 6.6743e-11 m³ kg⁻¹ s⁻²
-        else:
-            return 6.6743e-11
+        return float(const.G.value)  # 6.6743e-11 m³ kg⁻¹ s⁻²
 
     @property
     def ELECTRON_MASS(self) -> float:
@@ -107,10 +92,7 @@ class AstropyPhysicsConstants:
 
         SOURCE: CODATA 2018/2022
         """
-        if ASTROPY_AVAILABLE:
-            return float(const.m_e.value)  # 9.1093837015e-31 kg
-        else:
-            return 9.1093837015e-31
+        return float(const.m_e.value)  # 9.1093837015e-31 kg
 
     @property
     def PROTON_MASS(self) -> float:
@@ -119,10 +101,7 @@ class AstropyPhysicsConstants:
 
         SOURCE: CODATA 2018/2022
         """
-        if ASTROPY_AVAILABLE:
-            return float(const.m_p.value)  # 1.67262192369e-27 kg
-        else:
-            return 1.67262192369e-27
+        return float(const.m_p.value)  # 1.67262192369e-27 kg
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # 地球相關常數
@@ -133,12 +112,9 @@ class AstropyPhysicsConstants:
         """
         地球平均半徑 (m)
 
-        SOURCE: Astropy Earth constants
+        SOURCE: Astropy Earth constants (WGS84 equatorial)
         """
-        if ASTROPY_AVAILABLE:
-            return float(const.R_earth.value)  # 6378100.0 m (WGS84 equatorial)
-        else:
-            return 6371000.0  # 平均半徑備用值
+        return float(const.R_earth.value)  # 6378100.0 m
 
     @property
     def EARTH_MASS(self) -> float:
@@ -147,10 +123,7 @@ class AstropyPhysicsConstants:
 
         SOURCE: Astropy Earth constants
         """
-        if ASTROPY_AVAILABLE:
-            return float(const.M_earth.value)  # 5.972168e24 kg
-        else:
-            return 5.972168e24
+        return float(const.M_earth.value)  # 5.972168e24 kg
 
     @property
     def EARTH_GM(self) -> float:
@@ -159,10 +132,7 @@ class AstropyPhysicsConstants:
 
         SOURCE: WGS84/EGM96
         """
-        if ASTROPY_AVAILABLE:
-            return float(const.GM_earth.value)  # 3.986004418e14 m³/s²
-        else:
-            return 3.986004418e14
+        return float(const.GM_earth.value)  # 3.986004418e14 m³/s²
 
     @property
     def EARTH_J2(self) -> float:
@@ -197,10 +167,7 @@ class AstropyPhysicsConstants:
 
         SOURCE: IAU 2012 精確定義
         """
-        if ASTROPY_AVAILABLE:
-            return float(const.au.value)  # 1.495978707e11 m (exact)
-        else:
-            return 1.495978707e11
+        return float(const.au.value)  # 1.495978707e11 m (exact)
 
     @property
     def SOLAR_MASS(self) -> float:
@@ -209,10 +176,7 @@ class AstropyPhysicsConstants:
 
         SOURCE: Astropy solar constants
         """
-        if ASTROPY_AVAILABLE:
-            return float(const.M_sun.value)  # 1.988409e30 kg
-        else:
-            return 1.988409e30
+        return float(const.M_sun.value)  # 1.988409e30 kg
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # 電磁頻譜常數
@@ -301,15 +265,13 @@ class AstropyPhysicsConstants:
         Returns:
             metadata: 包含 CODATA 版本、Astropy 版本等資訊
         """
-        metadata = {
-            'astropy_available': ASTROPY_AVAILABLE,
-            'source': 'Astropy Constants' if ASTROPY_AVAILABLE else 'CODATA 2018 Fallback'
-        }
+        import astropy
 
-        if ASTROPY_AVAILABLE:
-            import astropy
-            metadata['astropy_version'] = astropy.__version__
-            metadata['codata_version'] = 'CODATA 2022' if hasattr(const, 'codata2022') else 'CODATA 2018'
+        metadata = {
+            'source': 'Astropy Constants (Official CODATA)',
+            'astropy_version': astropy.__version__,
+            'codata_version': 'CODATA 2022' if hasattr(const, 'codata2022') else 'CODATA 2018'
+        }
 
         return metadata
 

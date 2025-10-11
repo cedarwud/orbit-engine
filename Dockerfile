@@ -86,4 +86,4 @@ LABEL orbit-engine.version="2.0" \
       maintainer="orbit-engine-team"
 
 # 🚀 默認命令 - Orbit Engine 六階段處理
-CMD ["python", "/orbit-engine/scripts/run_six_stages_with_validation.py", "--validation-level=STANDARD"]
+CMD ["python", "/orbit-engine/scripts/run_six_stages_with_validation.py"]

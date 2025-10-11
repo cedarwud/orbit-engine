@@ -16,6 +16,7 @@
 | [05_FILE_USAGE_ANALYSIS.md](./05_FILE_USAGE_ANALYSIS.md) | 檔案使用狀態分析 | 初步分析（已被 06 取代） |
 | [06_FINAL_USAGE_SUMMARY.md](./06_FINAL_USAGE_SUMMARY.md) | ⭐ 最終使用狀態總結 | **97.1% 確認使用，代碼庫極度乾淨** |
 | [07_FOUR_FILES_DETAILED_ANALYSIS.md](./07_FOUR_FILES_DETAILED_ANALYSIS.md) | 🔍 4 個特定檔案深入檢查 | **獨立工具、已禁用檔案、待驗證檔案完整分析** |
+| [08_FAIL_FAST_COMPLIANCE_FIX.md](./08_FAIL_FAST_COMPLIANCE_FIX.md) | 🚨 Fail-Fast 架構合規性修正 | **移除 fallback 機制，恢復架構一致性** |
 
 ## 快速導航
 

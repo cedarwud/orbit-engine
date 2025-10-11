@@ -17,9 +17,12 @@ Dynamic Threshold Analyzer for D2 Handover Events
 """
 
 import logging
-import math
 from typing import Dict, List, Any, Tuple
 import numpy as np
+
+# 使用共用的地面距离计算模块（移除重复实现）
+# SOURCE: Sinnott, R. W. (1984). "Virtues of the Haversine", Sky and Telescope, 68(2), 159
+from src.shared.utils import haversine_distance
 
 
 class DynamicThresholdAnalyzer:
@@ -131,10 +134,12 @@ class DynamicThresholdAnalyzer:
                     continue
 
                 # 計算 2D 地面距離（Haversine）
-                distance_km = self._haversine_distance(
+                # 使用共用模块（位于 src/shared/utils/ground_distance_calculator.py）
+                distance_m = haversine_distance(
                     ue_position['lat'], ue_position['lon'],
                     sat_lat, sat_lon
                 )
+                distance_km = distance_m / 1000.0  # 转换为公里
                 all_distances.append(distance_km)
                 time_point_count += 1
 
@@ -186,38 +191,6 @@ class DynamicThresholdAnalyzer:
             'data_source': 'stage4_candidate_satellites',
             'independent_of_pool_optimization': True
         }
-
-    def _haversine_distance(
-        self,
-        lat1: float,
-        lon1: float,
-        lat2: float,
-        lon2: float
-    ) -> float:
-        """計算兩點間的大圓距離（公里）
-
-        SOURCE: Sinnott, R. W. (1984). "Virtues of the Haversine"
-        Sky and Telescope, 68(2), 159
-
-        Args:
-            lat1, lon1: 第一點的緯度、經度（度）
-            lat2, lon2: 第二點的緯度、經度（度）
-
-        Returns:
-            距離（公里）
-        """
-        R = 6371.0  # Earth radius in km
-
-        phi1 = math.radians(lat1)
-        phi2 = math.radians(lat2)
-        delta_phi = math.radians(lat2 - lat1)
-        delta_lambda = math.radians(lon2 - lon1)
-
-        a = math.sin(delta_phi / 2) ** 2 + \
-            math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-        return R * c
 
     def _empty_analysis(self, constellation: str) -> Dict[str, Any]:
         """返回空的分析結果"""

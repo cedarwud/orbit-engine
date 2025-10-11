@@ -43,6 +43,12 @@ from .system_constants import (
     OUTPUT_ROOT
 )
 
+from .ground_station_constants import (
+    NTPU_STATION,
+    get_observation_location,
+    validate_station_coordinates
+)
+
 __all__ = [
     # 物理常數類
     'PhysicsConstants',
@@ -58,6 +64,11 @@ __all__ = [
     'LoggingConstants',
     'NetworkConstants',
     'OrbitEngineConstantsManager',
+
+    # 地面站常數
+    'NTPU_STATION',
+    'get_observation_location',
+    'validate_station_coordinates',
 
     # 管理器函數
     'get_physics_constants',

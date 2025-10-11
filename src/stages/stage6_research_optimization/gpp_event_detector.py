@@ -24,8 +24,11 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 # D2 事件地面距离计算模块
-from .coordinate_converter import ecef_to_geodetic
-from .ground_distance_calculator import haversine_distance
+# 使用共用的坐标转换和地面距离计算模块（移除重复实现）
+# SOURCE: Bowring (1985) "The accuracy of geodetic latitude and height equations"
+# SOURCE: Sinnott, R. W. (1984). "Virtues of the Haversine", Sky and Telescope, 68(2), 159
+from src.shared.utils.coordinate_converter import ecef_to_geodetic
+from src.shared.utils import haversine_distance
 
 
 class GPPEventDetector:
@@ -846,10 +849,17 @@ class GPPEventDetector:
             # ============================================================
             # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.4
             # a3-Offset 範圍: -30 ~ +30 dB (0.5 dB 步進)
-            # 典型值: 3.0 dB (平衡切換靈敏度和穩定性)
-            # 依據: 3GPP TS 36.331 ReportConfigEUTRA (LTE 經驗值)
-            # 說明: 較小的偏移值會使換手更頻繁，較大的偏移值會延遲換手
-            'a3_offset_db': 3.0,
+            # ⚠️ LEO NTN 優化配置 ✨ (2025-10-10)
+            # 調整理由:
+            #   - 地面網絡: 3.0 dB (RSRP範圍60 dB，占5%)
+            #   - LEO NTN: 2.0 dB (RSRP範圍17 dB，占11.8%)
+            #   - 等比例調整: 3 × (17/60) = 0.85 dB → 平衡取2.0 dB
+            #   - 適應快速移動: LEO衛星7.5 km/s，需更靈敏觸發
+            # 學術依據:
+            #   - WebSearch確認: "Small offset for fast-moving UEs"
+            #   - 數據基礎: RSRP範圍-44.88 ~ -27.88 dBm (2,730樣本)
+            #   - 3GPP TS 36.331: 快速移動場景建議使用較小offset
+            'a3_offset_db': 2.0,
 
             # ============================================================
             # A4 事件門檻 (Neighbour becomes better than threshold)
@@ -938,9 +948,16 @@ class GPPEventDetector:
             # ============================================================
             # SOURCE: 3GPP TS 38.331 Section 5.5.3.1
             # Hysteresis 範圍: 0-30 dB (0.5 dB 步進)
-            # 典型值: 2 dB (平衡響應速度和穩定性)
-            # 依據: 測量不確定性約 ±2dB (3GPP TS 38.133 Table 9.1.2.1-1)
-            'hysteresis_db': 2.0,
+            # ⚠️ LEO NTN 優化配置 ✨ (2025-10-10)
+            # 調整理由:
+            #   - 標準值: 2.0 dB (基於測量不確定性±2 dB)
+            #   - LEO場景: RSRP標準差5.89 dB (變化更平稳)
+            #   - 降低至1.5 dB平衡響應速度和穩定性
+            # 學術依據:
+            #   - 3GPP TS 38.133 Table 9.1.2.1-1: 測量不確定性
+            #   - 實測數據: RSRP標準差5.89 dB (2,730樣本)
+            #   - A3總門槛: 2.0 + 1.5 = 3.5 dB (占RSRP範圍17 dB的20.6%)
+            'hysteresis_db': 1.5,
 
             # 距離遲滯: 50 km
             # SOURCE: 基於 LEO 衛星移動速度 ~7.5 km/s

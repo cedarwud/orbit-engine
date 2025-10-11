@@ -38,6 +38,18 @@ from .file_utils import (
     create_timestamped_filename
 )
 
+from .ground_distance_calculator import (
+    GroundDistanceCalculator,
+    haversine_distance,
+    vincenty_distance
+)
+
+from .coordinate_converter import (
+    ecef_to_geodetic,
+    geodetic_to_ecef,
+    CoordinateConverter
+)
+
 __all__ = [
     # 時間工具
     'TimeUtils',
@@ -64,5 +76,15 @@ __all__ = [
     'ensure_dir',
     'file_exists',
     'get_file_size',
-    'create_timestamped_filename'
+    'create_timestamped_filename',
+
+    # 地面距离计算工具
+    'GroundDistanceCalculator',
+    'haversine_distance',
+    'vincenty_distance',
+
+    # 坐标转换工具
+    'ecef_to_geodetic',
+    'geodetic_to_ecef',
+    'CoordinateConverter'
 ]

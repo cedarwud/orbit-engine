@@ -323,39 +323,18 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
                     else:
                         azimuth = self.visibility_calculator.calculate_azimuth(lat, lon)
 
-                    # 🔬 學術驗證：Poliastro 交叉驗證（採樣驗證，避免性能影響）
-                    cross_validation_result = None
-                    if self.enable_cross_validation and self.poliastro_validator:
-                        # 採樣率：1% (避免全量驗證導致性能下降)
-                        # 學術依據：ISO/IEC/IEEE 29119-4:2015 隨機採樣方法
-                        import random
-                        if random.random() < 0.01:  # 1% 採樣
-                            skyfield_result = {
-                                'elevation_deg': elevation,
-                                'azimuth_deg': azimuth,
-                                'distance_km': distance_km
-                            }
-                            cross_validation_result = self.poliastro_validator.validate_visibility_calculation(
-                                skyfield_result=skyfield_result,
-                                sat_lat_deg=lat,
-                                sat_lon_deg=lon,
-                                sat_alt_km=alt_km,
-                                timestamp=timestamp_dt if timestamp_dt else datetime.now(timezone.utc)
-                            )
-
-                            # 記錄驗證失敗（學術標準要求）
-                            if not cross_validation_result.get('validation_passed', True):
-                                # ✅ Grade A+ Fail-Fast: 驗證結果必須包含偏差數據
-                                if 'elevation_difference_deg' not in cross_validation_result:
-                                    raise ValueError(
-                                        f"交叉驗證結果缺少 'elevation_difference_deg'\n"
-                                        f"衛星: {sat_id}, 時間: {timestamp}\n"
-                                        f"可用字段: {list(cross_validation_result.keys())}"
-                                    )
-                                self.logger.debug(
-                                    f"⚠️ 交叉驗證偏差: 仰角 {cross_validation_result['elevation_difference_deg']:.3f}° "
-                                    f"(衛星 {sat_id}, 時間 {timestamp})"
-                                )
+                    # ✅ Grade A+ Fail-Fast: 驗證 timestamp 必須有效
+                    # 移除隨機數交叉驗證採樣 (違反 ACADEMIC_STANDARDS.md)
+                    # 依據: docs/ACADEMIC_STANDARDS.md Lines 19-21 - 禁止 random() 生成數據
+                    # 如需交叉驗證，應使用確定性方法（如每第 N 個樣本）
+                    if not timestamp_dt:
+                        raise ValueError(
+                            f"❌ Fail-Fast: 時間戳記缺失或無效\n"
+                            f"衛星: {sat_id}\n"
+                            f"原始 timestamp: {timestamp}\n"
+                            f"學術標準要求: 所有計算必須基於實際時間數據，禁止使用系統當前時間作為 fallback\n"
+                            f"依據: ACADEMIC_STANDARDS.md - 禁止估計值/假設值"
+                        )
 
                     # 使用鏈路預算分析器判斷可連線性 (仰角 + 距離雙重約束)
                     link_analysis = self.link_budget_analyzer.analyze_link_feasibility(
@@ -762,11 +741,35 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
                                     self.logger.warning(f"   {issue}")
                                     validation_result['warnings'].append(f"Epoch驗證: {issue}")
 
-                        # 根據嚴重程度決定是否繼續
-                        if not epoch_report['independent_epochs_check'].get('independent_epochs', True):
+                        # 🎯 分級 Fail-Fast 決策邏輯
+                        # 區分核心要求（CRITICAL）和品質要求（WARNING）
+                        # 詳細說明見: epoch_validator.py Lines 16-62
+
+                        independent_epochs = epoch_report['independent_epochs_check'].get('independent_epochs', True)
+                        distribution_ok = epoch_report['distribution_check'].get('well_distributed', False)
+
+                        if not independent_epochs:
+                            # 🔴 核心要求失敗: Epoch 獨立性不足
+                            # 違反 Vallado 2013 學術標準，必須停止執行
                             validation_result['errors'].append("Epoch 獨立性驗證失敗 (違反學術標準)")
+                            self.logger.error("❌ CRITICAL: Epoch 獨立性不足，違反學術標準，停止執行")
                         else:
-                            validation_result['warnings'].append("Epoch 驗證有警告，但允許繼續處理")
+                            # ⚠️ 僅品質要求失敗: Epoch 分布不足
+                            # 可能原因: Stage 1 使用 latest_date 篩選（設計預期）
+                            # 核心要求（獨立性）已滿足，允許繼續處理
+
+                            epoch_diversity = epoch_report['independent_epochs_check'].get('epoch_diversity', 0)
+                            time_span = epoch_report['distribution_check'].get('time_span_hours', 0)
+
+                            self.logger.info("💡 Epoch 驗證分析:")
+                            self.logger.info(f"   ✅ 核心要求: Epoch 獨立性檢查通過 ({epoch_diversity} 個獨立 epoch)")
+                            self.logger.info(f"   ⚠️  品質要求: Epoch 分布不足 (跨度 {time_span:.1f}h < 72h)")
+                            self.logger.info("   📋 常見原因: Stage 1 latest_date 篩選（僅保留單日數據）")
+                            self.logger.info("   🎯 決策結果: 核心學術要求已滿足，允許繼續處理（設計預期行為）")
+
+                            validation_result['warnings'].append(
+                                f"Epoch 分布不足 (跨度{time_span:.1f}h<72h)，但核心獨立性已滿足，允許繼續"
+                            )
                     else:
                         self.logger.info("✅ Epoch 時間基準驗證通過 (符合 Vallado 標準)")
 

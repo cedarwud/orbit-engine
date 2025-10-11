@@ -36,6 +36,9 @@ from .epoch_analyzer import EpochAnalyzer, EpochFilter
 from shared.interfaces.processor_interface import ProcessingResult, ProcessingStatus, ProcessingMetrics
 from shared.base_processor import BaseStageProcessor
 
+# 導入地面站常數 (2025-10-11)
+from shared.constants.ground_station_constants import get_observation_location
+
 
 logger = logging.getLogger(__name__)
 
@@ -326,14 +329,17 @@ class Stage1MainProcessor(BaseStageProcessor):
                 'rx_antenna_efficiency': constellation.rx_antenna_efficiency
             }
 
-        # 添加研究配置（NTPU 位置與研究目標）
+        # ✅ 添加研究配置（从 ground_station_constants 读取 NTPU 位置）
+        # Single Source of Truth: 避免重复定义观测点坐标
+        ntpu_location = get_observation_location('NTPU')
+
         metadata['research_configuration'] = {
             'observation_location': {
-                'name': 'NTPU',
-                'latitude_deg': 24.9442,
-                'longitude_deg': 121.3714,
-                'altitude_m': 0,
-                'coordinates': "24°56'39\"N 121°22'17\"E"
+                'name': ntpu_location['name'],
+                'latitude_deg': ntpu_location['latitude_deg'],
+                'longitude_deg': ntpu_location['longitude_deg'],
+                'altitude_m': ntpu_location['altitude_m'],
+                'coordinates': ntpu_location['coordinates']
             },
             'analysis_method': 'offline_historical_tle',
             'computation_type': 'full_orbital_period_analysis',

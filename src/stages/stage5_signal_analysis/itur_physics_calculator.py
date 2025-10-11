@@ -19,20 +19,15 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# 🚨 Grade A要求：使用學術級物理常數
-# ✅ 優先使用 Astropy 官方常數 (CODATA 2018/2022)
+# 🚨 Grade A要求：使用學術級物理常數 (Astropy CODATA 2022, Fail-Fast)
+# Fail-Fast: Astropy 是必需依賴，不可用時立即報錯
 try:
     from src.shared.constants.astropy_physics_constants import get_astropy_constants
-    physics_consts = get_astropy_constants()
-    logger.info("✅ 使用 Astropy 官方物理常數 (CODATA 2018/2022)")
-except (ModuleNotFoundError, ImportError):
-    # 備用方案：使用自定義 PhysicsConstants
-    try:
-        from src.shared.constants.physics_constants import PhysicsConstants
-    except ModuleNotFoundError:
-        from shared.constants.physics_constants import PhysicsConstants
-    physics_consts = PhysicsConstants()
-    logger.warning("⚠️ Astropy 不可用，使用 CODATA 2018 備用常數")
+except ModuleNotFoundError:
+    from shared.constants.astropy_physics_constants import get_astropy_constants
+
+physics_consts = get_astropy_constants()
+logger.info("✅ 使用 Astropy 官方物理常數 (CODATA 2022)")
 
 
 class ITURPhysicsCalculator:

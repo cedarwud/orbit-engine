@@ -17,20 +17,17 @@ import logging
 import math
 from typing import Dict, Any, List, Optional
 
-# 🚨 Grade A要求：使用學術級物理常數 (優先 Astropy CODATA 2018/2022)
+# 🚨 Grade A要求：使用學術級物理常數 (Astropy CODATA 2022, Fail-Fast)
 logger = logging.getLogger(__name__)
 
+# Fail-Fast: Astropy 是必需依賴，不可用時立即報錯
 try:
     from src.shared.constants.astropy_physics_constants import get_astropy_constants
-    physics_consts = get_astropy_constants()
-    logger.info("✅ 使用 Astropy 官方物理常數 (CODATA 2018/2022)")
-except (ModuleNotFoundError, ImportError):
-    try:
-        from src.shared.constants.physics_constants import PhysicsConstants
-    except ModuleNotFoundError:
-        from shared.constants.physics_constants import PhysicsConstants
-    physics_consts = PhysicsConstants()
-    logger.warning("⚠️ Astropy 不可用，使用 CODATA 2018 備用常數")
+except ModuleNotFoundError:
+    from shared.constants.astropy_physics_constants import get_astropy_constants
+
+physics_consts = get_astropy_constants()
+logger.info("✅ 使用 Astropy 官方物理常數 (CODATA 2022)")
 
 
 class TimeSeriesAnalyzer:
@@ -512,7 +509,7 @@ class TimeSeriesAnalyzer:
                         alt_m = alt_km * 1000.0  # 轉換為米
 
                         # Geodetic → ECEF 轉換
-                        from .coordinate_converter import geodetic_to_ecef
+                        from src.shared.utils.coordinate_converter import geodetic_to_ecef
                         ecef_x, ecef_y, ecef_z = geodetic_to_ecef(lat_deg, lon_deg, alt_m)
                         position_ecef_m = [ecef_x, ecef_y, ecef_z]
                 except Exception as e:

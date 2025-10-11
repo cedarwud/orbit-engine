@@ -38,22 +38,13 @@ class DopplerCalculator:
         Args:
             speed_of_light_ms: 光速 (m/s), 預設從 Astropy 獲取 CODATA 2018/2022 標準值
         """
-        # ✅ Grade A標準: 優先使用 Astropy 官方常數 (CODATA 2018/2022)
-        # 依據: docs/STAGE5_ACADEMIC_REFERENCES.md (2025-10-03 優化)
+        # ✅ Grade A標準: 使用 Astropy 官方常數 (CODATA 2022, Fail-Fast)
+        # 依據: docs/ACADEMIC_STANDARDS.md (Fail-Fast 原則)
         if speed_of_light_ms is None:
-            try:
-                from shared.constants.astropy_physics_constants import get_astropy_constants
-                physics_consts = get_astropy_constants()
-                self.c = physics_consts.SPEED_OF_LIGHT
-            except ImportError:
-                # Fallback: 使用自定義 PhysicsConstants
-                try:
-                    from shared.constants.physics_constants import PhysicsConstants
-                    physics_consts = PhysicsConstants()
-                    self.c = physics_consts.SPEED_OF_LIGHT
-                except ImportError:
-                    # Final fallback: CODATA 2018 官方值
-                    self.c = 299792458.0  # m/s (exact, defined value)
+            # Fail-Fast: Astropy 是必需依賴，不可用時立即報錯
+            from shared.constants.astropy_physics_constants import get_astropy_constants
+            physics_consts = get_astropy_constants()
+            self.c = physics_consts.SPEED_OF_LIGHT
         else:
             self.c = speed_of_light_ms
 

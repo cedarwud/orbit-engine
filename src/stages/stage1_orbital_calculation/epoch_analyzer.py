@@ -24,7 +24,7 @@ TLE Epoch 分析器與篩選器 - 動態分析 TLE 檔案的 epoch 分布
 
 import logging
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List
 from collections import defaultdict
 from pathlib import Path
@@ -85,7 +85,7 @@ class EpochAnalyzer:
             'constellation_distribution': constellation_distribution,
             'recommended_reference_time': recommended_time,
             'recommendation_reason': reason,
-            'analysis_timestamp': datetime.utcnow().isoformat() + 'Z'
+            'analysis_timestamp': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
         }
 
         self._log_analysis_summary(analysis_result)

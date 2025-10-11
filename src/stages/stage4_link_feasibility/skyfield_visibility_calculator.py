@@ -233,13 +233,21 @@ class SkyfieldVisibilityCalculator:
             sat_lat_deg: 衛星緯度 (度)
             sat_lon_deg: 衛星經度 (度)
             sat_alt_km: 衛星高度 (公里)
-            timestamp: 時間戳記 (可選，用於高精度計算)
+            timestamp: 時間戳記 (必須提供，用於高精度計算)
 
         Returns:
             仰角 (度)
         """
+        # ✅ Grade A+ Fail-Fast: timestamp 必須提供
+        # 移除 datetime.now() fallback (違反 ACADEMIC_STANDARDS.md)
+        # 依據: docs/ACADEMIC_STANDARDS.md - 禁止使用系統時間作為默認值
         if timestamp is None:
-            timestamp = datetime.now(timezone.utc)
+            raise ValueError(
+                "❌ Fail-Fast: timestamp 參數必須提供\n"
+                f"衛星位置: ({sat_lat_deg}°, {sat_lon_deg}°, {sat_alt_km} km)\n"
+                "學術標準要求: 所有計算必須基於實際時間數據，禁止使用系統當前時間\n"
+                "依據: ACADEMIC_STANDARDS.md - 禁止估計值/假設值"
+            )
 
         elevation, _, _ = self.calculate_topocentric_position(
             sat_lat_deg, sat_lon_deg, sat_alt_km, timestamp
@@ -255,13 +263,19 @@ class SkyfieldVisibilityCalculator:
             sat_lat_deg: 衛星緯度 (度)
             sat_lon_deg: 衛星經度 (度)
             sat_alt_km: 衛星高度 (公里)
-            timestamp: 時間戳記 (可選)
+            timestamp: 時間戳記 (必須提供)
 
         Returns:
             距離 (公里)
         """
+        # ✅ Grade A+ Fail-Fast: timestamp 必須提供
         if timestamp is None:
-            timestamp = datetime.now(timezone.utc)
+            raise ValueError(
+                "❌ Fail-Fast: timestamp 參數必須提供\n"
+                f"衛星位置: ({sat_lat_deg}°, {sat_lon_deg}°, {sat_alt_km} km)\n"
+                "學術標準要求: 所有計算必須基於實際時間數據\n"
+                "依據: ACADEMIC_STANDARDS.md - 禁止使用系統當前時間作為 fallback"
+            )
 
         _, _, distance = self.calculate_topocentric_position(
             sat_lat_deg, sat_lon_deg, sat_alt_km, timestamp
@@ -277,13 +291,19 @@ class SkyfieldVisibilityCalculator:
             sat_lat_deg: 衛星緯度 (度)
             sat_lon_deg: 衛星經度 (度)
             sat_alt_km: 衛星高度 (公里，預設 550)
-            timestamp: 時間戳記 (可選)
+            timestamp: 時間戳記 (必須提供)
 
         Returns:
             方位角 (0-360°, 北=0°)
         """
+        # ✅ Grade A+ Fail-Fast: timestamp 必須提供
         if timestamp is None:
-            timestamp = datetime.now(timezone.utc)
+            raise ValueError(
+                "❌ Fail-Fast: timestamp 參數必須提供\n"
+                f"衛星位置: ({sat_lat_deg}°, {sat_lon_deg}°, {sat_alt_km} km)\n"
+                "學術標準要求: 所有計算必須基於實際時間數據\n"
+                "依據: ACADEMIC_STANDARDS.md - 禁止使用系統當前時間"
+            )
 
         _, azimuth, _ = self.calculate_topocentric_position(
             sat_lat_deg, sat_lon_deg, sat_alt_km, timestamp

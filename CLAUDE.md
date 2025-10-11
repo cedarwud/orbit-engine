@@ -321,6 +321,38 @@ A3 事件: 3 個 ✅ (例: 衛星 54146 RSRP=-34.43, 優於服務 5.60 dB)
 
 ---
 
+### ⚠️ WARNING: Epoch 驗證警告（設計預期行為，不是 BUG）
+
+**症狀**: Stage 4 顯示 Epoch 驗證 FAIL 但允許繼續處理
+
+```
+INFO:epoch_validator:✅ Epoch 多樣性檢查通過: 8990 個獨立 epoch
+INFO:epoch_validator:📊 Epoch 分布分析: Epoch 時間過於集中，跨度僅 33.2 小時 (< 72h)
+INFO:epoch_validator:✅ Epoch 驗證完成: FAIL
+INFO:stage4_link_feasibility:💡 Epoch 驗證分析:
+INFO:stage4_link_feasibility:   ✅ 核心要求: Epoch 獨立性檢查通過 (8990 個獨立 epoch)
+INFO:stage4_link_feasibility:   ⚠️  品質要求: Epoch 分布不足 (跨度 33.2h < 72h)
+INFO:stage4_link_feasibility:   📋 常見原因: Stage 1 latest_date 篩選（僅保留單日數據）
+INFO:stage4_link_feasibility:   🎯 決策結果: 核心學術要求已滿足，允許繼續處理（設計預期行為）
+```
+
+**✅ 這是設計預期行為**：
+- 採用**分級 Fail-Fast 原則**：核心要求（Epoch 獨立性）必須滿足，品質要求（Epoch 分布）可警告
+- **核心要求已滿足**：8,990 個獨立 epoch（≥30% 門檻），符合 Vallado 2013 學術標準
+- **品質要求不足**：Epoch 跨度 33.2h < 72h，通常是 Stage 1 latest_date 篩選的預期結果
+- **不影響學術合規性和確定性**
+
+**📚 詳細說明**：
+- 完整 FAQ：`docs/FAQ_EPOCH_VALIDATION.md`
+- 驗證器實作：`src/stages/stage4_link_feasibility/epoch_validator.py` Lines 16-62
+- 決策邏輯：`src/stages/stage4_link_feasibility/stage4_link_feasibility_processor.py` Lines 744-772
+
+**何時需要修復**：
+- ❌ 如果顯示「Epoch 獨立性不足」→ 必須修復（違反學術標準）
+- ⚠️ 如果僅顯示「Epoch 分布不足」→ 檢查是否刻意使用 latest_date 篩選，通常無需修復
+
+---
+
 ### Issue: Stage 4 fails with "missing target_coverage_rate"
 
 **Cause**: Stage 4 executor using wrong config path (`/orbit-engine/` instead of `project_root`)
