@@ -92,12 +92,14 @@ time_interval_seconds: 30  # 必須明確提供 (禁止預設值)
 # SOURCE: 3GPP TR 38.821 (2021) Section 6.2 - NTN 系統服務品質要求
 pool_optimization_targets:
   starlink:
-    expected_visible_satellites: [10, 15]  # 預期可見衛星數範圍
+    min_pool_size: 10              # 最小池大小（預期可見衛星數下限）
+    max_pool_size: 15              # 最大池大小（預期可見衛星數上限）
     target_coverage_rate: 0.95
     # SOURCE: ITU-T E.800 (2008) - 研究原型系統可接受門檻
     # NOTE: 商用系統通常要求 >99% (3GPP TS 22.261 availability requirements)
   oneweb:
-    expected_visible_satellites: [3, 6]    # 預期可見衛星數範圍
+    min_pool_size: 3               # 最小池大小（預期可見衛星數下限）
+    max_pool_size: 6               # 最大池大小（預期可見衛星數上限）
     target_coverage_rate: 0.95
     # SOURCE: ITU-T E.800 (2008) - 研究原型系統可接受門檻
     # NOTE: 商用系統通常要求 >99% (3GPP TS 22.261 availability requirements)
