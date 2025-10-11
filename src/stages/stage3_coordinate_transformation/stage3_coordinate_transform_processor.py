@@ -231,35 +231,6 @@ class Stage3CoordinateTransformProcessor(BaseStageProcessor):
             self.logger.error(f"❌ 真實數據源驗證失敗: {e}")
             raise RuntimeError(f"真實數據源不可用: {e}")
 
-    def execute(self, input_data: Any) -> ProcessingResult:
-        """
-        執行 Stage 3 座標系統轉換處理
-
-        v3.1 架構: 返回標準 ProcessingResult 格式
-        100% BaseStageProcessor 接口合規
-        """
-        result = self.process(input_data)
-
-        # 無論成功或失敗，都嘗試保存結果
-        if result.status == ProcessingStatus.SUCCESS:
-            try:
-                output_file = self.results_manager.save_results(result.data)
-                self.logger.info(f"Stage 3 結果已保存: {output_file}")
-            except Exception as e:
-                self.logger.warning(f"保存 Stage 3 結果失敗: {e}")
-
-            try:
-                snapshot_success = self.results_manager.save_validation_snapshot(
-                    result.data,
-                    self.processing_stats
-                )
-                if snapshot_success:
-                    self.logger.info("✅ Stage 3 驗證快照保存成功")
-            except Exception as e:
-                self.logger.warning(f"⚠️ Stage 3 驗證快照保存失敗: {e}")
-
-        return result
-
     def process(self, input_data: Any) -> ProcessingResult:
         """
         主要處理方法 - Stage 3 v3.1 模組化座標轉換
@@ -435,10 +406,28 @@ class Stage3CoordinateTransformProcessor(BaseStageProcessor):
             except Exception as cache_error:
                 self.logger.warning(f"⚠️ 緩存保存失敗（不影響結果）: {cache_error}")
 
+            # 💾 步驟 8: 保存主要結果文件和驗證快照 (移自 execute() 覆蓋)
+            try:
+                output_file = self.results_manager.save_results(result_data)
+                self.logger.info(f"✅ Stage 3 結果已保存: {output_file}")
+            except Exception as e:
+                self.logger.warning(f"⚠️ 保存 Stage 3 結果失敗: {e}")
+
+            try:
+                snapshot_success = self.results_manager.save_validation_snapshot(
+                    result_data,
+                    self.processing_stats
+                )
+                if snapshot_success:
+                    self.logger.info("✅ Stage 3 驗證快照保存成功")
+            except Exception as e:
+                self.logger.warning(f"⚠️ Stage 3 驗證快照保存失敗: {e}")
+
             return create_processing_result(
                 status=ProcessingStatus.SUCCESS,
                 data=result_data,
-                message=f"成功轉換 {self.processing_stats['total_satellites_processed']} 顆衛星的座標"
+                message=f"成功轉換 {self.processing_stats['total_satellites_processed']} 顆衛星的座標",
+                metadata={'output_file': output_file} if 'output_file' in locals() else {}
             )
 
         except Exception as e:
