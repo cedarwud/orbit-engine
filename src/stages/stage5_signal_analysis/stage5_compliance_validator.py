@@ -61,10 +61,16 @@ class Stage5ComplianceValidator:
             return {'valid': False, 'errors': errors, 'warnings': warnings}
 
         # 第 2 層: 結構驗證
-        required_fields = ['stage', 'satellites']
-        for field in required_fields:
-            if field not in input_data:
-                errors.append(f"缺少必需字段: {field}")
+        # 🔧 修復: Stage 4 重構後輸出 connectable_satellites，向後兼容 satellites
+        if 'stage' not in input_data:
+            errors.append("缺少必需字段: stage")
+
+        # 檢查衛星數據字段 (新格式 connectable_satellites 或舊格式 satellites)
+        has_connectable_satellites = 'connectable_satellites' in input_data
+        has_satellites = 'satellites' in input_data
+
+        if not has_connectable_satellites and not has_satellites:
+            errors.append("缺少必需字段: connectable_satellites 或 satellites")
 
         # 如果缺少必要字段，提前返回
         if errors:
@@ -76,8 +82,8 @@ class Stage5ComplianceValidator:
         if stage_value not in ['stage4_link_feasibility', 'stage4_optimization']:
             errors.append(f"輸入階段標識錯誤: {stage_value} (期望: stage4_link_feasibility 或 stage4_optimization)")
 
-        # 驗證 satellites 字段
-        satellites = input_data['satellites']
+        # 驗證衛星數據字段 (優先使用 connectable_satellites)
+        satellites = input_data.get('connectable_satellites') or input_data.get('satellites')
         if not isinstance(satellites, dict):
             errors.append(f"衛星數據格式錯誤: {type(satellites).__name__} (期望: dict)")
         elif len(satellites) == 0:
