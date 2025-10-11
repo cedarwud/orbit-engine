@@ -1,0 +1,125 @@
+# Stage 1: TLE 數據載入層配置
+# SOURCE: Stage 1 執行器硬編碼參數遷移
+# Date: 2025-10-11
+
+# 取樣模式配置
+sampling:
+  # 取樣模式開關
+  # - auto: 根據 ORBIT_ENGINE_TEST_MODE 自動判斷
+  # - enabled: 強制啟用取樣模式
+  # - disabled: 強制禁用取樣模式 (處理全部衛星)
+  mode: auto
+
+  # 取樣數量 (僅在取樣模式啟用時生效)
+  # SOURCE: 測試環境預設值，足夠覆蓋 Starlink + OneWeb 樣本
+  sample_size: 50
+
+# Epoch 動態分析配置
+epoch_analysis:
+  # 是否啟用 Epoch 動態分析
+  # SOURCE: Stage 1 預設啟用，用於識別最新 TLE 數據日期
+  enabled: true
+
+# Epoch 篩選配置
+epoch_filter:
+  # 是否啟用 Epoch 篩選
+  # PURPOSE: 保留最新日期的衛星 TLE，移除過時數據
+  enabled: true
+
+  # 篩選模式
+  # - latest_date: 保留最新日期的衛星 (預設)
+  # - date_range: 保留指定日期範圍
+  # - all: 不篩選 (保留所有 TLE)
+  # SOURCE: 研究需求 - 確保使用最新軌道參數
+  mode: latest_date
+
+  # 容差範圍 (小時)
+  # 定義: 與最新日期相差在此範圍內的衛星視為「最新」
+  # 範例: tolerance_hours=24 表示最新日期 ±24 小時內的衛星都保留
+  # SOURCE: TLE 數據更新週期通常為 24-48 小時
+  tolerance_hours: 24
+
+# 星座配置 (全局配置，會傳遞給下游 Stages)
+constellation_configs:
+  starlink:
+    # 仰角門檻 (度)
+    # SOURCE: 3GPP TR 38.821 Section 6.1.2 - Starlink NTN minimum elevation
+    elevation_threshold: 5.0
+
+    # 工作頻率 (GHz)
+    # SOURCE: SpaceX Starlink Gen2 Ka-band downlink (12.2-12.7 GHz)
+    frequency_ghz: 12.5
+
+    # 目標可見衛星數量範圍
+    # SOURCE: 研究需求 - 動態池優化目標
+    target_satellites:
+      min: 10
+      max: 15
+
+  oneweb:
+    # 仰角門檻 (度)
+    # SOURCE: OneWeb Technical Specifications - Ku-band minimum elevation
+    # NOTE: OneWeb 使用更高仰角門檻以降低干擾
+    elevation_threshold: 10.0
+
+    # 工作頻率 (GHz)
+    # SOURCE: OneWeb Ku-band downlink (10.7-12.75 GHz center)
+    frequency_ghz: 12.75
+
+    # 目標可見衛星數量範圍
+    target_satellites:
+      min: 3
+      max: 6
+
+# TLE 數據源配置
+tle_data:
+  # TLE 文件路徑 (相對於項目根目錄)
+  data_directory: data/tle_data
+
+  # TLE 文件格式
+  # - txt: 標準 3-line TLE 格式
+  # - json: JSON 格式 (備用)
+  format: txt
+
+  # TLE 檔案名稱模式 (glob)
+  file_patterns:
+    - "*.tle"
+    - "*.txt"
+
+# 驗證配置
+validation:
+  # TLE 格式驗證
+  # SOURCE: NORAD TLE 標準 - Line1 和 Line2 各 69 字符
+  tle_format_check: true
+
+  # Checksum 驗證
+  # SOURCE: TLE checksum algorithm (modulo-10)
+  tle_checksum_check: true
+
+  # Epoch 多樣性檢查
+  # 要求: 至少有指定數量的不同 epoch (防止數據單一性)
+  min_unique_epochs: 5
+
+# 輸出配置
+output:
+  # 輸出目錄
+  directory: data/outputs/stage1
+
+  # 檔案名稱模式
+  # {timestamp}: YYYYMMDD_HHMMSS
+  filename_pattern: "stage1_output_{timestamp}.json"
+
+  # 是否保存驗證快照
+  save_validation_snapshot: true
+
+# 性能配置
+performance:
+  # 是否顯示進度條
+  show_progress: true
+
+  # 日誌等級
+  # - DEBUG: 詳細調試信息
+  # - INFO: 一般信息 (預設)
+  # - WARNING: 警告信息
+  # - ERROR: 錯誤信息
+  log_level: INFO

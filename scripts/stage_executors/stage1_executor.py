@@ -6,7 +6,9 @@ Date: 2025-10-03
 """
 
 import os
-from .executor_utils import clean_stage_outputs, is_sampling_mode
+import yaml
+from pathlib import Path
+from .executor_utils import clean_stage_outputs, is_sampling_mode, project_root
 
 
 def execute_stage1(previous_results=None):
@@ -29,30 +31,47 @@ def execute_stage1(previous_results=None):
         # 使用統一的重構版本
         from stages.stage1_orbital_calculation.stage1_main_processor import create_stage1_processor
 
-        # 根據環境變量決定是否使用取樣模式
-        use_sampling = is_sampling_mode()
+        # ✅ 從 YAML 載入配置
+        config_path = project_root / "config/stage1_orbital_calculation.yaml"
 
-        # Stage 1 配置（含 Epoch 分析）
-        config = {
-            'sample_mode': use_sampling,
-            'sample_size': 50,
-            # Epoch 分析配置
-            'epoch_analysis': {
-                'enabled': True  # 啟用 epoch 動態分析
-            },
-            # Epoch 篩選配置（符合規格文檔標準）
-            'epoch_filter': {
-                'enabled': True,           # 啟用 epoch 篩選
-                'mode': 'latest_date',     # 篩選模式：保留最新日期衛星
-                'tolerance_hours': 24      # 容差範圍：± 24 小時（基於 SGP4 精度分析）
+        if config_path.exists():
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+            print(f"✅ 已載入 Stage 1 配置: {config_path}")
+        else:
+            # ⚠️ 回退到預設配置 (僅用於開發環境)
+            print(f"⚠️ 未找到配置文件: {config_path}")
+            print("⚠️ 使用預設配置")
+            config = {
+                'sampling': {'mode': 'auto', 'sample_size': 50},
+                'epoch_analysis': {'enabled': True},
+                'epoch_filter': {
+                    'enabled': True,
+                    'mode': 'latest_date',
+                    'tolerance_hours': 24
+                }
             }
-        }
+
+        # ✅ 處理取樣模式 (支持環境變數覆蓋)
+        sampling_mode = config.get('sampling', {}).get('mode', 'auto')
+        if sampling_mode == 'auto':
+            use_sampling = is_sampling_mode()  # 從環境變數讀取
+        else:
+            use_sampling = (sampling_mode == 'enabled')
+
+        # 更新配置中的 sample_mode (向後兼容)
+        config['sample_mode'] = use_sampling
+        config['sample_size'] = config.get('sampling', {}).get('sample_size', 50)
 
         # 創建處理器
         stage1_processor = create_stage1_processor(config)
 
-        print(f'🔧 配置: {"取樣模式" if use_sampling else "完整模式"}')
-        print(f'🔧 Epoch 篩選: 啟用 (latest_date 模式，容差 ±{config["epoch_filter"]["tolerance_hours"]}h)')
+        print(f"📋 配置摘要:")
+        print(f"   取樣模式: {'啟用' if use_sampling else '禁用'}")
+        if use_sampling:
+            print(f"   取樣數量: {config['sample_size']} 顆衛星")
+        print(f"   Epoch 篩選: {config['epoch_filter']['mode']}")
+        print(f"   容差範圍: ±{config['epoch_filter']['tolerance_hours']} 小時")
 
         # 執行處理
         stage1_result = stage1_processor.execute()
