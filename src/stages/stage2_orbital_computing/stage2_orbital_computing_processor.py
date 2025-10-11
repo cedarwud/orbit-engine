@@ -28,13 +28,13 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
 
 try:
-    from shared.base_stage_processor import BaseStageProcessor
+    from shared.base_processor import BaseStageProcessor
     from shared.interfaces.processor_interface import ProcessingResult, ProcessingStatus, create_processing_result
 except ImportError:
     import sys
     from pathlib import Path
     sys.path.append(str(Path(__file__).parent.parent.parent))
-    from shared.base_stage_processor import BaseStageProcessor
+    from shared.base_processor import BaseStageProcessor
     from shared.interfaces.processor_interface import ProcessingResult, ProcessingStatus, create_processing_result
 
 from .sgp4_calculator import SGP4Calculator, SGP4Position, SGP4OrbitResult
