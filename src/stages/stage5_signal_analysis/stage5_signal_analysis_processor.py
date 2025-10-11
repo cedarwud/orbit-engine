@@ -119,33 +119,8 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
         self.logger.info("Stage 5 信號品質分析處理器已初始化 - 3GPP/ITU-R 標準模式 (模組化)")
         self.logger.info(f"🚀 並行處理: {self.max_workers} 工作器 ({'啟用' if self.enable_parallel else '禁用'})")
 
-    def execute(self, input_data: Any) -> Dict[str, Any]:
-        """執行 Stage 5 信號品質分析處理 - 統一接口方法"""
-        result = self.process(input_data)
-        if result.status == ProcessingStatus.SUCCESS:
-            # 保存結果到文件
-            try:
-                output_file = self.save_results(result.data)
-                self.logger.info(f"Stage 5結果已保存: {output_file}")
-            except Exception as e:
-                self.logger.warning(f"保存Stage 5結果失敗: {e}")
-
-            # 保存驗證快照
-            try:
-                snapshot_success = self.save_validation_snapshot(result.data)
-                if snapshot_success:
-                    self.logger.info("✅ Stage 5驗證快照保存成功")
-            except Exception as e:
-                self.logger.warning(f"⚠️ Stage 5驗證快照保存失敗: {e}")
-
-            return result.data
-        else:
-            # 從錯誤列表中提取第一個錯誤訊息，如果沒有則使用狀態
-            error_msg = result.errors[0] if result.errors else f"處理狀態: {result.status}"
-            raise Exception(f"Stage 5 處理失敗: {error_msg}")
-
     def process(self, input_data: Any) -> ProcessingResult:
-        """主要處理方法 - 按照文檔格式輸出，無任何硬編碼值"""
+        """主要處理方法 - 按照文檔格式輸出，無任何硬編碼值 - ✅ 已移除 execute() 覆蓋"""
         start_time = datetime.now(timezone.utc)
         self.logger.info("🚀 開始Stage 5信號品質分析處理...")
 
@@ -181,10 +156,27 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
                 processing_time=processing_time
             )
 
+            # 💾 保存結果到文件 (移自 execute() 覆蓋)
+            try:
+                output_file = self.save_results(result_data)
+                self.logger.info(f"Stage 5結果已保存: {output_file}")
+            except Exception as e:
+                self.logger.warning(f"保存Stage 5結果失敗: {e}")
+                output_file = None
+
+            # 💾 保存驗證快照 (移自 execute() 覆蓋)
+            try:
+                snapshot_success = self.save_validation_snapshot(result_data)
+                if snapshot_success:
+                    self.logger.info("✅ Stage 5驗證快照保存成功")
+            except Exception as e:
+                self.logger.warning(f"⚠️ Stage 5驗證快照保存失敗: {e}")
+
             return create_processing_result(
                 status=ProcessingStatus.SUCCESS,
                 data=result_data,
-                message=f"成功分析{len(analyzed_satellites)}顆衛星的信號品質"
+                message=f"成功分析{len(analyzed_satellites)}顆衛星的信號品質",
+                metadata={'output_file': output_file} if output_file else {}
             )
 
         except Exception as e:
