@@ -164,8 +164,10 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
         self.logger.info("   🔒 所有4個核心模塊已強制加載 (CRITICAL 必要功能)")
         self.logger.info("   📋 驗證與管理模組已加載 (輸入輸出驗證、驗證框架、合規檢查、快照管理)")
 
-    def execute(self, input_data: Any) -> Dict[str, Any]:
-        """執行研究數據生成與優化 (BaseStageProcessor 接口)"""
+    def process(self, input_data: Any) -> ProcessingResult:
+        """處理接口 (符合 ProcessingResult 標準) - ✅ 已移除 execute() 覆蓋"""
+        start_time = time.time()
+
         try:
             self.logger.info("🚀 Stage 6: 開始研究數據生成與優化")
 
@@ -173,22 +175,10 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
             if not self.input_output_validator.validate_stage5_output(input_data):
                 raise ValueError("Stage 5 輸出格式驗證失敗")
 
-            # 執行主要處理流程
-            result = self._process_research_optimization(input_data)
+            # 執行主要處理流程 (移自 execute() 覆蓋)
+            result_data = self._process_research_optimization(input_data)
 
             self.logger.info("✅ Stage 6: 研究數據生成與優化完成")
-            return result
-
-        except Exception as e:
-            self.logger.error(f"❌ Stage 6 執行異常: {e}", exc_info=True)
-            raise
-
-    def process(self, input_data: Any) -> ProcessingResult:
-        """處理接口 (符合 ProcessingResult 標準)"""
-        start_time = time.time()
-
-        try:
-            result_data = self.execute(input_data)
 
             processing_time = time.time() - start_time
 
@@ -208,7 +198,7 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
 
         except Exception as e:
             processing_time = time.time() - start_time
-            self.logger.error(f"Stage 6 處理失敗: {e}")
+            self.logger.error(f"❌ Stage 6 處理失敗: {e}", exc_info=True)
 
             return create_processing_result(
                 status=ProcessingStatus.FAILED,
