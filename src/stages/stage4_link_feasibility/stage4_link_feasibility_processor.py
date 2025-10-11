@@ -417,6 +417,59 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
 
         return threshold_analysis
 
+    def _merge_constellation_configs(self) -> Dict[str, Dict[str, Any]]:
+        """
+        智能合併配置 - 利用 Stage 1 YAML 配置減少運行時開銷
+
+        優先級 (從高到低):
+        1. Stage 4 pool_optimization_targets (本地)
+        2. Stage 1 constellation_configs (上游)
+        3. 預設值 (備用)
+
+        Returns:
+            Dict: 合併後的星座配置
+        """
+        merged_configs = {}
+
+        # Step 1: 載入 Stage 1 上游配置 (作為基礎)
+        if self.upstream_constellation_configs:
+            merged_configs = {k: v.copy() for k, v in self.upstream_constellation_configs.items()}
+            self.logger.info("✅ 載入 Stage 1 上游配置作為基礎")
+
+        # Step 2: 覆蓋 Stage 4 本地配置
+        local_configs = self.config.get('pool_optimization_targets', {})
+        if local_configs:
+            for constellation, local_conf in local_configs.items():
+                if constellation not in merged_configs:
+                    # 新增星座配置
+                    merged_configs[constellation] = local_conf.copy()
+                else:
+                    # 合併配置 (本地優先)
+                    merged_configs[constellation].update(local_conf)
+            self.logger.info(f"✅ 覆蓋 Stage 4 本地配置: {list(local_configs.keys())}")
+
+        # Step 3: 檢查配置完整性
+        if not merged_configs:
+            raise ValueError(
+                "❌ 找不到星座配置！\n"
+                "請確保以下至少一項存在:\n"
+                "1. config/stage1_orbital_calculation.yaml 包含 constellation_configs\n"
+                "2. config/stage4_link_feasibility_config.yaml 包含 pool_optimization_targets"
+            )
+
+        # Step 4: 驗證必要字段
+        required_fields = ['target_coverage_rate', 'min_pool_size', 'max_pool_size']
+        for constellation, conf in merged_configs.items():
+            missing = [f for f in required_fields if f not in conf]
+            if missing:
+                raise ValueError(
+                    f"❌ 星座 '{constellation}' 配置缺少必要字段: {missing}\n"
+                    f"   當前配置: {conf}"
+                )
+
+        self.logger.info(f"✅ 配置合併完成: {len(merged_configs)} 個星座")
+        return merged_configs
+
     def _optimize_satellite_pools(self, connectable_satellites: Dict[str, List[Dict[str, Any]]]) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Any]]:
         """
         階段 4.2: 時空錯置池規劃優化
@@ -428,41 +481,8 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
         """
         self.logger.info("🚀 開始階段 4.2: 時空錯置池規劃優化")
 
-        # ✅ Grade A+ 學術標準: 合併上游配置和本地優化目標
-        # 優先順序: Stage 4 pool_optimization_targets > Stage 1 上游配置
-        constellation_configs = {}
-
-        # Step 1: 從 Stage 4 本地配置獲取優化目標
-        if self.config and 'pool_optimization_targets' in self.config:
-            constellation_configs = self.config['pool_optimization_targets'].copy()
-            self.logger.info("📋 已載入 Stage 4 pool_optimization_targets 配置")
-
-        # Step 2: 如果沒有本地配置，使用上游配置
-        if not constellation_configs and self.upstream_constellation_configs:
-            constellation_configs = self.upstream_constellation_configs.copy()
-            self.logger.info("📋 使用 Stage 1 上游 constellation_configs")
-
-        # Step 3: 如果上游配置存在但本地已有配置，則合併（本地優先）
-        elif constellation_configs and self.upstream_constellation_configs:
-            # 合併配置：本地配置優先，上游配置補充缺失項
-            for constellation, upstream_conf in self.upstream_constellation_configs.items():
-                if constellation not in constellation_configs:
-                    constellation_configs[constellation] = upstream_conf.copy()
-                else:
-                    # 合併單個星座配置：補充上游缺失的字段
-                    for key, value in upstream_conf.items():
-                        if key not in constellation_configs[constellation]:
-                            constellation_configs[constellation][key] = value
-            self.logger.info("📋 已合併 Stage 1 上游配置與 Stage 4 本地配置")
-
-        # Step 4: 檢查是否有配置
-        if not constellation_configs:
-            raise ValueError(
-                "找不到 constellation_configs:\n"
-                "- Stage 1 未提供上游配置\n"
-                "- Stage 4 config 缺少 pool_optimization_targets\n"
-                "請在 stage4_link_feasibility_config.yaml 添加 pool_optimization_targets"
-            )
+        # ✅ 使用統一配置合併方法 (簡化邏輯)
+        constellation_configs = self._merge_constellation_configs()
 
         # 調用池優化器
         optimization_results = optimize_satellite_pool(
