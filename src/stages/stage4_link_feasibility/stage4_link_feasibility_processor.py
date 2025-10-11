@@ -108,8 +108,10 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
         self.logger.info(f"   交叉驗證: Poliastro={'已啟用 (1%採樣)' if self.enable_cross_validation else '未啟用'}")
         self.logger.info(f"   階段 4.2: 池規劃優化=強制啟用 (🔴 CRITICAL 必要功能)")
 
-    def execute(self, input_data: Any) -> Dict[str, Any]:
-        """執行鏈路可行性評估 (BaseStageProcessor 接口)"""
+    def process(self, input_data: Any) -> ProcessingResult:
+        """處理接口 (符合 ProcessingResult 標準) - ✅ 已移除 execute() 覆蓋"""
+        start_time = time.time()
+
         try:
             self.logger.info("🚀 Stage 4: 開始鏈路可行性評估")
 
@@ -121,26 +123,13 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
             wgs84_data = self._extract_wgs84_coordinates(input_data)
 
             # 執行主要處理流程
-            result = self._process_link_feasibility(wgs84_data)
+            result_data = self._process_link_feasibility(wgs84_data)
 
-            # 保存結果到文件
-            output_file = self.save_results(result)
+            # 💾 保存結果到文件 (移自 execute() 覆蓋)
+            output_file = self.save_results(result_data)
             self.logger.info(f"💾 Stage 4 結果已保存至: {output_file}")
-            result['output_file'] = output_file
 
             self.logger.info("✅ Stage 4: 鏈路可行性評估完成")
-            return result
-
-        except Exception as e:
-            self.logger.error(f"❌ Stage 4 執行異常: {e}")
-            raise
-
-    def process(self, input_data: Any) -> ProcessingResult:
-        """處理接口 (符合 ProcessingResult 標準)"""
-        start_time = time.time()
-
-        try:
-            result_data = self.execute(input_data)
 
             processing_time = time.time() - start_time
 
@@ -152,13 +141,14 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
                     'stage': 4,
                     'processing_time': processing_time,
                     'stage_name': 'link_feasibility',
-                    'total_feasible_satellites': result_data.get('metadata', {}).get('feasible_satellites_count', 0)
+                    'total_feasible_satellites': result_data.get('metadata', {}).get('feasible_satellites_count', 0),
+                    'output_file': output_file  # 輸出文件路徑供 executor 使用
                 }
             )
 
         except Exception as e:
             processing_time = time.time() - start_time
-            self.logger.error(f"Stage 4 處理失敗: {e}")
+            self.logger.error(f"❌ Stage 4 處理失敗: {e}")
 
             return create_processing_result(
                 status=ProcessingStatus.FAILED,
