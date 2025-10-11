@@ -70,19 +70,41 @@ class BaseStageProcessor(BaseProcessor):
         self.logger.info(f"📂 Volume映射: 容器{self.output_dir} → 主機./data/outputs/stage{stage_number}")
         self.logger.info(f"📋 驗證快照路徑: {self.validation_dir}")
         self.logger.info(f"🌍 執行環境: {current_paths['environment']}")
-        
+
+        # 🚨 檢測子類是否覆蓋 execute()
+        if self.__class__.execute is not BaseStageProcessor.execute:
+            import warnings
+            warnings.warn(
+                f"⚠️ {self.__class__.__name__} 覆蓋了 execute() 方法\n"
+                f"   建議僅實現 process() 方法，讓基類處理標準流程\n"
+                f"   Ref: docs/refactoring/REFACTOR_PLAN_03",
+                DeprecationWarning,
+                stacklevel=2
+            )
+
         self._initialize_directories()
         self._load_configuration()
 
     def execute(self, input_data: Optional[Dict[str, Any]] = None) -> ProcessingResult:
         """
-        執行階段處理流程
-        
+        執行階段處理流程 (Template Method Pattern)
+
+        ⚠️ **WARNING**: 子類不應覆蓋此方法！
+
+        此方法實現標準化流程：
+        1. 輸入驗證
+        2. 調用 process() (子類實現)
+        3. 輸出驗證
+        4. 保存驗證快照
+        5. 錯誤處理
+
+        子類應實現 `process()` 方法，而非覆蓋 `execute()`。
+
         Args:
             input_data: 輸入數據
-            
+
         Returns:
-            ProcessingResult: 處理結果
+            ProcessingResult: 標準化處理結果
         """
         try:
             self.logger.info(f"開始執行 Stage {self.stage_number}: {self.stage_name}")
