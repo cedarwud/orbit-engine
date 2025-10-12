@@ -114,13 +114,13 @@ class Stage6AcademicComplianceChecker:
         Returns:
             Dict: 驗證結果
                 {
-                    'is_valid': bool,
+                    'valid': bool,
                     'errors': List[str],
                     'warnings': List[str]
                 }
         """
         validation_result = {
-            'is_valid': False,
+            'valid': False,  # 🔧 修復: 使用 'valid' 而非 'is_valid' 以符合 base_processor 期望
             'errors': [],
             'warnings': []
         }
@@ -134,11 +134,11 @@ class Stage6AcademicComplianceChecker:
             compliance = self.check_academic_standards_compliance(input_data)
             if not compliance['compliant']:
                 validation_result['errors'].extend(compliance['violations'])
-                validation_result['is_valid'] = False
+                validation_result['valid'] = False
                 return validation_result
 
             validation_result['warnings'].extend(compliance['warnings'])
-            validation_result['is_valid'] = True
+            validation_result['valid'] = True  # 🔧 修復: 使用 'valid' 鍵
 
         except (KeyError, ValueError, TypeError, AttributeError) as e:
             # 預期的數據結構錯誤

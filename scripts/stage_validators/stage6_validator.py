@@ -71,6 +71,7 @@ def check_stage6_validation(snapshot_data: dict) -> tuple:
 
         # 3GPP 事件檢測檢查
         gpp_events = snapshot_data.get('gpp_events', {})
+        a3_count = len(gpp_events.get('a3_events', []))  # 🔧 添加 A3 事件計數
         a4_count = len(gpp_events.get('a4_events', []))
         a5_count = len(gpp_events.get('a5_events', []))
         d2_count = len(gpp_events.get('d2_events', []))
@@ -94,7 +95,7 @@ def check_stage6_validation(snapshot_data: dict) -> tuple:
             status_msg = (
                 f"Stage 6 研究數據生成檢查通過 {mode_indicator}: "
                 f"驗證框架 {checks_passed}/{checks_performed} 項通過 | "
-                f"3GPP事件 {events_detected}個 (A4:{a4_count}, A5:{a5_count}, D2:{d2_count}) | "
+                f"3GPP事件 {events_detected}個 (A3:{a3_count}, A4:{a4_count}, A5:{a5_count}, D2:{d2_count}) | "
                 f"ML樣本 {total_samples}個 | "
                 f"池驗證 {'✓' if pool_verified else '✗'} | "
                 f"決策延遲 {avg_latency:.1f}ms"

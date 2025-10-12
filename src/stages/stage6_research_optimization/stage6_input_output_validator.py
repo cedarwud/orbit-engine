@@ -164,13 +164,13 @@ class Stage6InputOutputValidator:
         Returns:
             Dict: 驗證結果
                 {
-                    'is_valid': bool,
+                    'valid': bool,
                     'errors': List[str],
                     'warnings': List[str]
                 }
         """
         validation_result = {
-            'is_valid': False,
+            'valid': False,  # 🔧 修復: 使用 'valid' 而非 'is_valid' 以符合 base_processor 期望
             'errors': [],
             'warnings': []
         }
@@ -188,7 +188,7 @@ class Stage6InputOutputValidator:
             if output_data.get('stage') != 'stage6_research_optimization':
                 validation_result['errors'].append("stage 標識不正確")
 
-            validation_result['is_valid'] = len(validation_result['errors']) == 0
+            validation_result['valid'] = len(validation_result['errors']) == 0  # 🔧 修復: 使用 'valid' 鍵
 
         except (KeyError, ValueError, TypeError, AttributeError) as e:
             # 預期的數據結構錯誤

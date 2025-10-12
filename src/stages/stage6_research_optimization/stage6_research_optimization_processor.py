@@ -186,10 +186,10 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
                 status=ProcessingStatus.SUCCESS,
                 data=result_data,
                 message="Stage 6 研究數據生成與優化成功",
-                processing_time=processing_time,
                 metadata={
                     'stage': 6,
                     'stage_name': 'research_optimization',
+                    'processing_time': processing_time,  # 🔧 修復: processing_time 放入 metadata
                     'events_detected': self.processing_stats['total_events_detected'],
                     'ml_samples_generated': self.processing_stats['ml_training_samples'],
                     'pool_verification_passed': self.processing_stats['pool_verification_passed']
@@ -204,8 +204,11 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
                 status=ProcessingStatus.FAILED,
                 data=None,
                 message=f"Stage 6 處理失敗: {str(e)}",
-                processing_time=processing_time,
-                metadata={'stage': 6, 'stage_name': 'research_optimization'}
+                metadata={
+                    'stage': 6,
+                    'stage_name': 'research_optimization',
+                    'processing_time': processing_time  # 🔧 修復: processing_time 放入 metadata
+                }
             )
 
     def _process_research_optimization(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -351,6 +354,7 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
             if not signal_analysis:
                 self.logger.error("❌ signal_analysis 字段為空，無法進行事件檢測")
                 return {
+                    'a3_events': [],
                     'a4_events': [],
                     'a5_events': [],
                     'd2_events': [],
@@ -366,6 +370,7 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
             )
 
             total_events = (
+                len(result.get('a3_events', [])) +
                 len(result.get('a4_events', [])) +
                 len(result.get('a5_events', [])) +
                 len(result.get('d2_events', []))
@@ -374,7 +379,8 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
             self.processing_stats['total_events_detected'] = total_events
             self.logger.info(
                 f"✅ 檢測到 {total_events} 個 3GPP 事件 "
-                f"(A4: {len(result.get('a4_events', []))}, "
+                f"(A3: {len(result.get('a3_events', []))}, "
+                f"A4: {len(result.get('a4_events', []))}, "
                 f"A5: {len(result.get('a5_events', []))}, "
                 f"D2: {len(result.get('d2_events', []))})"
             )
@@ -384,6 +390,7 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
         except Exception as e:
             self.logger.error(f"3GPP 事件檢測失敗: {e}", exc_info=True)
             return {
+                'a3_events': [],
                 'a4_events': [],
                 'a5_events': [],
                 'd2_events': [],
@@ -627,6 +634,7 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
 
             # 提取相關的 3GPP 事件
             all_events = []
+            all_events.extend(gpp_events.get('a3_events', []))
             all_events.extend(gpp_events.get('a4_events', []))
             all_events.extend(gpp_events.get('a5_events', []))
             all_events.extend(gpp_events.get('d2_events', []))
