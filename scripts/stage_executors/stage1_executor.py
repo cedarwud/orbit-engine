@@ -1,37 +1,45 @@
 """
 Stage 1 執行器 - TLE 數據載入層
 
-Author: Extracted from run_six_stages_with_validation.py
-Date: 2025-10-03
+重構版本：使用 StageExecutor 基類，減少重複代碼。
+
+Author: Orbit Engine Refactoring Team
+Date: 2025-10-12
+Version: 2.0 (Refactored)
 """
 
-import os
 import yaml
+from typing import Dict, Any
 from pathlib import Path
-from .executor_utils import clean_stage_outputs, is_sampling_mode, project_root
+
+from .base_executor import StageExecutor
+from .executor_utils import project_root, is_sampling_mode
 
 
-def execute_stage1(previous_results=None):
+class Stage1Executor(StageExecutor):
     """
-    執行 Stage 1: TLE 數據載入層
+    Stage 1 執行器 - TLE 數據載入層
 
-    Args:
-        previous_results: 前序階段結果 (Stage 1 不需要)
-
-    Returns:
-        tuple: (success: bool, result: ProcessingResult, processor: Stage1Processor)
+    繼承自 StageExecutor，只需實現配置加載和處理器創建邏輯。
     """
-    try:
-        print('\n📦 階段一：數據載入層 (重構版本)')
-        print('-' * 60)
 
-        # 清理舊的輸出
-        clean_stage_outputs(1)
+    def __init__(self):
+        super().__init__(
+            stage_number=1,
+            stage_name="TLE 數據載入層 (重構版本)",
+            emoji="📦"
+        )
 
-        # 使用統一的重構版本
-        from stages.stage1_orbital_calculation.stage1_main_processor import create_stage1_processor
+    def load_config(self) -> Dict[str, Any]:
+        """
+        載入 Stage 1 配置
 
-        # ✅ 從 YAML 載入配置
+        從 YAML 文件載入配置，如果文件不存在則使用預設配置。
+        處理取樣模式的環境變數覆蓋。
+
+        Returns:
+            Dict[str, Any]: 配置字典
+        """
         config_path = project_root / "config/stage1_orbital_calculation.yaml"
 
         if config_path.exists():
@@ -63,9 +71,7 @@ def execute_stage1(previous_results=None):
         config['sample_mode'] = use_sampling
         config['sample_size'] = config.get('sampling', {}).get('sample_size', 50)
 
-        # 創建處理器
-        stage1_processor = create_stage1_processor(config)
-
+        # 顯示配置摘要
         print(f"📋 配置摘要:")
         print(f"   取樣模式: {'啟用' if use_sampling else '禁用'}")
         if use_sampling:
@@ -73,20 +79,45 @@ def execute_stage1(previous_results=None):
         print(f"   Epoch 篩選: {config['epoch_filter']['mode']}")
         print(f"   容差範圍: ±{config['epoch_filter']['tolerance_hours']} 小時")
 
-        # 執行處理
-        stage1_result = stage1_processor.execute()
+        return config
 
-        # 檢查執行結果
-        if not stage1_result or not stage1_result.data:
-            return False, stage1_result, stage1_processor
+    def create_processor(self, config: Dict[str, Any]):
+        """
+        創建 Stage 1 處理器
 
-        # 顯示處理結果統計
-        print(f'📊 處理狀態: {stage1_result.status}')
-        print(f'📊 處理時間: {stage1_result.metrics.duration_seconds:.3f}秒')
-        print(f'📊 處理衛星: {len(stage1_result.data.get("satellites", []))}顆')
+        Args:
+            config: load_config() 返回的配置字典
 
-        return True, stage1_result, stage1_processor
+        Returns:
+            Stage1MainProcessor: 處理器實例
+        """
+        from stages.stage1_orbital_calculation.stage1_main_processor import create_stage1_processor
+        return create_stage1_processor(config)
 
-    except Exception as e:
-        print(f'❌ Stage 1 執行異常: {e}')
-        return False, None, None
+    def requires_previous_stage(self) -> bool:
+        """
+        Stage 1 不需要前階段數據
+
+        Returns:
+            bool: False
+        """
+        return False
+
+
+# ===== 向後兼容函數 =====
+
+def execute_stage1(previous_results=None):
+    """
+    執行 Stage 1: TLE 數據載入層
+
+    向後兼容函數，保持原有調用方式。
+    內部使用 Stage1Executor 類實現。
+
+    Args:
+        previous_results: 前序階段結果 (Stage 1 不需要)
+
+    Returns:
+        tuple: (success: bool, result: ProcessingResult, processor: Stage1Processor)
+    """
+    executor = Stage1Executor()
+    return executor.execute(previous_results)
