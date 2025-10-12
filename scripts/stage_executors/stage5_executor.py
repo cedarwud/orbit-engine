@@ -1,16 +1,19 @@
 """
 Stage 5 執行器 - 信號品質分析層
 
-Author: Extracted from run_six_stages_with_validation.py
-Date: 2025-10-03
-Updated: 2025-10-04 - 添加配置文件加载支持 (Grade A+ 合规)
+重構版本：使用 StageExecutor 基類，減少重複代碼。
+
+Author: Orbit Engine Refactoring Team
+Date: 2025-10-12
+Version: 2.0 (Refactored)
 """
 
-import json
 import yaml
-from pathlib import Path
 from typing import Dict, Any, Tuple
-from .executor_utils import clean_stage_outputs, find_latest_stage_output
+from pathlib import Path
+
+from .base_executor import StageExecutor
+from .executor_utils import project_root
 
 
 def validate_stage5_config(config: Dict[str, Any]) -> Tuple[bool, str]:
@@ -58,96 +61,100 @@ def validate_stage5_config(config: Dict[str, Any]) -> Tuple[bool, str]:
     return True, "配置驗證通過"
 
 
-def load_stage5_config() -> Dict[str, Any]:
+class Stage5Executor(StageExecutor):
     """
-    載入 Stage 5 配置文件
+    Stage 5 執行器 - 信號品質分析層 (Grade A+ 模式)
 
-    Returns:
-        dict: 配置字典
-
-    Raises:
-        FileNotFoundError: 當配置文件不存在時
-        yaml.YAMLError: 當配置文件格式錯誤時
+    繼承自 StageExecutor，只需實現配置加載和處理器創建邏輯。
+    包含特殊的配置驗證邏輯以確保學術合規性。
     """
-    # 構建配置文件路徑
-    executor_dir = Path(__file__).parent
-    project_root = executor_dir.parent.parent
-    config_path = project_root / 'config' / 'stage5_signal_analysis_config.yaml'
 
-    if not config_path.exists():
-        raise FileNotFoundError(
-            f"配置文件不存在: {config_path}\n"
-            f"請確保配置文件存在於 config/stage5_signal_analysis_config.yaml"
+    def __init__(self):
+        super().__init__(
+            stage_number=5,
+            stage_name="信號品質分析層 (Grade A+ 重構版本)",
+            emoji="📊"
         )
 
-    # 載入 YAML 配置
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config = yaml.safe_load(f)
+    def load_config(self) -> Dict[str, Any]:
+        """
+        載入 Stage 5 配置
 
-    # 驗證配置完整性
-    valid, message = validate_stage5_config(config)
-    if not valid:
-        raise ValueError(f"配置驗證失敗: {message}")
+        從 YAML 文件載入配置並進行完整性驗證。
 
-    print(f'✅ 已加載配置文件: {config_path.name}')
-    print(f'✅ 配置驗證: {message}')
+        Returns:
+            Dict[str, Any]: 配置字典
 
-    return config
+        Raises:
+            FileNotFoundError: 當配置文件不存在時
+            ValueError: 當配置驗證失敗時
+        """
+        config_path = project_root / 'config' / 'stage5_signal_analysis_config.yaml'
+
+        if not config_path.exists():
+            raise FileNotFoundError(
+                f"配置文件不存在: {config_path}\n"
+                f"請確保配置文件存在於 config/stage5_signal_analysis_config.yaml"
+            )
+
+        # 載入 YAML 配置
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+
+        # 驗證配置完整性
+        valid, message = validate_stage5_config(config)
+        if not valid:
+            raise ValueError(f"配置驗證失敗: {message}")
+
+        print(f'✅ 已加載配置文件: {config_path.name}')
+        print(f'✅ 配置驗證: {message}')
+
+        return config
+
+    def create_processor(self, config: Dict[str, Any]):
+        """
+        創建 Stage 5 處理器
+
+        Args:
+            config: load_config() 返回的配置字典
+
+        Returns:
+            Stage5SignalAnalysisProcessor: 處理器實例
+        """
+        from stages.stage5_signal_analysis.stage5_signal_analysis_processor import Stage5SignalAnalysisProcessor
+        return Stage5SignalAnalysisProcessor(config)
+
+    def get_previous_stage_number(self) -> int:
+        """
+        Stage 5 依賴 Stage 4 的結果
+
+        Returns:
+            int: 4
+        """
+        return 4
 
 
-def execute_stage5(previous_results):
+# ===== 向後兼容函數 =====
+
+def execute_stage5(previous_results=None):
     """
-    執行 Stage 5: 信號品質分析層
+    執行 Stage 5: 信號品質分析層 (Grade A+ 模式)
+
+    向後兼容函數，保持原有調用方式。
+    內部使用 Stage5Executor 類實現。
 
     Args:
-        previous_results: dict, 必須包含 'stage4' 結果
+        previous_results: 前序階段結果字典（必須包含 'stage4' 結果）
 
     Returns:
         tuple: (success: bool, result: ProcessingResult, processor: Stage5Processor)
     """
     try:
-        print('\n📊 階段五：信號品質分析層 (Grade A+ 模式)')
-        print('-' * 60)
-
-        # 清理舊的輸出
-        clean_stage_outputs(5)
-
-        # ✅ 新增：加載 Stage 5 配置文件
-        try:
-            config = load_stage5_config()
-        except FileNotFoundError as e:
-            print(f'⚠️  {e}')
-            print('⚠️  使用空配置（可能導致 Grade A 驗證失敗）')
-            config = {}
-        except (yaml.YAMLError, ValueError) as e:
-            print(f'❌ 配置文件錯誤: {e}')
-            return False, None, None
-
-        # 尋找 Stage 4 輸出
-        stage4_output = find_latest_stage_output(4)
-        if not stage4_output:
-            print('❌ 找不到 Stage 4 輸出文件，請先執行 Stage 4')
-            return False, None, None
-
-        # ✅ 傳入配置參數創建處理器
-        from stages.stage5_signal_analysis.stage5_signal_analysis_processor import Stage5SignalAnalysisProcessor
-        processor = Stage5SignalAnalysisProcessor(config)
-
-        # 載入前階段數據
-        with open(stage4_output, 'r') as f:
-            stage4_data = json.load(f)
-
-        # 執行處理
-        result = processor.execute(stage4_data)
-
-        if not result:
-            print('❌ Stage 5 執行失敗')
-            return False, None, processor
-
-        return True, result, processor
-
-    except Exception as e:
-        print(f'❌ Stage 5 執行異常: {e}')
+        executor = Stage5Executor()
+        return executor.execute(previous_results)
+    except (FileNotFoundError, ValueError) as e:
+        # 處理配置錯誤，提供友好的錯誤信息
+        print(f'❌ 配置文件錯誤: {e}')
         import traceback
         traceback.print_exc()
         return False, None, None

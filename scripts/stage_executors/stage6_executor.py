@@ -1,64 +1,83 @@
 """
 Stage 6 執行器 - 研究數據生成層
 
-Author: Extracted from run_six_stages_with_validation.py
-Date: 2025-10-03
+重構版本：使用 StageExecutor 基類，減少重複代碼。
+
+Author: Orbit Engine Refactoring Team
+Date: 2025-10-12
+Version: 2.0 (Refactored)
 """
 
-import json
-from .executor_utils import clean_stage_outputs, find_latest_stage_output
-from src.shared.interfaces import ProcessingStatus  # 🔧 修復: 導入 ProcessingStatus 枚舉
+from typing import Dict, Any
+
+from .base_executor import StageExecutor
 
 
-def execute_stage6(previous_results):
+class Stage6Executor(StageExecutor):
+    """
+    Stage 6 執行器 - 研究數據生成層
+
+    繼承自 StageExecutor，只需實現配置加載和處理器創建邏輯。
+    Stage 6 不需要特殊配置，使用處理器預設值。
+    """
+
+    def __init__(self):
+        super().__init__(
+            stage_number=6,
+            stage_name="研究數據生成層 (重構版本)",
+            emoji="💾"
+        )
+
+    def load_config(self) -> Dict[str, Any]:
+        """
+        載入 Stage 6 配置
+
+        Stage 6 不需要特殊配置，返回空字典。
+
+        Returns:
+            Dict[str, Any]: 空配置字典
+        """
+        # Stage 6 使用處理器內部預設配置
+        print("📋 Stage 6 使用處理器預設配置")
+        return {}
+
+    def create_processor(self, config: Dict[str, Any]):
+        """
+        創建 Stage 6 處理器
+
+        Args:
+            config: load_config() 返回的配置字典（空字典）
+
+        Returns:
+            Stage6ResearchOptimizationProcessor: 處理器實例
+        """
+        from stages.stage6_research_optimization.stage6_research_optimization_processor import Stage6ResearchOptimizationProcessor
+        return Stage6ResearchOptimizationProcessor()
+
+    def get_previous_stage_number(self) -> int:
+        """
+        Stage 6 依賴 Stage 5 的結果
+
+        Returns:
+            int: 5
+        """
+        return 5
+
+
+# ===== 向後兼容函數 =====
+
+def execute_stage6(previous_results=None):
     """
     執行 Stage 6: 研究數據生成層
 
+    向後兼容函數，保持原有調用方式。
+    內部使用 Stage6Executor 類實現。
+
     Args:
-        previous_results: dict, 必須包含 'stage5' 結果
+        previous_results: 前序階段結果字典（必須包含 'stage5' 結果）
 
     Returns:
         tuple: (success: bool, result: ProcessingResult, processor: Stage6Processor)
     """
-    try:
-        print('\n💾 階段六：研究數據生成層')
-        print('-' * 60)
-
-        # 清理舊的輸出
-        clean_stage_outputs(6)
-
-        # 尋找 Stage 5 輸出
-        stage5_output = find_latest_stage_output(5)
-        if not stage5_output:
-            print('❌ 找不到 Stage 5 輸出文件，請先執行 Stage 5')
-            return False, None, None
-
-        from stages.stage6_research_optimization.stage6_research_optimization_processor import Stage6ResearchOptimizationProcessor
-        processor = Stage6ResearchOptimizationProcessor()
-
-        # 載入前階段數據
-        with open(stage5_output, 'r') as f:
-            stage5_data = json.load(f)
-
-        # 執行處理
-        result = processor.execute(stage5_data)
-
-        # 🔧 修復: 使用 ProcessingStatus 枚舉而非字符串比較
-        if not result or result.status != ProcessingStatus.SUCCESS:
-            print('❌ Stage 6 執行失敗')
-            return False, result, processor
-
-        # 保存 Stage 6 驗證快照
-        # 🔧 修復: save_validation_snapshot 期望接收字典，不是 ProcessingResult
-        if hasattr(processor, 'save_validation_snapshot'):
-            snapshot_saved = processor.save_validation_snapshot(result.data)
-            if snapshot_saved:
-                print('✅ Stage 6 驗證快照已保存')
-            else:
-                print('⚠️ Stage 6 驗證快照保存失敗')
-
-        return True, result, processor
-
-    except Exception as e:
-        print(f'❌ Stage 6 執行異常: {e}')
-        return False, None, None
+    executor = Stage6Executor()
+    return executor.execute(previous_results)

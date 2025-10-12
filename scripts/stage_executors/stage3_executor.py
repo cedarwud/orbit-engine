@@ -1,40 +1,46 @@
 """
-Stage 3 執行器 - 座標系統轉換層 (v3.1 架構)
+Stage 3 執行器 - 座標系統轉換層
 
-Author: Extracted from run_six_stages_with_validation.py
-Date: 2025-10-03
+重構版本：使用 StageExecutor 基類，減少重複代碼。
+
+Author: Orbit Engine Refactoring Team
+Date: 2025-10-12
+Version: 2.0 (Refactored)
 """
 
 import yaml
+from typing import Dict, Any
 from pathlib import Path
-from .executor_utils import clean_stage_outputs, extract_data_from_result, is_sampling_mode, project_root
+
+from .base_executor import StageExecutor
+from .executor_utils import project_root, is_sampling_mode
 
 
-def execute_stage3(previous_results):
+class Stage3Executor(StageExecutor):
     """
-    執行 Stage 3: 座標系統轉換層 (v3.1)
+    Stage 3 執行器 - 座標系統轉換層 (v3.1)
 
-    Args:
-        previous_results: dict, 必須包含 'stage2' 結果
-
-    Returns:
-        tuple: (success: bool, result: ProcessingResult, processor: Stage3Processor)
+    繼承自 StageExecutor，只需實現配置加載和處理器創建邏輯。
+    包含特殊的配置扁平化邏輯以保持向後兼容性。
     """
-    try:
-        print('\n🌍 階段三：座標系統轉換層')
-        print('-' * 60)
 
-        # 檢查前序階段
-        if 'stage2' not in previous_results:
-            print('❌ 缺少 Stage 2 結果')
-            return False, None, None
+    def __init__(self):
+        super().__init__(
+            stage_number=3,
+            stage_name="座標系統轉換層 (v3.1 重構版本)",
+            emoji="🌍"
+        )
 
-        # 清理舊的輸出
-        clean_stage_outputs(3)
+    def load_config(self) -> Dict[str, Any]:
+        """
+        載入 Stage 3 配置
 
-        from stages.stage3_coordinate_transformation.stage3_coordinate_transform_processor import Stage3CoordinateTransformProcessor
+        從 YAML 文件載入配置，並進行扁平化以適配現有處理器接口。
+        處理取樣模式的環境變數覆蓋。
 
-        # ✅ 從 YAML 載入配置
+        Returns:
+            Dict[str, Any]: 扁平化的配置字典
+        """
         config_path = project_root / "config/stage3_coordinate_transformation.yaml"
 
         if config_path.exists():
@@ -42,6 +48,7 @@ def execute_stage3(previous_results):
                 stage3_config = yaml.safe_load(f)
             print(f"✅ 已載入 Stage 3 配置: {config_path}")
         else:
+            # ⚠️ 回退到預設配置 (僅用於開發環境)
             print(f"⚠️ 未找到配置文件: {config_path}")
             print("⚠️ 使用預設配置")
             stage3_config = {
@@ -71,6 +78,7 @@ def execute_stage3(previous_results):
             config_compat['sample_mode'] = True
             config_compat['sample_size'] = 50
 
+        # 顯示配置摘要
         print(f"📋 配置摘要:")
         print(f"   源座標系: {config_compat['coordinate_config']['source_frame']}")
         print(f"   目標座標系: {config_compat['coordinate_config']['target_frame']}")
@@ -79,21 +87,48 @@ def execute_stage3(previous_results):
         print(f"   幾何預篩選: {'啟用' if config_compat['enable_geometric_prefilter'] else '禁用'}")
         print(f"   處理模式: {'取樣模式' if use_sampling else '完整模式'}")
 
-        stage3 = Stage3CoordinateTransformProcessor(config=config_compat)
-
-        # 提取 Stage 2 數據
-        stage2_data = extract_data_from_result(previous_results['stage2'])
-
-        # 執行處理
+        # Stage 3 特別提示（處理時間較長）
         print('⏱️ Stage 3 座標轉換處理中，預計需要 5-15 分鐘...')
-        stage3_result = stage3.execute(stage2_data)
 
-        if not stage3_result:
-            print('❌ Stage 3 處理失敗')
-            return False, None, stage3
+        return config_compat
 
-        return True, stage3_result, stage3
+    def create_processor(self, config: Dict[str, Any]):
+        """
+        創建 Stage 3 處理器
 
-    except Exception as e:
-        print(f'❌ Stage 3 執行異常: {e}')
-        return False, None, None
+        Args:
+            config: load_config() 返回的配置字典
+
+        Returns:
+            Stage3CoordinateTransformProcessor: 處理器實例
+        """
+        from stages.stage3_coordinate_transformation.stage3_coordinate_transform_processor import Stage3CoordinateTransformProcessor
+        return Stage3CoordinateTransformProcessor(config=config)
+
+    def get_previous_stage_number(self) -> int:
+        """
+        Stage 3 依賴 Stage 2 的結果
+
+        Returns:
+            int: 2
+        """
+        return 2
+
+
+# ===== 向後兼容函數 =====
+
+def execute_stage3(previous_results=None):
+    """
+    執行 Stage 3: 座標系統轉換層 (v3.1)
+
+    向後兼容函數，保持原有調用方式。
+    內部使用 Stage3Executor 類實現。
+
+    Args:
+        previous_results: 前序階段結果字典（必須包含 'stage2' 結果）
+
+    Returns:
+        tuple: (success: bool, result: ProcessingResult, processor: Stage3Processor)
+    """
+    executor = Stage3Executor()
+    return executor.execute(previous_results)
