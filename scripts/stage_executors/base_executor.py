@@ -242,9 +242,23 @@ class StageExecutor(ABC):
             print(error_msg)
             return False
 
+        # 調試：顯示 result 的類型和狀態
+        self.logger.debug(f"🔍 Result type: {type(result)}")
+        self.logger.debug(f"🔍 Has status: {hasattr(result, 'status')}")
+        if hasattr(result, 'status'):
+            self.logger.debug(f"🔍 Status value: {result.status}")
+            self.logger.debug(f"🔍 Status type: {type(result.status)}")
+            self.logger.debug(f"🔍 ProcessingStatus.SUCCESS: {ProcessingStatus.SUCCESS}")
+            self.logger.debug(f"🔍 Comparison: {result.status == ProcessingStatus.SUCCESS}")
+
         # 檢查狀態
         if hasattr(result, 'status'):
-            if result.status != ProcessingStatus.SUCCESS:
+            # 支持枚舉和字符串比較（向後兼容）
+            is_success = (result.status == ProcessingStatus.SUCCESS or
+                         result.status == ProcessingStatus.COMPLETED or
+                         (hasattr(result.status, 'value') and result.status.value == 'success'))
+
+            if not is_success:
                 errors = '; '.join(result.errors) if hasattr(result, 'errors') and result.errors else "未知錯誤"
                 error_msg = f'❌ Stage {self.stage_number} 執行失敗: {errors}'
                 self.logger.error(error_msg)
