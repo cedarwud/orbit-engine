@@ -1,83 +1,101 @@
 """
-Stage 2 執行器 - 軌道狀態傳播層 (v3.0 架構)
+Stage 2 執行器 - 軌道狀態傳播層
 
-Author: Extracted from run_six_stages_with_validation.py
-Date: 2025-10-03
+重構版本：使用 StageExecutor 基類，減少重複代碼。
+
+Author: Orbit Engine Refactoring Team
+Date: 2025-10-12
+Version: 2.0 (Refactored)
 """
 
+import yaml
+from typing import Dict, Any
 from pathlib import Path
-from .executor_utils import clean_stage_outputs, extract_data_from_result, project_root
+
+from .base_executor import StageExecutor
+from .executor_utils import project_root
 
 
-def load_stage2_config(config_path: str) -> dict:
-    """載入 Stage 2 配置文件"""
-    import yaml
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config_dict = yaml.safe_load(f)
+class Stage2Executor(StageExecutor):
+    """
+    Stage 2 執行器 - 軌道狀態傳播層 (v3.0)
 
+    繼承自 StageExecutor，只需實現配置加載和處理器創建邏輯。
+    """
+
+    def __init__(self):
+        super().__init__(
+            stage_number=2,
+            stage_name="軌道狀態傳播層 (v3.0 重構版本)",
+            emoji="🛰️"
+        )
+
+    def load_config(self) -> Dict[str, Any]:
+        """
+        載入 Stage 2 配置
+
+        從 YAML 文件載入 v3.0 軌道傳播配置，如果文件不存在則使用預設配置。
+
+        Returns:
+            Dict[str, Any]: 配置字典
+        """
+        config_path = project_root / "config/stage2_orbital_computing.yaml"
+
+        if config_path.exists():
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config_dict = yaml.safe_load(f)
+            print(f"✅ 已載入 Stage 2 配置: {config_path}")
+        else:
+            # ⚠️ 回退到預設配置 (僅用於開發環境)
+            print(f"⚠️ 未找到配置文件: {config_path}")
+            print("⚠️ 使用預設配置")
+            config_dict = {
+                'time_series_config': {'time_step_seconds': 60},
+                'propagation_config': {
+                    'coordinate_system': 'TEME',
+                    'sgp4_library': 'skyfield'
+                }
+            }
+
+        # 顯示配置摘要
         time_config = config_dict.get('time_series_config', {})
         propagation_config = config_dict.get('propagation_config', {})
 
-        print(f'📊 v3.0 軌道傳播配置載入成功:')
-        print(f'   時間步長: {time_config.get("time_step_seconds", "N/A")}秒')
-        print(f'   座標系統: {propagation_config.get("coordinate_system", "TEME")}')
-        print(f'   SGP4庫: {propagation_config.get("sgp4_library", "skyfield")}')
+        print(f"📋 配置摘要:")
+        print(f"   時間步長: {time_config.get('time_step_seconds', 'N/A')}秒")
+        print(f"   座標系統: {propagation_config.get('coordinate_system', 'TEME')}")
+        print(f"   SGP4庫: {propagation_config.get('sgp4_library', 'skyfield')}")
 
         return config_dict
-    except Exception as e:
-        print(f'❌ 配置載入失敗: {e}')
-        return {}
+
+    def create_processor(self, config: Dict[str, Any]):
+        """
+        創建 Stage 2 處理器
+
+        Args:
+            config: load_config() 返回的配置字典
+
+        Returns:
+            Stage2OrbitalPropagationProcessor: 處理器實例
+        """
+        from stages.stage2_orbital_computing.stage2_orbital_computing_processor import Stage2OrbitalPropagationProcessor
+        return Stage2OrbitalPropagationProcessor(config=config)
 
 
-def execute_stage2(previous_results):
+# ===== 向後兼容函數 =====
+
+def execute_stage2(previous_results=None):
     """
     執行 Stage 2: 軌道狀態傳播層 (v3.0)
 
+    向後兼容函數，保持原有調用方式。
+    內部使用 Stage2Executor 類實現。
+
     Args:
-        previous_results: dict, 必須包含 'stage1' 結果
+        previous_results: 前序階段結果字典（必須包含 'stage1' 結果）
 
     Returns:
         tuple: (success: bool, result: ProcessingResult, processor: Stage2Processor)
     """
-    try:
-        print('\n🛰️ 階段二：軌道狀態傳播層')
-        print('-' * 60)
-
-        # 檢查前序階段
-        if 'stage1' not in previous_results:
-            print('❌ 缺少 Stage 1 結果')
-            return False, None, None
-
-        # 清理舊的輸出
-        clean_stage_outputs(2)
-
-        # 載入 v3.0 軌道傳播配置
-        config_path = project_root / "config/stage2_orbital_computing.yaml"
-
-        if config_path.exists():
-            print(f'📄 載入 v3.0 配置: {config_path}')
-            config_dict = load_stage2_config(str(config_path))
-
-            from stages.stage2_orbital_computing.stage2_orbital_computing_processor import Stage2OrbitalPropagationProcessor
-            stage2 = Stage2OrbitalPropagationProcessor(config=config_dict)
-        else:
-            print('⚠️ 配置文件不存在，使用 v3.0 預設處理器')
-            from stages.stage2_orbital_computing.stage2_orbital_computing_processor import Stage2OrbitalPropagationProcessor
-            stage2 = Stage2OrbitalPropagationProcessor()
-
-        # 提取 Stage 1 數據
-        stage1_data = extract_data_from_result(previous_results['stage1'])
-
-        # 執行處理
-        stage2_result = stage2.execute(stage1_data)
-
-        if not stage2_result:
-            print('❌ Stage 2 處理失敗')
-            return False, None, stage2
-
-        return True, stage2_result, stage2
-
-    except Exception as e:
-        print(f'❌ Stage 2 執行異常: {e}')
-        return False, None, None
+    executor = Stage2Executor()
+    return executor.execute(previous_results)
