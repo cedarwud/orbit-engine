@@ -1168,19 +1168,20 @@ ml_training_sample = {
 #### **Layer 1: 處理器內部驗證** (生產驗證)
 - **負責模組**: `Stage6ResearchOptimizationProcessor.run_validation_checks()`
 - **執行時機**: 處理器執行完成後立即執行
-- **驗證內容**: 詳細的 5 項專用驗證檢查
+- **驗證內容**: 詳細的 6 項專用驗證檢查
 - **輸出結果**:
   ```json
   {
-    "checks_performed": 5,
-    "checks_passed": 5,
+    "checks_performed": 6,
+    "checks_passed": 6,
     "overall_status": "PASS",
     "checks": {
-      "gpp_event_standard_compliance": {"status": "passed", "events_detected": 150},
-      "ml_training_data_quality": {"status": "passed", "total_samples": 5000},
+      "gpp_event_standard_compliance": {"status": "passed", "events_detected": 4686},
+      "ml_training_data_quality": {"status": "passed", "total_samples": 0},
       "satellite_pool_optimization": {"status": "passed", "pool_verified": true},
-      "real_time_decision_performance": {"status": "passed", "avg_latency_ms": 5.2},
-      "research_goal_achievement": {"status": "passed", "final_md_compliance": true}
+      "real_time_decision_performance": {"status": "passed", "avg_latency_ms": 0.0},
+      "research_goal_achievement": {"status": "passed", "final_md_compliance": true},
+      "event_temporal_coverage": {"status": "passed", "time_coverage_rate": 1.0, "participating_satellites": 128}
     }
   }
   ```
@@ -1191,8 +1192,8 @@ ml_training_sample = {
 - **執行時機**: 讀取驗證快照文件後
 - **設計原則**:
   - ✅ **信任 Layer 1 的詳細驗證結果**
-  - ✅ 檢查 Layer 1 是否執行完整 (`checks_performed == 5`)
-  - ✅ 檢查 Layer 1 是否通過 (`checks_passed >= 4`)
+  - ✅ 檢查 Layer 1 是否執行完整 (`checks_performed == 6`)
+  - ✅ 檢查 Layer 1 是否通過 (`checks_passed >= 5`)
   - ✅ 額外的研究數據完整性檢查（3GPP 事件數、ML 樣本數、池驗證狀態）
 - **不應重複**: Layer 1 的詳細檢查邏輯
 
@@ -1205,12 +1206,13 @@ ml_training_sample = {
 │  1. processor.execute(stage5_data) → ProcessingResult       │
 │     ↓                                                       │
 │  2. processor.run_validation_checks() (Layer 1)             │
-│     → 執行 5 項詳細驗證                                      │
+│     → 執行 6 項詳細驗證                                      │
 │     → ① gpp_event_standard_compliance (3GPP 事件)         │
 │     → ② ml_training_data_quality (ML 數據品質)            │
 │     → ③ satellite_pool_optimization (池優化驗證)          │
 │     → ④ real_time_decision_performance (實時決策)         │
 │     → ⑤ research_goal_achievement (final.md 合規)         │
+│     → ⑥ event_temporal_coverage (時間覆蓋率驗證)          │
 │     → 生成 validation_results 對象                         │
 │     ↓                                                       │
 │  3. processor.save_validation_snapshot()                    │
@@ -1218,8 +1220,8 @@ ml_training_sample = {
 │     ↓                                                       │
 │  4. check_validation_snapshot_quality() (Layer 2)           │
 │     → 讀取驗證快照                                           │
-│     → 檢查 checks_performed >= 5                            │
-│     → 檢查 checks_passed >= 4                               │
+│     → 檢查 checks_performed >= 6                            │
+│     → 檢查 checks_passed >= 5                               │
 │     → 檢查 events_detected > 0                              │
 │     → 檢查 ml_samples > 0                                   │
 │     → 檢查 pool_verification_passed == true                 │
@@ -1245,15 +1247,15 @@ ml_training_sample = {
 
 **舉例說明**：
 如果 `ml_training_data_quality` 或 `real_time_decision_performance` 失敗：
-- Layer 1 會標記 `checks_passed = 3` (< 4)
-- Layer 2 檢查到 `checks_passed < 4` 會自動拒絕
+- Layer 1 會標記 `checks_passed = 4` (< 5)
+- Layer 2 檢查到 `checks_passed < 5` 會自動拒絕
 - **無需**在 Layer 2 重新實現 ML 數據品質或實時決策性能的詳細檢查邏輯
 
 ## 🔬 驗證框架
 
-### 5項專用驗證檢查 (Layer 1 處理器內部)
+### 6項專用驗證檢查 (Layer 1 處理器內部)
 1. **gpp_event_standard_compliance** - 3GPP 事件標準合規
-   - A4/A5/D2 事件檢測邏輯驗證
+   - A3/A4/A5/D2 事件檢測邏輯驗證
    - 3GPP TS 38.331 參數正確性
    - 事件觸發條件準確性
 
@@ -1276,6 +1278,13 @@ ml_training_sample = {
    - final.md 需求對應檢查
    - 學術研究數據完整性
    - 實驗可重現性驗證
+
+6. **event_temporal_coverage** - 時間覆蓋率驗證 ✨ (2025-10-05 新增)
+   - 時間點處理完整性檢查（確保遍歷所有時間點）
+   - 衛星參與度驗證（確保 ≥ 80 顆衛星參與事件檢測）
+   - 時間覆蓋率 ≥ 80% 門檻（防止 P0 級別錯誤：忽略時間序列遍歷）
+   - **新增理由**: 修復事件數量遠低於預期的問題（從 114 事件提升至 3,000+ 事件）
+   - **代碼位置**: `stage6_validation_framework.py:event_temporal_coverage`
 
 ## 🚀 使用方式與配置
 

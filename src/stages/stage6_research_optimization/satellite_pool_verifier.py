@@ -77,9 +77,25 @@ class SatellitePoolVerifier:
         """
         self.logger.info("🔍 開始動態衛星池驗證...")
 
+        # ✅ Fail-Fast: 確保 starlink 字段存在
+        if 'starlink' not in connectable_satellites:
+            raise ValueError(
+                "connectable_satellites 缺少 starlink 字段\n"
+                "請確保 Stage 4 輸出包含 Starlink 星座數據\n"
+                f"當前可用字段: {list(connectable_satellites.keys())}"
+            )
+
+        # ✅ Fail-Fast: 確保 oneweb 字段存在
+        if 'oneweb' not in connectable_satellites:
+            raise ValueError(
+                "connectable_satellites 缺少 oneweb 字段\n"
+                "請確保 Stage 4 輸出包含 OneWeb 星座數據\n"
+                f"當前可用字段: {list(connectable_satellites.keys())}"
+            )
+
         # 1. 驗證 Starlink 池
         starlink_verification = self.verify_pool_maintenance(
-            connectable_satellites=connectable_satellites.get('starlink', []),
+            connectable_satellites=connectable_satellites['starlink'],
             constellation='starlink',
             target_min=self.config['starlink_pool_target']['min'],
             target_max=self.config['starlink_pool_target']['max']
@@ -87,7 +103,7 @@ class SatellitePoolVerifier:
 
         # 2. 驗證 OneWeb 池
         oneweb_verification = self.verify_pool_maintenance(
-            connectable_satellites=connectable_satellites.get('oneweb', []),
+            connectable_satellites=connectable_satellites['oneweb'],
             constellation='oneweb',
             target_min=self.config['oneweb_pool_target']['min'],
             target_max=self.config['oneweb_pool_target']['max']
@@ -138,22 +154,45 @@ class SatellitePoolVerifier:
         """
         self.logger.info(f"🔍 驗證 {constellation} 池維持...")
 
+        # ✅ Fail-Fast (P3-3): 無候選衛星是致命錯誤，不應返回空結果
+        # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
+        # 如果 Stage 4 沒有提供候選衛星，說明數據流有問題
         if not connectable_satellites:
-            self.logger.warning(f"❌ {constellation} 無候選衛星數據")
-            return self._empty_verification_result(target_min, target_max)
+            raise ValueError(
+                f"❌ {constellation} 無候選衛星數據\n"
+                f"動態池驗證需要完整的候選衛星列表\n"
+                f"請確保 Stage 4 提供 connectable_satellites['{constellation}']\n"
+                f"Grade A 標準禁止使用空結果作為回退"
+            )
 
         # 1. 收集所有時間點
         all_timestamps = set()
         for satellite in connectable_satellites:
-            time_series = satellite.get('time_series', [])
+            # ✅ Fail-Fast: 確保 time_series 字段存在
+            if 'time_series' not in satellite:
+                raise ValueError(
+                    f"衛星 {satellite.get('satellite_id', 'unknown')} 缺少 time_series 字段\n"
+                    "Grade A 標準要求所有衛星必須有完整時間序列數據\n"
+                    "請確保 Stage 5 提供 time_series 數據"
+                )
+            time_series = satellite['time_series']
+
             for time_point in time_series:
                 timestamp = time_point.get('timestamp')
                 if timestamp:
                     all_timestamps.add(timestamp)
 
+        # ✅ Fail-Fast (P3-3): 無時間序列數據是致命錯誤，不應返回空結果
+        # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
+        # 如果所有衛星都沒有時間戳，說明 Stage 5 數據不完整
         if not all_timestamps:
-            self.logger.warning(f"❌ {constellation} 無時間序列數據")
-            return self._empty_verification_result(target_min, target_max)
+            raise ValueError(
+                f"❌ {constellation} 無時間序列數據\n"
+                f"動態池驗證需要完整的時間序列數據\n"
+                f"請確保 Stage 5 提供所有衛星的 time_series 數據\n"
+                f"候選衛星數量: {len(connectable_satellites)} 顆\n"
+                f"Grade A 標準禁止使用空結果作為回退"
+            )
 
         self.logger.info(f"   收集到 {len(all_timestamps)} 個時間點")
 
@@ -164,7 +203,14 @@ class SatellitePoolVerifier:
 
             # 檢查該時刻有多少顆衛星 is_connectable=True
             for satellite in connectable_satellites:
-                time_series = satellite.get('time_series', [])
+                # ✅ Fail-Fast: 確保 time_series 字段存在（與上方檢查保持一致）
+                if 'time_series' not in satellite:
+                    raise ValueError(
+                        f"衛星 {satellite.get('satellite_id', 'unknown')} 缺少 time_series 字段\n"
+                        "Grade A 標準要求所有衛星必須有完整時間序列數據\n"
+                        "請確保 Stage 5 提供 time_series 數據"
+                    )
+                time_series = satellite['time_series']
 
                 # 找到該時間點的數據
                 time_point = next(
@@ -175,14 +221,23 @@ class SatellitePoolVerifier:
                 if time_point:
                     # 🚨 修正：優先使用 visibility_metrics.is_connectable（來自 Stage 4，基於 elevation）
                     # 而非頂層 is_connectable（來自 Stage 5，僅基於信號品質）
-                    visibility_metrics = time_point.get('visibility_metrics', {})
+
+                    # ✅ Fail-Fast: 確保 visibility_metrics 字段存在
+                    if 'visibility_metrics' not in time_point:
+                        raise ValueError(
+                            f"時間點 {timestamp} 缺少 visibility_metrics 字段\n"
+                            "動態池驗證需要可見性指標\n"
+                            "請確保 Stage 5 提供完整的 visibility_metrics"
+                        )
+
+                    visibility_metrics = time_point['visibility_metrics']
 
                     # ✅ Fail-Fast: 確保 is_connectable 字段存在
                     if 'is_connectable' not in visibility_metrics:
                         raise ValueError(
                             f"時間點 {timestamp} visibility_metrics 缺少 is_connectable\n"
-                            f"Grade A 標準要求所有數據字段必須存在\n"
-                            f"請確保 Stage 5 提供完整的可見性數據"
+                            "Grade A 標準要求所有數據字段必須存在\n"
+                            "請確保 Stage 5 提供完整的可見性數據"
                         )
                     is_connectable = visibility_metrics['is_connectable']
 
@@ -226,11 +281,8 @@ class SatellitePoolVerifier:
         # 🔑 使用星座特定的覆蓋率門檻（2025-10-09）
         # SOURCE: constellation_coverage_thresholds 配置
         # 理由: 不同星座部署密度不同，應使用不同標準
-        constellation_thresholds = self.config.get('constellation_coverage_thresholds', {})
-        coverage_threshold = constellation_thresholds.get(
-            constellation,
-            self.config['coverage_threshold']  # 回退到默認值
-        )
+        # ✅ Fail-Fast (P2-3): 直接訪問，_load_config() 已確保存在
+        coverage_threshold = self.config['constellation_coverage_thresholds'][constellation]
 
         result = {
             'target_range': {'min': target_min, 'max': target_max},
@@ -319,23 +371,14 @@ class SatellitePoolVerifier:
                 'message': "❌ 時間點不足，無法驗證軌道週期"
             }
 
-        # 解析時間戳
-        try:
-            timestamps = [
-                datetime.fromisoformat(tp.replace('Z', '+00:00'))
-                for tp in time_points
-            ]
-            timestamps.sort()
-        except Exception as e:
-            self.logger.error(f"時間戳解析失敗: {e}")
-            return {
-                'time_span_minutes': 0.0,
-                'expected_period_minutes': ORBITAL_PERIODS.get(constellation, 95),
-                'coverage_ratio': 0.0,
-                'is_complete_period': False,
-                'validation_passed': False,
-                'message': f"❌ 時間戳解析失敗: {e}"
-            }
+        # ✅ Fail-Fast: 解析時間戳，不捕獲異常
+        # 時間戳格式錯誤是致命問題，應該拋出而非回退
+        # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
+        timestamps = [
+            datetime.fromisoformat(tp.replace('Z', '+00:00'))
+            for tp in time_points
+        ]
+        timestamps.sort()
 
         # 計算時間跨度
         time_span = timestamps[-1] - timestamps[0]
@@ -465,7 +508,8 @@ class SatellitePoolVerifier:
         # 從配置讀取觀測窗口時長，而非硬編碼
         # SOURCE: config['observation_window_hours']
         # 依據: Stage 4-6 統一使用 2 小時觀測窗口
-        observation_window_hours = self.config.get('observation_window_hours', 2.0)
+        # ✅ Fail-Fast (P2-4): 直接訪問，_load_config() 已確保存在
+        observation_window_hours = self.config['observation_window_hours']
 
         if len(time_coverage_check) > 1:
             time_step_hours = observation_window_hours / len(time_coverage_check)
@@ -480,16 +524,17 @@ class SatellitePoolVerifier:
         start_timestamp: str,
         end_timestamp: str
     ) -> float:
-        """計算時間間隔 (分鐘)"""
-        try:
-            start_dt = datetime.fromisoformat(start_timestamp.replace('Z', '+00:00'))
-            end_dt = datetime.fromisoformat(end_timestamp.replace('Z', '+00:00'))
+        """計算時間間隔 (分鐘)
 
-            duration_seconds = (end_dt - start_dt).total_seconds()
-            return duration_seconds / 60.0
-        except Exception as e:
-            self.logger.warning(f"時間計算失敗: {e}")
-            return 0.0
+        ✅ Fail-Fast: 時間戳格式錯誤應立即拋出，不使用回退邏輯
+        """
+        # ✅ Fail-Fast: 時間戳解析錯誤是致命問題，應該拋出而非返回 0.0
+        # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
+        start_dt = datetime.fromisoformat(start_timestamp.replace('Z', '+00:00'))
+        end_dt = datetime.fromisoformat(end_timestamp.replace('Z', '+00:00'))
+
+        duration_seconds = (end_dt - start_dt).total_seconds()
+        return duration_seconds / 60.0
 
     def _assess_gap_severity(
         self,
@@ -510,10 +555,11 @@ class SatellitePoolVerifier:
         # 從配置讀取嚴重性門檻
         # SOURCE: config['gap_severity_thresholds']
         # 依據: 3GPP TS 38.331 T310 典型值 1000ms (1秒) - 關鍵掉線檢測時間
-        severity_thresholds = self.config.get('gap_severity_thresholds', {})
-        critical_duration = severity_thresholds.get('critical_duration_minutes', 10)
-        warning_duration = severity_thresholds.get('warning_duration_minutes', 5)
-        warning_visible_ratio = severity_thresholds.get('warning_visible_ratio', 0.5)
+        # ✅ Fail-Fast (P2-4): 直接訪問，_load_config() 已確保存在
+        severity_thresholds = self.config['gap_severity_thresholds']
+        critical_duration = severity_thresholds['critical_duration_minutes']
+        warning_duration = severity_thresholds['warning_duration_minutes']
+        warning_visible_ratio = severity_thresholds['warning_visible_ratio']
 
         if visible_count == 0 or duration_minutes > critical_duration:
             return 'critical'
@@ -546,9 +592,9 @@ class SatellitePoolVerifier:
 
         # 🔑 使用星座特定的覆蓋率門檻（2025-10-09）
         # SOURCE: constellation_coverage_thresholds 配置
-        constellation_thresholds = self.config.get('constellation_coverage_thresholds', {})
-        starlink_threshold = constellation_thresholds.get('starlink', 0.95)
-        oneweb_threshold = constellation_thresholds.get('oneweb', 0.85)
+        # ✅ Fail-Fast (P2-3): 直接訪問，_load_config() 已確保存在
+        starlink_threshold = self.config['constellation_coverage_thresholds']['starlink']
+        oneweb_threshold = self.config['constellation_coverage_thresholds']['oneweb']
 
         optimal_scheduling = (
             starlink_coverage >= starlink_threshold and

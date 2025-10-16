@@ -101,9 +101,16 @@ class GPPEventDetector:
         all_timestamps = self._collect_all_timestamps(signal_analysis)
         self.logger.info(f"   收集到 {len(all_timestamps)} 個唯一時間點")
 
+        # ✅ Fail-Fast (P3-2): signal_analysis 中沒有時間點數據是致命錯誤
+        # 移除原有的回退邏輯 (返回空結果)，改為立即拋出異常
+        # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
         if len(all_timestamps) == 0:
-            self.logger.warning("❌ 沒有可用的時間點數據")
-            return self._empty_event_result()
+            raise ValueError(
+                "❌ signal_analysis 中沒有可用的時間點數據\n"
+                "3GPP 事件檢測需要完整的時間序列數據\n"
+                "請確保 Stage 5 提供所有衛星的 time_series 數據\n"
+                "Grade A 標準禁止使用空結果作為回退"
+            )
 
         # Step 2: 初始化事件列表
         all_a3_events = []
@@ -255,19 +262,43 @@ class GPPEventDetector:
         # 3GPP 標準參數
         # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.4
         hysteresis = self.config['hysteresis_db']
-        a3_offset = self.config.get('a3_offset_db', 3.0)
+        # ✅ Fail-Fast: 直接訪問（_load_config 已保證存在）
+        a3_offset = self.config['a3_offset_db']
 
         # 提取服務衛星 RSRP 和偏移參數
         # ✅ Fail-Fast: 移除 try-except 靜默錯誤處理
         serving_rsrp = serving_satellite['signal_quality']['rsrp_dbm']
-        serving_offset_mo = serving_satellite['signal_quality'].get('offset_mo_db', 0.0)
-        serving_cell_offset = serving_satellite['signal_quality'].get('cell_offset_db', 0.0)
+
+        # ✅ Fail-Fast: offset 參數檢查（3GPP 標準預設為 0.0）
+        # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4
+        # offsetMO 和 cellIndividualOffset 的 3GPP 標準預設值為 0.0 dB
+        # 如果 Stage 5 未提供，使用標準預設值（非靜默回退，而是符合標準）
+        if 'offset_mo_db' not in serving_satellite['signal_quality']:
+            serving_offset_mo = 0.0  # 3GPP 標準預設值
+            self.logger.debug(f"服務衛星 {serving_satellite['satellite_id']} 使用 offsetMO 標準預設值 0.0 dB")
+        else:
+            serving_offset_mo = serving_satellite['signal_quality']['offset_mo_db']
+
+        if 'cell_offset_db' not in serving_satellite['signal_quality']:
+            serving_cell_offset = 0.0  # 3GPP 標準預設值
+            self.logger.debug(f"服務衛星 {serving_satellite['satellite_id']} 使用 cellOffset 標準預設值 0.0 dB")
+        else:
+            serving_cell_offset = serving_satellite['signal_quality']['cell_offset_db']
 
         for neighbor in neighbor_satellites:
             # 提取鄰近衛星 RSRP 和偏移參數
             neighbor_rsrp = neighbor['signal_quality']['rsrp_dbm']
-            neighbor_offset_mo = neighbor['signal_quality'].get('offset_mo_db', 0.0)
-            neighbor_cell_offset = neighbor['signal_quality'].get('cell_offset_db', 0.0)
+
+            # ✅ Fail-Fast: offset 參數檢查（同上）
+            if 'offset_mo_db' not in neighbor['signal_quality']:
+                neighbor_offset_mo = 0.0  # 3GPP 標準預設值
+            else:
+                neighbor_offset_mo = neighbor['signal_quality']['offset_mo_db']
+
+            if 'cell_offset_db' not in neighbor['signal_quality']:
+                neighbor_cell_offset = 0.0  # 3GPP 標準預設值
+            else:
+                neighbor_cell_offset = neighbor['signal_quality']['cell_offset_db']
 
             # 3GPP TS 38.331 標準 A3 觸發條件
             # Mn + Ofn + Ocn - Hys > Mp + Ofp + Ocp + Off
@@ -492,14 +523,43 @@ class GPPEventDetector:
         # 問題根源: 動態閾值更新到 self.config['starlink']['d2_threshold1_km']
         #          但檢測器讀取的是 self.config['d2_threshold1_km'] (全局默認 2000km)
         # 修復: 根據服務衛星的星座提取對應的動態閾值
-        constellation = serving_satellite.get('constellation', 'unknown')
 
-        # 優先使用星座特定的動態閾值，否則回退到全局默認
+        # ✅ Fail-Fast: 確保 constellation 字段存在
+        if 'constellation' not in serving_satellite:
+            raise ValueError(
+                f"服務衛星 {serving_satellite.get('satellite_id', 'unknown')} 缺少 constellation 字段\n"
+                "D2 事件需要星座資訊以選擇正確的距離閾值\n"
+                "請確保 Stage 5 提供完整的星座元數據"
+            )
+
+        constellation = serving_satellite['constellation']
+
+        # ✅ Fail-Fast: 星座特定閾值必須存在（Stage 4 動態閾值已確保）
         if constellation in self.config and isinstance(self.config[constellation], dict):
-            threshold1_km = self.config[constellation].get('d2_threshold1_km', self.config['d2_threshold1_km'])
-            threshold2_km = self.config[constellation].get('d2_threshold2_km', self.config['d2_threshold2_km'])
+            # 星座特定配置存在，閾值必須完整
+            if 'd2_threshold1_km' not in self.config[constellation]:
+                raise ValueError(
+                    f"星座 {constellation} 配置缺少 d2_threshold1_km\n"
+                    "Stage 4 動態閾值分析應該已設定此值\n"
+                    "請檢查 Stage 4 輸出的 metadata.dynamic_d2_thresholds"
+                )
+            if 'd2_threshold2_km' not in self.config[constellation]:
+                raise ValueError(
+                    f"星座 {constellation} 配置缺少 d2_threshold2_km\n"
+                    "Stage 4 動態閾值分析應該已設定此值\n"
+                    "請檢查 Stage 4 輸出的 metadata.dynamic_d2_thresholds"
+                )
+
+            threshold1_km = self.config[constellation]['d2_threshold1_km']
+            threshold2_km = self.config[constellation]['d2_threshold2_km']
         else:
-            # 回退到全局默認閾值
+            # 使用全局默認閾值（僅在沒有星座特定配置時）
+            # 注意: 這應該只在測試或降級模式下發生
+            self.logger.warning(
+                f"星座 {constellation} 沒有特定配置，使用全局默認閾值\n"
+                f"  Threshold1: {self.config['d2_threshold1_km']} km\n"
+                f"  Threshold2: {self.config['d2_threshold2_km']} km"
+            )
             threshold1_km = self.config['d2_threshold1_km']
             threshold2_km = self.config['d2_threshold2_km']
 
@@ -542,11 +602,15 @@ class GPPEventDetector:
         # 服務衛星地面距離已劣化，檢查鄰近衛星
         for neighbor in neighbor_satellites:
             # ✅ Fail-Fast: 確保鄰居衛星有 ECEF 位置數據
+            # Grade A 標準: 所有參與檢測的衛星必須有完整數據
+            # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
             if 'position_ecef_m' not in neighbor['physical_parameters']:
-                self.logger.warning(
-                    f"鄰居衛星 {neighbor['satellite_id']} 缺少 position_ecef_m，跳過"
+                raise ValueError(
+                    f"鄰居衛星 {neighbor['satellite_id']} 缺少 position_ecef_m\n"
+                    "D2 事件需要 ECEF 位置計算地面距離\n"
+                    "Grade A 標準要求所有衛星數據完整，不允許跳過\n"
+                    "請確保 Stage 5 提供 physical_parameters['position_ecef_m']"
                 )
-                continue
 
             # 計算鄰居衛星的 2D 地面距離
             neighbor_ecef = neighbor['physical_parameters']['position_ecef_m']
@@ -602,6 +666,8 @@ class GPPEventDetector:
     def _collect_all_timestamps(self, signal_analysis: Dict[str, Any]) -> List[str]:
         """從所有衛星的 time_series 收集所有唯一時間戳
 
+        ✅ Fail-Fast: 確保所有衛星都有 time_series 數據和時間戳
+
         Args:
             signal_analysis: Stage 5 輸出的信號分析數據
 
@@ -611,11 +677,25 @@ class GPPEventDetector:
         all_timestamps = set()
 
         for sat_id, sat_data in signal_analysis.items():
-            time_series = sat_data.get('time_series', [])
+            # ✅ Fail-Fast: 確保 time_series 字段存在
+            if 'time_series' not in sat_data:
+                raise ValueError(
+                    f"衛星 {sat_id} 缺少 time_series 字段\n"
+                    "3GPP 事件檢測需要完整的時間序列數據\n"
+                    "請確保 Stage 5 提供所有衛星的 time_series"
+                )
+
+            time_series = sat_data['time_series']
+
             for point in time_series:
-                timestamp = point.get('timestamp')
-                if timestamp:
-                    all_timestamps.add(timestamp)
+                # ✅ Fail-Fast: 確保每個時間點都有 timestamp
+                if 'timestamp' not in point:
+                    raise ValueError(
+                        f"衛星 {sat_id} 的 time_series 中發現缺少 timestamp 的數據點\n"
+                        "Grade A 標準要求所有時間點必須有時間戳\n"
+                        f"問題數據點: {point}"
+                    )
+                all_timestamps.add(point['timestamp'])
 
         return sorted(list(all_timestamps))
 
@@ -625,6 +705,8 @@ class GPPEventDetector:
         timestamp: str
     ) -> List[Dict[str, Any]]:
         """獲取特定時間點可見的衛星
+
+        ✅ Fail-Fast: 確保所有數據字段完整
 
         Args:
             signal_analysis: Stage 5 輸出的信號分析數據
@@ -636,20 +718,61 @@ class GPPEventDetector:
         visible = []
 
         for sat_id, sat_data in signal_analysis.items():
-            time_series = sat_data.get('time_series', [])
+            # ✅ Fail-Fast: 確保 time_series 字段存在
+            if 'time_series' not in sat_data:
+                raise ValueError(
+                    f"衛星 {sat_id} 缺少 time_series 字段\n"
+                    "3GPP 事件檢測需要完整的時間序列數據\n"
+                    "請確保 Stage 5 提供所有衛星的 time_series"
+                )
+
+            time_series = sat_data['time_series']
 
             # 找到該時間點的數據
             for point in time_series:
                 if point.get('timestamp') == timestamp:
                     # 檢查是否可連接 (is_connectable = True 表示可見且可用)
+                    # 注意: is_connectable 默認 False 是合理的（如果沒有這個字段，默認為不可連接）
                     if point.get('is_connectable', False):
+                        # ✅ Fail-Fast: 確保 constellation 字段存在
+                        if 'constellation' not in sat_data:
+                            raise ValueError(
+                                f"衛星 {sat_id} 缺少 constellation 字段\n"
+                                "D2 事件檢測需要星座資訊\n"
+                                "請確保 Stage 5 提供完整的星座元數據"
+                            )
+
+                        # ✅ Fail-Fast: 確保 signal_quality 字段存在
+                        if 'signal_quality' not in point:
+                            raise ValueError(
+                                f"衛星 {sat_id} 在時間點 {timestamp} 缺少 signal_quality\n"
+                                "A3/A4/A5 事件檢測需要信號品質數據\n"
+                                "請確保 Stage 5 提供完整的 signal_quality"
+                            )
+
+                        # ✅ Fail-Fast: 確保 physical_parameters 字段存在
+                        if 'physical_parameters' not in point:
+                            raise ValueError(
+                                f"衛星 {sat_id} 在時間點 {timestamp} 缺少 physical_parameters\n"
+                                "D2 事件檢測需要物理參數（ECEF 位置）\n"
+                                "請確保 Stage 5 提供完整的 physical_parameters"
+                            )
+
+                        # ✅ Fail-Fast: 確保 summary 字段存在
+                        if 'summary' not in sat_data:
+                            raise ValueError(
+                                f"衛星 {sat_id} 缺少 summary 字段\n"
+                                "事件檢測需要衛星摘要數據\n"
+                                "請確保 Stage 5 提供完整的 summary"
+                            )
+
                         visible.append({
                             'satellite_id': sat_id,
-                            'constellation': sat_data.get('constellation', 'unknown'),
+                            'constellation': sat_data['constellation'],
                             'timestamp': timestamp,
-                            'signal_quality': point.get('signal_quality', {}),
-                            'physical_parameters': point.get('physical_parameters', {}),
-                            'summary': sat_data.get('summary', {})
+                            'signal_quality': point['signal_quality'],
+                            'physical_parameters': point['physical_parameters'],
+                            'summary': sat_data['summary']
                         })
                     break
 
@@ -660,6 +783,8 @@ class GPPEventDetector:
         visible_satellites: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """選擇服務衛星 (使用中位數 RSRP 策略)
+
+        ✅ Fail-Fast: 所有衛星必須有 RSRP 數據，無回退邏輯
 
         Args:
             visible_satellites: 可見衛星列表
@@ -673,16 +798,27 @@ class GPPEventDetector:
         if len(visible_satellites) == 1:
             return visible_satellites[0]
 
-        # 按 RSRP 排序
+        # ✅ Fail-Fast: 按 RSRP 排序，所有衛星必須有 RSRP 數據
         satellites_with_rsrp = []
         for sat in visible_satellites:
-            rsrp = sat.get('signal_quality', {}).get('rsrp_dbm')
-            if rsrp is not None:
-                satellites_with_rsrp.append((sat, rsrp))
+            # ✅ Fail-Fast: 確保 signal_quality 字段存在
+            if 'signal_quality' not in sat:
+                raise ValueError(
+                    f"衛星 {sat.get('satellite_id', 'unknown')} 缺少 signal_quality 字段\n"
+                    "服務衛星選擇需要信號品質數據\n"
+                    "請確保 _get_visible_satellites_at 提供完整的數據"
+                )
 
-        if not satellites_with_rsrp:
-            # 如果沒有 RSRP 數據，返回第一顆
-            return visible_satellites[0]
+            # ✅ Fail-Fast: 確保 rsrp_dbm 字段存在
+            if 'rsrp_dbm' not in sat['signal_quality']:
+                raise ValueError(
+                    f"衛星 {sat.get('satellite_id', 'unknown')} 的 signal_quality 缺少 rsrp_dbm\n"
+                    "服務衛星選擇需要 RSRP 數據\n"
+                    "請確保 Stage 5 提供完整的 RSRP 測量值"
+                )
+
+            rsrp = sat['signal_quality']['rsrp_dbm']
+            satellites_with_rsrp.append((sat, rsrp))
 
         # 選擇中位數 RSRP
         satellites_with_rsrp.sort(key=lambda x: x[1])
@@ -721,15 +857,22 @@ class GPPEventDetector:
         satellite_rsrp = []
 
         for sat_id, sat_data in signal_analysis.items():
-            # ✅ Fail-Fast: 移除數據回退默認值和靜默錯誤處理
-            # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
+            # ✅ Fail-Fast: 確保 summary 字段存在
+            if 'summary' not in sat_data:
+                raise ValueError(
+                    f"衛星 {sat_id} 缺少 summary 字段\n"
+                    "服務衛星選擇需要 summary 數據\n"
+                    "請確保 Stage 5 提供完整的衛星摘要"
+                )
 
-            summary = sat_data.get('summary', {})
+            summary = sat_data['summary']
+
+            # ✅ Fail-Fast: 確保 average_rsrp_dbm 字段存在
             if 'average_rsrp_dbm' not in summary:
                 raise ValueError(
-                    f"衛星 {sat_id} 缺少 average_rsrp_dbm 數據\n"
-                    f"Grade A 標準要求所有數據字段必須存在\n"
-                    f"請確保 Stage 5 提供完整的 summary 數據"
+                    f"衛星 {sat_id} 的 summary 缺少 average_rsrp_dbm\n"
+                    "Grade A 標準要求所有數據字段必須存在\n"
+                    "請確保 Stage 5 提供完整的 RSRP 平均值"
                 )
 
             rsrp = summary['average_rsrp_dbm']
@@ -779,6 +922,8 @@ class GPPEventDetector:
     def _extract_satellite_snapshot(self, sat_id: str, sat_data: Dict[str, Any]) -> Dict[str, Any]:
         """從 time_series 提取最新時間點的衛星數據快照
 
+        ✅ Fail-Fast: 確保所有必需字段存在
+
         Args:
             sat_id: 衛星ID
             sat_data: 包含 time_series 和 summary 的原始數據
@@ -786,40 +931,72 @@ class GPPEventDetector:
         Returns:
             包含 signal_quality, physical_parameters 的快照
         """
-        time_series = sat_data.get('time_series', [])
-        summary = sat_data.get('summary', {})
+        # ✅ Fail-Fast: 確保 time_series 字段存在
+        if 'time_series' not in sat_data:
+            raise ValueError(
+                f"衛星 {sat_id} 缺少 time_series 字段\n"
+                "事件檢測需要完整的時間序列數據\n"
+                "請確保 Stage 5 提供所有衛星的 time_series"
+            )
+
+        time_series = sat_data['time_series']
+
+        # ✅ Fail-Fast: 確保 time_series 不為空
+        if not time_series or len(time_series) == 0:
+            raise ValueError(
+                f"衛星 {sat_id} 的 time_series 為空\n"
+                "Grade A 標準禁止使用預設值\n"
+                "請確保 Stage 5 提供完整的 time_series 數據"
+            )
+
+        # ✅ Fail-Fast: 確保 summary 字段存在
+        if 'summary' not in sat_data:
+            raise ValueError(
+                f"衛星 {sat_id} 缺少 summary 字段\n"
+                "事件檢測需要衛星摘要數據\n"
+                "請確保 Stage 5 提供完整的 summary"
+            )
+
+        summary = sat_data['summary']
 
         # 使用最新時間點（最後一個）
-        if time_series:
-            latest_point = time_series[-1]
-            signal_quality = latest_point.get('signal_quality', {})
-            physical_parameters = latest_point.get('physical_parameters', {})
+        latest_point = time_series[-1]
 
-            # ✅ Fail-Fast: 確保 constellation 字段存在
-            if 'constellation' not in sat_data:
-                raise ValueError(
-                    f"衛星 {sat_id} 缺少 constellation 數據\n"
-                    f"Grade A 標準要求所有衛星必須標註星座歸屬\n"
-                    f"請確保 Stage 5 提供完整的衛星元數據"
-                )
-
-            return {
-                'satellite_id': sat_id,
-                'constellation': sat_data['constellation'],
-                'signal_quality': signal_quality,
-                'physical_parameters': physical_parameters,
-                'summary': summary
-            }
-        else:
-            # ❌ CRITICAL: 無時間序列數據時拋出錯誤
-            # Grade A 標準禁止使用預設值 (ACADEMIC_STANDARDS.md Lines 265-274)
-            error_msg = (
-                f"衛星 {sat_id} 缺少時間序列數據 (time_series)\\n"
-                f"Grade A 標準禁止使用預設值\\n"
-                f"請確保 Stage 5 提供完整的 time_series 數據"
+        # ✅ Fail-Fast: 確保 signal_quality 字段存在
+        if 'signal_quality' not in latest_point:
+            raise ValueError(
+                f"衛星 {sat_id} 的 time_series 最新點缺少 signal_quality\n"
+                "事件檢測需要信號品質數據\n"
+                "請確保 Stage 5 提供完整的 signal_quality"
             )
-            self.logger.error(error_msg)
-            raise ValueError(error_msg)
+
+        signal_quality = latest_point['signal_quality']
+
+        # ✅ Fail-Fast: 確保 physical_parameters 字段存在
+        if 'physical_parameters' not in latest_point:
+            raise ValueError(
+                f"衛星 {sat_id} 的 time_series 最新點缺少 physical_parameters\n"
+                "D2 事件檢測需要物理參數\n"
+                "請確保 Stage 5 提供完整的 physical_parameters"
+            )
+
+        physical_parameters = latest_point['physical_parameters']
+
+        # ✅ Fail-Fast: 確保 constellation 字段存在
+        if 'constellation' not in sat_data:
+            raise ValueError(
+                f"衛星 {sat_id} 缺少 constellation 數據\n"
+                "Grade A 標準要求所有衛星必須標註星座歸屬\n"
+                "請確保 Stage 5 提供完整的衛星元數據"
+            )
+
+        return {
+            'satellite_id': sat_id,
+            'constellation': sat_data['constellation'],
+            'signal_quality': signal_quality,
+            'physical_parameters': physical_parameters,
+            'summary': summary
+        }
 
     def _empty_event_result(self) -> Dict[str, Any]:
         """返回空的事件檢測結果"""
@@ -895,7 +1072,7 @@ class GPPEventDetector:
             #   - 10th percentile RSRP ≈ -44.2 dBm
             #   - 需要: Thresh1 > (-44.2 + 2.0) = -42.2 dBm
             #   - 設定: -41.0 dBm（加 1.0 dB 餘量，確保觸發）
-            # 理由: 當服務衛星 RSRP < -43.0 dBm 時觸發（約 5-10% 範圍）
+            # 理由: 當服務衛星 RSRP < -43.0 dBm 時觸發（5-10% 範圍，基於實測數據）
             # 學術依據: 3GPP TR 38.821 v18.0.0 Section 6.4.3
             #          建議 NTN 場景根據實測數據調整閾值
             'a5_threshold1_dbm': -41.0,
@@ -907,7 +1084,7 @@ class GPPEventDetector:
             #   - 70th percentile RSRP ≈ -30.8 dBm
             #   - 需要: Thresh2 < (-30.8 - 2.0) = -32.8 dBm
             #   - 設定: -34.0 dBm（減 1.0 dB 餘量，確保質量）
-            # 理由: 鄰居衛星 RSRP > -32.0 dBm 時觸發（約 30% 最佳範圍）
+            # 理由: 鄰居衛星 RSRP > -32.0 dBm 時觸發（30% 最佳範圍，基於統計分析）
             # 計算: -34.0 dBm = 70th percentile (-30.8 dBm) - hysteresis (2.0) - margin (1.2)
             'a5_threshold2_dbm': -34.0,
 
@@ -939,7 +1116,7 @@ class GPPEventDetector:
             'd2_threshold1_km': 2000.0,
 
             # Threshold2 (鄰居衛星距離門檻 Ml2 vs Thresh2): 1500km
-            # 理由: LEO 衛星最佳覆蓋半徑約 1000-1500km
+            # 理由: LEO 衛星最佳覆蓋半徑 1000-1500km範圍（基於LEO衛星覆蓋計算）
             #       鄰居衛星距離小於此門檻，確保良好信號品質
             'd2_threshold2_km': 1500.0,
 
@@ -961,7 +1138,7 @@ class GPPEventDetector:
 
             # 距離遲滯: 50 km
             # SOURCE: 基於 LEO 衛星移動速度 ~7.5 km/s
-            # 計算: 1秒移動距離約 7.5km，取 50km 避免測量抖動
+            # 計算: 1秒移動距離 7.5km（基於LEO軌道速度計算），取 50km 避免測量抖動
             # 依據: 衛星軌道動力學 (Vallado 2013, Chapter 6)
             'hysteresis_km': 50.0,
 

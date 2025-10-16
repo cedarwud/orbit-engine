@@ -136,7 +136,13 @@ class SkyfieldVisibilityCalculator:
 
         except Exception as e:
             self.logger.error(f"Skyfield 地平座標計算失敗: {e}")
-            return -90.0, 0.0, float('inf')
+            raise ValueError(
+                f"❌ Fail-Fast: Skyfield 地平座標計算失敗\n"
+                f"衛星位置: ({sat_lat_deg}°, {sat_lon_deg}°, {sat_alt_km} km)\n"
+                f"時間戳記: {timestamp}\n"
+                f"原始錯誤: {e}\n"
+                f"依據: ACADEMIC_STANDARDS.md - 禁止使用預設值掩蓋計算錯誤"
+            ) from e
 
     def calculate_visibility_metrics(self, sat_lat_deg: float, sat_lon_deg: float,
                                     sat_alt_km: float, timestamp: datetime) -> Dict[str, Any]:

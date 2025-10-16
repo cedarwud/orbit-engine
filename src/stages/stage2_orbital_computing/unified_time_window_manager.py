@@ -48,10 +48,27 @@ class UnifiedTimeWindowManager:
 
         # 讀取配置
         self.time_series_config = config.get('time_series', {})
-        self.mode = self.time_series_config.get('mode', 'independent_epoch')
+
+        # ✅ Fail-Fast: mode 是關鍵參數，Grade A 標準禁止預設值
+        self.mode = self.time_series_config.get('mode')
+        if not self.mode:
+            raise ValueError(
+                "配置缺少 time_series.mode，Grade A 標準禁止預設值\n"
+                "請在 config/stage2_orbital_computing_config.yaml 中設定此參數\n"
+                "可選值: 'unified_window' | 'independent_epoch'"
+            )
+
         self.unified_window_config = self.time_series_config.get('unified_window', {})
         self.constellation_periods = self.time_series_config.get('constellation_orbital_periods', {})
-        self.interval_seconds = self.time_series_config.get('interval_seconds', 30)
+
+        # ✅ Fail-Fast: interval_seconds 是關鍵參數，Grade A 標準禁止預設值
+        self.interval_seconds = self.time_series_config.get('interval_seconds')
+        if self.interval_seconds is None:
+            raise ValueError(
+                "配置缺少 time_series.interval_seconds，Grade A 標準禁止預設值\n"
+                "請在 config/stage2_orbital_computing_config.yaml 中設定此參數\n"
+                "建議值: 30 秒（基於 LEO 軌道計算標準間隔）"
+            )
 
         # 參考時刻
         self.reference_time: Optional[datetime] = None

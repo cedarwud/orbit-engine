@@ -203,7 +203,12 @@ class Stage3TransformationEngine:
 
         except Exception as e:
             self.logger.error(f"❌ 批量轉換失敗: {e}")
-            return []
+            raise RuntimeError(
+                f"Skyfield 批量座標轉換失敗\n"
+                f"Grade A 標準禁止靜默失敗並返回空結果\n"
+                f"總點數: {total_points}\n"
+                f"詳細錯誤: {e}"
+            ) from e
 
     def _reorganize_results(
         self,

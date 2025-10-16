@@ -3,12 +3,13 @@
 Stage 6: 驗證框架
 
 核心職責:
-執行 5 項專用驗證檢查:
+執行 6 項專用驗證檢查:
 1. 3GPP 事件標準合規
 2. ML 訓練數據品質
 3. 衛星池優化驗證
 4. 實時決策性能
 5. 研究目標達成
+6. 時間覆蓋率驗證
 
 Author: ORBIT Engine Team
 Created: 2025-10-02 (重構自 stage6_research_optimization_processor.py)
@@ -22,12 +23,13 @@ from typing import Dict, Any
 class Stage6ValidationFramework:
     """Stage 6 驗證框架
 
-    實現五項專用驗證檢查:
+    實現六項專用驗證檢查:
     1. gpp_event_standard_compliance - 3GPP 事件標準合規
     2. ml_training_data_quality - ML 訓練數據品質
     3. satellite_pool_optimization - 衛星池優化驗證
     4. real_time_decision_performance - 實時決策性能
     5. research_goal_achievement - 研究目標達成
+    6. event_temporal_coverage - 時間覆蓋率驗證
     """
 
     def __init__(self, logger: logging.Logger = None):
@@ -39,20 +41,20 @@ class Stage6ValidationFramework:
         self.logger = logger or logging.getLogger(__name__)
 
     def run_validation_checks(self, output_data: Dict[str, Any]) -> Dict[str, Any]:
-        """執行 5 項專用驗證檢查
+        """執行 6 項專用驗證檢查
 
         Returns:
             {
                 'validation_status': 'passed' | 'failed',
                 'overall_status': 'PASS' | 'FAIL',
-                'checks_performed': 5,
+                'checks_performed': 6,
                 'checks_passed': int,
                 'validation_details': {...},
                 'check_details': {...},
                 'validation_timestamp': str
             }
         """
-        self.logger.info("🔍 開始執行 5 項驗證框架檢查...")
+        self.logger.info("🔍 開始執行 6 項驗證框架檢查...")
 
         validation_results = {
             'validation_status': 'pending',
@@ -143,15 +145,32 @@ class Stage6ValidationFramework:
         }
 
         try:
-            gpp_events = output_data.get('gpp_events', {})
+            # ✅ Fail-Fast: 確保 gpp_events 字段存在
+            if 'gpp_events' not in output_data:
+                raise ValueError(
+                    "output_data 缺少 gpp_events 字段\n"
+                    "驗證框架要求處理器提供完整的事件數據"
+                )
+            gpp_events = output_data['gpp_events']
 
-            # 檢查事件總數
-            a4_events = gpp_events.get('a4_events', [])
-            a5_events = gpp_events.get('a5_events', [])
-            d2_events = gpp_events.get('d2_events', [])
-            total_events = len(a4_events) + len(a5_events) + len(d2_events)
+            # ✅ Fail-Fast: 檢查所有 4 種 3GPP 事件字段存在性
+            required_event_types = ['a3_events', 'a4_events', 'a5_events', 'd2_events']
+            for event_type in required_event_types:
+                if event_type not in gpp_events:
+                    raise ValueError(
+                        f"gpp_events 缺少 {event_type} 字段\n"
+                        "事件檢測器必須提供所有 4 種事件類型（即使為空列表）"
+                    )
+
+            # 檢查事件總數 - 包含所有 4 種 3GPP 事件 (A3/A4/A5/D2)
+            a3_events = gpp_events['a3_events']
+            a4_events = gpp_events['a4_events']
+            a5_events = gpp_events['a5_events']
+            d2_events = gpp_events['d2_events']
+            total_events = len(a3_events) + len(a4_events) + len(a5_events) + len(d2_events)
 
             result['details']['total_events'] = total_events
+            result['details']['a3_count'] = len(a3_events)
             result['details']['a4_count'] = len(a4_events)
             result['details']['a5_count'] = len(a5_events)
             result['details']['d2_count'] = len(d2_events)
@@ -212,8 +231,21 @@ class Stage6ValidationFramework:
         }
 
         try:
-            ml_data = output_data.get('ml_training_data', {})
-            dataset_summary = ml_data.get('dataset_summary', {})
+            # ✅ Fail-Fast: 確保 ml_training_data 字段存在
+            if 'ml_training_data' not in output_data:
+                raise ValueError(
+                    "output_data 缺少 ml_training_data 字段\n"
+                    "驗證框架要求處理器提供完整的 ML 訓練數據"
+                )
+            ml_data = output_data['ml_training_data']
+
+            # ✅ Fail-Fast: 確保 dataset_summary 字段存在
+            if 'dataset_summary' not in ml_data:
+                raise ValueError(
+                    "ml_training_data 缺少 dataset_summary 字段\n"
+                    "ML 數據生成器必須提供數據集摘要"
+                )
+            dataset_summary = ml_data['dataset_summary']
 
             # ✅ Fail-Fast: 檢查字段存在性，不使用默認值掩蓋缺失
             if 'total_samples' not in dataset_summary:
@@ -269,8 +301,21 @@ class Stage6ValidationFramework:
         }
 
         try:
-            pool_verification = output_data.get('pool_verification', {})
-            overall_verification = pool_verification.get('overall_verification', {})
+            # ✅ Fail-Fast: 確保 pool_verification 字段存在
+            if 'pool_verification' not in output_data:
+                raise ValueError(
+                    "output_data 缺少 pool_verification 字段\n"
+                    "驗證框架要求處理器提供完整的池驗證數據"
+                )
+            pool_verification = output_data['pool_verification']
+
+            # ✅ Fail-Fast: 確保 overall_verification 字段存在
+            if 'overall_verification' not in pool_verification:
+                raise ValueError(
+                    "pool_verification 缺少 overall_verification 字段\n"
+                    "池驗證器必須提供總體驗證結果"
+                )
+            overall_verification = pool_verification['overall_verification']
 
             # ✅ Fail-Fast: 檢查字段存在性，不使用默認值掩蓋缺失
             if 'overall_passed' not in overall_verification:
@@ -325,7 +370,13 @@ class Stage6ValidationFramework:
         }
 
         try:
-            decision_support = output_data.get('decision_support', {})
+            # ✅ Fail-Fast: 確保 decision_support 字段存在
+            if 'decision_support' not in output_data:
+                raise ValueError(
+                    "output_data 缺少 decision_support 字段\n"
+                    "驗證框架要求處理器提供完整的決策支援數據"
+                )
+            decision_support = output_data['decision_support']
 
             # ✅ Fail-Fast: 檢查字段存在性
             if 'decision_count' not in decision_support:
@@ -381,7 +432,13 @@ class Stage6ValidationFramework:
         }
 
         try:
-            metadata = output_data.get('metadata', {})
+            # ✅ Fail-Fast: 確保 metadata 字段存在
+            if 'metadata' not in output_data:
+                raise ValueError(
+                    "output_data 缺少 metadata 字段\n"
+                    "驗證框架要求處理器提供完整的元數據"
+                )
+            metadata = output_data['metadata']
 
             # ✅ Fail-Fast: 檢查核心指標字段存在性
             required_fields = {
@@ -473,10 +530,21 @@ class Stage6ValidationFramework:
         }
 
         try:
-            gpp_events = output_data.get('gpp_events', {})
+            # ✅ Fail-Fast: 確保 gpp_events 字段存在
+            if 'gpp_events' not in output_data:
+                raise ValueError(
+                    "output_data 缺少 gpp_events 字段\n"
+                    "驗證框架要求處理器提供完整的事件數據"
+                )
+            gpp_events = output_data['gpp_events']
 
-            # 檢查是否有 time_series_coverage 數據
-            event_summary = gpp_events.get('event_summary', {})
+            # ✅ Fail-Fast: 確保 event_summary 字段存在
+            if 'event_summary' not in gpp_events:
+                raise ValueError(
+                    "gpp_events 缺少 event_summary 字段\n"
+                    "事件檢測器必須提供事件摘要數據"
+                )
+            event_summary = gpp_events['event_summary']
 
             if 'time_coverage_rate' not in event_summary:
                 result['passed'] = False

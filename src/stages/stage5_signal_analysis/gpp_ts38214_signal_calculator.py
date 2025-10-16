@@ -338,21 +338,49 @@ class GPPTS38214SignalCalculator:
 
         constellation_lower = constellation.lower()
 
-        # 預設值：0.0 dB（標準場景）
-        offset_mo_db = 0.0
-        cell_offset_db = 0.0
-
-        # 如果配置中有星座特定的偏移設置，使用配置值
-        if 'measurement_offsets' in self.config:
-            constellation_offsets = self.config['measurement_offsets'].get(
-                constellation_lower, {}
+        # ✅ Fail-Fast: 移除預設值回退機制
+        # Grade A 標準要求所有參數都必須在配置中明確提供
+        if 'measurement_offsets' not in self.config:
+            raise ValueError(
+                "measurement_offsets 必須在配置中提供\n"
+                "Grade A 標準禁止使用預設值\n"
+                "必須為每個星座明確定義 offset_mo_db 和 cell_offset_db\n"
+                "配置示例:\n"
+                "  measurement_offsets:\n"
+                "    starlink:\n"
+                "      offset_mo_db: 0.0  # SOURCE: 3GPP TS 38.331 Section 5.5.4.4\n"
+                "      cell_offset_db: 0.0\n"
+                "    oneweb:\n"
+                "      offset_mo_db: 0.0\n"
+                "      cell_offset_db: 0.0"
             )
-            offset_mo_db = constellation_offsets.get('offset_mo_db', 0.0)
-            cell_offset_db = constellation_offsets.get('cell_offset_db', 0.0)
+
+        if constellation_lower not in self.config['measurement_offsets']:
+            raise ValueError(
+                f"星座 '{constellation}' 的測量偏移配置缺失\n"
+                f"必須在 config['measurement_offsets']['{constellation_lower}'] 中定義\n"
+                f"當前配置中僅包含: {list(self.config['measurement_offsets'].keys())}"
+            )
+
+        constellation_offsets = self.config['measurement_offsets'][constellation_lower]
+
+        if 'offset_mo_db' not in constellation_offsets:
+            raise ValueError(
+                f"星座 '{constellation}' 缺少 offset_mo_db 配置\n"
+                "Grade A 標準禁止使用預設值\n"
+                "必須明確提供: measurement_offsets.{constellation_lower}.offset_mo_db"
+            )
+
+        if 'cell_offset_db' not in constellation_offsets:
+            raise ValueError(
+                f"星座 '{constellation}' 缺少 cell_offset_db 配置\n"
+                "Grade A 標準禁止使用預設值\n"
+                "必須明確提供: measurement_offsets.{constellation_lower}.cell_offset_db"
+            )
 
         return {
-            'offset_mo_db': offset_mo_db,
-            'cell_offset_db': cell_offset_db
+            'offset_mo_db': constellation_offsets['offset_mo_db'],
+            'cell_offset_db': constellation_offsets['cell_offset_db']
         }
 
     def calculate_interference_power_from_measurements(

@@ -199,8 +199,17 @@ class ITURPhysicsCalculator:
             antenna_gain_db = 10 * math.log10(antenna_gain_linear)
 
             # 考慮系統損耗 (基於ITU-R P.341標準)
-            system_losses_db = self.config.get('rx_system_losses_db',
-                                              self.calculate_system_losses(frequency_ghz, antenna_diameter_m))
+            # ✅ Fail-Fast: 明確檢查配置，而非使用 .get() 回退
+            if 'rx_system_losses_db' in self.config:
+                system_losses_db = self.config['rx_system_losses_db']
+                self.logger.info(f"使用配置的系統損耗: {system_losses_db} dB")
+            else:
+                # 明確計算並記錄
+                system_losses_db = self.calculate_system_losses(frequency_ghz, antenna_diameter_m)
+                self.logger.info(
+                    f"計算系統損耗: {system_losses_db} dB "
+                    f"(配置未提供 rx_system_losses_db，使用 ITU-R P.341 計算)"
+                )
 
             effective_gain_db = antenna_gain_db - system_losses_db
 
@@ -208,34 +217,19 @@ class ITURPhysicsCalculator:
             return effective_gain_db
 
         except Exception as e:
-            self.logger.warning(f"接收器增益計算失敗: {e}")
-            # 使用ITU-R P.580標準的備用公式
-            try:
-                # ITU-R P.580建議的簡化公式
-                # G = 20*log10(D) + 20*log10(f) + 20*log10(η) + 20*log10(π/λ) + K
-                frequency_hz = frequency_ghz * 1e9
-                wavelength_m = physics_consts.SPEED_OF_LIGHT / frequency_hz
-
-                # 使用標準參數
-                standard_diameter = self.get_itur_recommended_antenna_diameter(frequency_ghz)
-                standard_efficiency = self.get_itur_recommended_antenna_efficiency(frequency_ghz)
-
-                gain_db = (20 * math.log10(standard_diameter) +
-                          20 * math.log10(frequency_ghz) +
-                          10 * math.log10(standard_efficiency) +
-                          20 * math.log10(math.pi / wavelength_m) +
-                          20.0)  # ITU-R修正常數
-
-                return max(10.0, min(gain_db, 50.0))  # 物理限制
-
-            except Exception as fallback_error:
-                # ✅ Fail-Fast 策略：備用計算失敗應該拋出錯誤
-                self.logger.error(f"❌ 接收器增益計算失敗: {fallback_error}")
-                raise RuntimeError(
-                    f"接收器增益計算失敗 (ITU-R標準)\n"
-                    f"Grade A標準禁止使用保守估算值\n"
-                    f"計算錯誤: {fallback_error}"
-                )
+            # ✅ Fail-Fast: 移除 ITU-R 推薦值回退機制
+            # Grade A 標準禁止使用推薦值作為回退
+            error_msg = (
+                f"接收器增益計算失敗\n"
+                f"Grade A 標準禁止使用 ITU-R 推薦值作為回退\n"
+                f"計算錯誤: {e}\n"
+                f"請確認配置中已提供:\n"
+                f"  - rx_antenna_diameter_m: 實際天線直徑 (m)\n"
+                f"  - rx_antenna_efficiency: 實際天線效率 (0-1)\n"
+                f"  - (可選) rx_system_losses_db: 系統損耗 (dB)"
+            )
+            self.logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
 
     def get_itur_recommended_antenna_diameter(self, frequency_ghz: float) -> float:
         """

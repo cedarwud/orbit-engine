@@ -79,11 +79,25 @@ class Stage5ResultManager(BaseResultManager):
         Returns:
             完整的 Stage 5 輸出數據結構
         """
+        # ✅ Fail-Fast: 檢查必要參數，不使用 .get() 回退
+        required_params = ['analyzed_satellites', 'input_data', 'processing_stats', 'processing_time']
+        missing = [p for p in required_params if p not in kwargs]
+        if missing:
+            raise ValueError(
+                f"build_stage_results() 缺少必需參數: {missing}\n"
+                f"Grade A 標準禁止使用預設值回退\n"
+                f"必需參數:\n"
+                f"  - analyzed_satellites: 分析後的衛星數據 (dict)\n"
+                f"  - input_data: Stage 4 輸入數據 (dict)\n"
+                f"  - processing_stats: 處理統計 (dict)\n"
+                f"  - processing_time: 處理時間 (float)"
+            )
+
         # 提取參數
-        analyzed_satellites = kwargs.get('analyzed_satellites', {})
-        input_data = kwargs.get('input_data', {})
-        processing_stats = kwargs.get('processing_stats', {})
-        processing_time = kwargs.get('processing_time', 0.0)
+        analyzed_satellites = kwargs['analyzed_satellites']
+        input_data = kwargs['input_data']
+        processing_stats = kwargs['processing_stats']
+        processing_time = kwargs['processing_time']
 
         # ============================================================================
         # 步驟 1: 計算統計數據
@@ -109,8 +123,13 @@ class Stage5ResultManager(BaseResultManager):
             if avg_rs_sinr:
                 all_sinr.append(avg_rs_sinr)
 
-            # 累計時間點數
-            total_time_points += sat_data['summary'].get('total_time_points', 0)
+            # ✅ Fail-Fast: 時間點數必須存在
+            if 'total_time_points' not in sat_data['summary']:
+                raise ValueError(
+                    f"衛星數據缺少 summary.total_time_points\n"
+                    f"這表示時間序列分析數據不完整"
+                )
+            total_time_points += sat_data['summary']['total_time_points']
 
         avg_rsrp = sum(all_rsrp) / len(all_rsrp) if all_rsrp else None
         avg_sinr = sum(all_sinr) / len(all_sinr) if all_sinr else None
@@ -119,7 +138,15 @@ class Stage5ResultManager(BaseResultManager):
         # 步驟 2: 合併上游 metadata (Grade A+ 數據流完整性要求)
         # ============================================================================
 
-        upstream_metadata = input_data.get('metadata', {})
+        # ✅ Fail-Fast: metadata 可能是可選的（某些上游階段可能不提供）
+        if 'metadata' not in input_data:
+            self.logger.warning(
+                "input_data 缺少 metadata 字段\n"
+                "將使用空字典，但建議檢查 Stage 4 輸出是否完整"
+            )
+            upstream_metadata = {}
+        else:
+            upstream_metadata = input_data['metadata']
 
         # 構建 Stage 5 自己的 metadata
         stage5_metadata = {
@@ -167,20 +194,31 @@ class Stage5ResultManager(BaseResultManager):
         # 步驟 4: 構建最終輸出結構
         # ============================================================================
 
+        # ✅ Fail-Fast: connectable_satellites 應該由 Stage 4 提供
+        if 'connectable_satellites' not in input_data:
+            self.logger.warning(
+                "input_data 缺少 connectable_satellites 字段\n"
+                "這可能表示 Stage 4 輸出不完整，將使用空字典"
+            )
+            connectable_satellites = {}
+        else:
+            connectable_satellites = input_data['connectable_satellites']
+
         return {
             'stage': 5,
             'stage_name': 'signal_quality_analysis',
             'signal_analysis': analyzed_satellites,
-            'connectable_satellites': input_data.get('connectable_satellites', {}),
+            'connectable_satellites': connectable_satellites,
             'analysis_summary': {
                 'total_satellites_analyzed': len(analyzed_satellites),
                 'usable_satellites': usable_satellites,
                 'total_time_points_processed': total_time_points,
                 'signal_quality_distribution': {
-                    'excellent': processing_stats.get('excellent_signals', 0),
-                    'good': processing_stats.get('good_signals', 0),
-                    'fair': processing_stats.get('fair_signals', 0),
-                    'poor': processing_stats.get('poor_signals', 0)
+                    # ✅ Fail-Fast: 明確檢查每個統計字段，缺失時使用 0（表示無此等級信號）
+                    'excellent': processing_stats['excellent_signals'] if 'excellent_signals' in processing_stats else 0,
+                    'good': processing_stats['good_signals'] if 'good_signals' in processing_stats else 0,
+                    'fair': processing_stats['fair_signals'] if 'fair_signals' in processing_stats else 0,
+                    'poor': processing_stats['poor_signals'] if 'poor_signals' in processing_stats else 0
                 },
                 'average_rsrp_dbm': avg_rsrp,
                 'average_rs_sinr_db': avg_sinr  # 修復: 使用 3GPP 標準命名
@@ -281,6 +319,13 @@ class Stage5ResultManager(BaseResultManager):
         # 第 4 層: 構建快照數據（無需 .get()，Fail-Fast 已確保字段存在）
         # ============================================================================
 
+        # ✅ Fail-Fast: validation_status 必須存在於 validation_results 中
+        if 'validation_status' not in validation_results:
+            raise ValueError(
+                "validation_results 缺少 validation_status 字段\n"
+                "驗證器必須返回 validation_status 字段"
+            )
+
         return {
             'data_summary': {
                 'total_satellites_analyzed': analysis_summary['total_satellites_analyzed'],
@@ -293,7 +338,7 @@ class Stage5ResultManager(BaseResultManager):
             'metadata': metadata,
             'signal_analysis': signal_analysis,  # 🔑 Stage 6 依賴此字段進行事件檢測
             'validation_results': validation_results,
-            'validation_status': 'passed' if validation_results.get('validation_status') == 'passed' else 'failed'
+            'validation_status': 'passed' if validation_results['validation_status'] == 'passed' else 'failed'
         }
 
     # ==================== Backward Compatibility Interface ====================

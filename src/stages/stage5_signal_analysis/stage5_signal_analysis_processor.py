@@ -206,8 +206,12 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
                     continue
                 return False
 
+        # ✅ Fail-Fast: 明確檢查 stage 字段
+        if 'stage' not in input_data:
+            return False
+
         # Stage 5 應該接收 Stage 4 的可連線衛星輸出
-        return input_data.get('stage') in ['stage4_link_feasibility', 'stage4_optimization']
+        return input_data['stage'] in ['stage4_link_feasibility', 'stage4_optimization']
 
     def _extract_satellite_data(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """提取衛星數據 - 使用 InputExtractor 模組"""
@@ -218,7 +222,14 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
         connectable_satellites = result['connectable_satellites']
         for constellation, sats in connectable_satellites.items():
             if sats:
-                total_time_points = sum(len(sat.get('time_series', [])) for sat in sats)
+                # ✅ Fail-Fast: 明確檢查 time_series 字段
+                total_time_points = 0
+                for sat in sats:
+                    if 'time_series' not in sat:
+                        self.logger.debug(f"衛星缺少 time_series 字段，跳過統計")
+                        continue
+                    total_time_points += len(sat['time_series'])
+
                 avg_points = total_time_points / len(sats) if len(sats) > 0 else 0
                 self.logger.info(f"   {constellation}: {len(sats)} 顆衛星, 平均 {avg_points:.0f} 個時間點")
 
@@ -239,10 +250,28 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
 
         # ✅ 重構後不需要在此初始化 calculator，已由 time_series_analyzer 內部處理
 
-        # 提取可連線衛星池和星座配置
-        connectable_satellites = satellites_data.get('connectable_satellites', {})
-        metadata = satellites_data.get('metadata', {})
-        constellation_configs = metadata.get('constellation_configs', {})
+        # ✅ Fail-Fast: 提取可連線衛星池和星座配置（InputExtractor 已驗證）
+        # 這些字段由 InputExtractor.extract() 保證存在
+        if 'connectable_satellites' not in satellites_data:
+            raise ValueError(
+                "內部錯誤：satellites_data 缺少 connectable_satellites 字段\n"
+                "這表示 InputExtractor.extract() 返回格式異常"
+            )
+        connectable_satellites = satellites_data['connectable_satellites']
+
+        if 'metadata' not in satellites_data:
+            raise ValueError(
+                "內部錯誤：satellites_data 缺少 metadata 字段\n"
+                "這表示 InputExtractor.extract() 返回格式異常"
+            )
+        metadata = satellites_data['metadata']
+
+        if 'constellation_configs' not in metadata:
+            raise ValueError(
+                "內部錯誤：metadata 缺少 constellation_configs 字段\n"
+                "這表示 InputExtractor.extract() 返回格式異常"
+            )
+        constellation_configs = metadata['constellation_configs']
 
         # ✅ Grade A 要求: constellation_configs 必須存在，禁止回退到硬編碼預設值
         if not constellation_configs:
@@ -263,27 +292,35 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
             if not satellites:
                 continue
 
-            # 獲取星座特定配置
-            constellation_config = constellation_configs.get(
-                constellation,
-                constellation_configs.get('default', {})
-            )
-
-            # ⚠️ 嚴格驗證: 星座配置必須存在
-            if not constellation_config:
+            # ✅ Fail-Fast: 獲取星座特定配置（明確檢查）
+            if constellation in constellation_configs:
+                constellation_config = constellation_configs[constellation]
+                self.logger.debug(f"使用 {constellation} 特定配置")
+            elif 'default' in constellation_configs:
+                constellation_config = constellation_configs['default']
                 self.logger.warning(
-                    f"⚠️ 星座 {constellation} 配置缺失，嘗試使用 'default' 配置"
+                    f"⚠️ 星座 {constellation} 配置缺失，使用 'default' 配置\n"
+                    f"   建議在 Stage 1 配置中為 {constellation} 明確定義配置"
                 )
-                constellation_config = constellation_configs.get('default', {})
+            else:
+                error_msg = (
+                    f"❌ Grade A 學術標準違規: 星座 {constellation} 配置缺失且無 'default' 配置\n"
+                    f"   可用配置: {list(constellation_configs.keys())}\n"
+                    f"   依據: docs/stages/stage5-signal-analysis.md Line 261-267\n"
+                    f"   修復: 在 Stage 1 配置中添加 constellation_configs.{constellation} 或 constellation_configs.default"
+                )
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
 
-                if not constellation_config:
-                    error_msg = (
-                        f"❌ Grade A 學術標準違規: 星座 {constellation} 配置缺失且無 'default' 配置。\n"
-                        f"   可用配置: {list(constellation_configs.keys())}\n"
-                        f"   依據: docs/stages/stage5-signal-analysis.md Line 261-267"
-                    )
-                    self.logger.error(error_msg)
-                    raise ValueError(error_msg)
+            # ⚠️ 嚴格驗證: 星座配置不能為空字典
+            if not constellation_config:
+                error_msg = (
+                    f"❌ Grade A 學術標準違規: 星座 {constellation} 配置為空字典\n"
+                    f"   配置內容: {constellation_config}\n"
+                    f"   依據: docs/stages/stage5-signal-analysis.md Line 226-234"
+                )
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
 
             # 星座特定參數 (從 Stage 1 傳遞) - 嚴格模式，禁止回退
             required_params = ['tx_power_dbw', 'tx_antenna_gain_db', 'frequency_ghz']
@@ -306,17 +343,44 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
             self.logger.info(f"   配置: Tx={tx_power_dbw}dBW, Freq={frequency_ghz}GHz, Gain={tx_gain_db}dB")
             self.logger.info(f"   衛星數: {len(satellites)}")
 
-            # ✅ Grade A 要求: 從 constellation_config 提取接收器參數
-            # 依據: docs/stages/stage5-signal-analysis.md Line 221-235
-            rx_antenna_diameter_m = constellation_config.get('rx_antenna_diameter_m')
-            rx_antenna_efficiency = constellation_config.get('rx_antenna_efficiency')
-
-            if not rx_antenna_diameter_m or not rx_antenna_efficiency:
+            # ✅ Fail-Fast: 從 constellation_config 提取接收器參數（明確檢查）
+            # Grade A 要求: 依據 docs/stages/stage5-signal-analysis.md Line 221-235
+            if 'rx_antenna_diameter_m' not in constellation_config:
                 error_msg = (
-                    f"❌ Grade A 學術標準違規: 星座 {constellation} 缺少接收器參數\n"
-                    f"   需要: rx_antenna_diameter_m, rx_antenna_efficiency\n"
+                    f"❌ Grade A 學術標準違規: 星座 {constellation} 配置缺少 rx_antenna_diameter_m\n"
                     f"   當前配置: {constellation_config}\n"
-                    f"   依據: docs/stages/stage5-signal-analysis.md Line 221-235"
+                    f"   依據: docs/stages/stage5-signal-analysis.md Line 221-235\n"
+                    f"   修復: 在 Stage 1 配置的 constellation_configs.{constellation} 中添加 rx_antenna_diameter_m"
+                )
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            if 'rx_antenna_efficiency' not in constellation_config:
+                error_msg = (
+                    f"❌ Grade A 學術標準違規: 星座 {constellation} 配置缺少 rx_antenna_efficiency\n"
+                    f"   當前配置: {constellation_config}\n"
+                    f"   依據: docs/stages/stage5-signal-analysis.md Line 221-235\n"
+                    f"   修復: 在 Stage 1 配置的 constellation_configs.{constellation} 中添加 rx_antenna_efficiency"
+                )
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            rx_antenna_diameter_m = constellation_config['rx_antenna_diameter_m']
+            rx_antenna_efficiency = constellation_config['rx_antenna_efficiency']
+
+            # 驗證參數有效性
+            if not isinstance(rx_antenna_diameter_m, (int, float)) or rx_antenna_diameter_m <= 0:
+                error_msg = (
+                    f"❌ Grade A 學術標準違規: rx_antenna_diameter_m 必須是正數\n"
+                    f"   當前值: {rx_antenna_diameter_m}"
+                )
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            if not isinstance(rx_antenna_efficiency, (int, float)) or not (0 < rx_antenna_efficiency <= 1):
+                error_msg = (
+                    f"❌ Grade A 學術標準違規: rx_antenna_efficiency 必須在 (0, 1] 範圍內\n"
+                    f"   當前值: {rx_antenna_efficiency}"
                 )
                 self.logger.error(error_msg)
                 raise ValueError(error_msg)

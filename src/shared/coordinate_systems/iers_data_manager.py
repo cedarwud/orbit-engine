@@ -197,9 +197,12 @@ class IERSDataManager:
             return W
 
         except Exception as e:
-            self.logger.error(f"極移矩陣計算失敗: {e}")
-            # 返回單位矩陣作為安全回退
-            return np.eye(3)
+            self.logger.error(f"❌ 極移矩陣計算失敗: {e}")
+            raise RuntimeError(
+                f"無法計算極移矩陣 - IERS 數據不可用\n"
+                f"Grade A 標準要求使用真實極移參數\n"
+                f"詳細錯誤: {e}"
+            ) from e
 
     def _ensure_fresh_data(self):
         """確保數據是最新的"""

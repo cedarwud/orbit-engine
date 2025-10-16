@@ -264,26 +264,35 @@ class SkyfieldCoordinateEngine:
             raise ValueError(f"座標轉換錯誤: {str(e)}")
 
     def _create_precise_time(self, datetime_utc: datetime):
-        """創建高精度 Skyfield 時間對象"""
-        try:
-            # 使用 Skyfield 的高精度時間處理
-            # 自動處理閏秒和時間標準轉換
-            skyfield_time = self.ts.from_datetime(datetime_utc)
+        """
+        創建高精度 Skyfield 時間對象
 
-            # 獲取真實的地球定向參數
+        ✅ Fail-Fast 策略：Skyfield 時間對象創建必須成功
+        ✅ IERS 數據僅用於日誌記錄，Skyfield 內部有內置 IERS 數據
+        """
+        # 使用 Skyfield 的高精度時間處理
+        # 自動處理閏秒和時間標準轉換
+        # Skyfield 內部已包含 IERS 數據，這個調用不會因 IERS 問題失敗
+        skyfield_time = self.ts.from_datetime(datetime_utc)
+
+        # 嘗試獲取真實的地球定向參數用於日誌記錄
+        # 這是非關鍵操作，僅用於提供額外的調試信息
+        try:
             eop_data = self.iers_manager.get_earth_orientation_parameters(datetime_utc)
 
-            # 應用 UT1-UTC 修正 (如果數據可用)
+            # 記錄 UT1-UTC 修正值（僅用於調試）
             if abs(eop_data.ut1_utc_sec) < 1.0:  # 合理範圍檢查
-                # Skyfield 內部已處理 UT1-UTC，這裡僅記錄
-                self.logger.debug(f"UT1-UTC 修正: {eop_data.ut1_utc_sec:.6f} 秒")
-
-            return skyfield_time
-
+                self.logger.debug(
+                    f"IERS EOP 數據: UT1-UTC={eop_data.ut1_utc_sec:.6f}s, "
+                    f"極移 X={eop_data.x_arcsec:.6f}\", Y={eop_data.y_arcsec:.6f}\""
+                )
         except Exception as e:
-            self.logger.error(f"時間對象創建失敗: {e}")
-            # 回退到標準時間處理
-            return self.ts.from_datetime(datetime_utc)
+            # ⚠️ IERS 數據獲取失敗僅影響日誌記錄
+            # Skyfield 內部仍會使用內置的 IERS 數據模型
+            self.logger.debug(f"無法獲取 IERS EOP 數據用於日誌: {e}")
+            self.logger.debug("Skyfield 將使用內置 IERS 數據模型")
+
+        return skyfield_time
 
     def _convert_teme_to_icrs(self, position_km: List[float],
                             velocity_km_s: List[float],
@@ -538,17 +547,14 @@ class SkyfieldCoordinateEngine:
             )
 
         except Exception as e:
-            self.logger.error(f"Skyfield 仰角計算失敗: {e}")
-            # 回退到基本幾何計算
-            from dataclasses import dataclass
-
-            @dataclass
-            class ElevationResult:
-                elevation_deg: float
-                azimuth_deg: float
-                distance_km: float
-
-            return ElevationResult(elevation_deg=-90.0, azimuth_deg=0.0, distance_km=0.0)
+            self.logger.error(f"❌ Skyfield 仰角計算失敗: {e}")
+            raise RuntimeError(
+                f"無法計算衛星仰角\n"
+                f"Grade A 標準禁止返回假數據（-90° 是無效的衛星仰角）\n"
+                f"衛星位置: ({satellite_lat_deg:.4f}°, {satellite_lon_deg:.4f}°, {satellite_alt_m:.0f}m)\n"
+                f"觀測者位置: ({observer_lat_deg:.4f}°, {observer_lon_deg:.4f}°, {observer_alt_m:.0f}m)\n"
+                f"詳細錯誤: {e}"
+            ) from e
 
     def _update_accuracy_stats(self, accuracy_m: float):
         """更新精度統計"""
@@ -621,9 +627,18 @@ class SkyfieldCoordinateEngine:
                 return workers
 
         except Exception as e:
-            # 完全失敗，使用保守值
-            self.logger.error(f"❌ 工作器數量檢測失敗: {e}，回退到 8 個工作器")
-            return 8
+            # 完全失敗：無法檢測 CPU 數量表示系統有嚴重問題
+            self.logger.error(f"❌ 工作器數量檢測失敗: {e}")
+            raise RuntimeError(
+                f"無法檢測系統 CPU 數量\n"
+                f"Grade A 標準禁止使用硬編碼回退值\n"
+                f"這表示 Python 環境或系統配置有嚴重問題\n"
+                f"詳細錯誤: {e}\n"
+                f"建議:\n"
+                f"  1. 檢查 Python multiprocessing 模組是否正常\n"
+                f"  2. 設定環境變數 ORBIT_ENGINE_MAX_WORKERS 指定工作器數量\n"
+                f"  3. 檢查系統是否支持 multiprocessing.cpu_count()"
+            ) from e
 
     def batch_convert_teme_to_wgs84(self, teme_data: List[Dict[str, Any]]) -> List[CoordinateTransformResult]:
         """批次座標轉換 (多核並行優化 v3.0 - 動態CPU檢測)"""

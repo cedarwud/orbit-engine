@@ -99,12 +99,12 @@ class Stage4ConfigManager(BaseConfigManager):
 
             # ==================== NTPU 地面站座標 ====================
             # SOURCE: GPS 實測座標
-            # REFERENCE: 24.9441°N, 121.3714°E, 200m altitude
+            # REFERENCE: 24.9441°N, 121.3714°E, 36m altitude
             'ground_station': {
                 'name': 'National Taipei University of Technology',
                 'latitude_deg': 24.9441,
                 'longitude_deg': 121.3714,
-                'altitude_m': 200.0,
+                'altitude_m': 36.0,
             },
 
             # ==================== Epoch 驗證設置 ====================

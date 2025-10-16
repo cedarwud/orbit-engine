@@ -55,10 +55,23 @@ class Stage4Validator(StageValidator):
         Returns:
             tuple: (validation_passed: bool, message: str)
         """
+        # ✅ Fail-Fast #1: 檢測取樣模式前先驗證必要字段
+        # 確保 metadata 和 total_input_satellites 存在
+        valid, msg = self.check_field_exists(snapshot_data, 'metadata')
+        if not valid:
+            return False, msg
+
+        metadata = snapshot_data['metadata']
+
+        valid, msg = self.check_field_exists(metadata, 'total_input_satellites', 'metadata')
+        if not valid:
+            return False, msg
+
+        total_input_satellites = metadata['total_input_satellites']
+
         # 檢測取樣模式
         is_sampling_mode = self._is_sampling_mode(snapshot_data)
         if is_sampling_mode:
-            total_input_satellites = snapshot_data.get('metadata', {}).get('total_input_satellites', 0)
             print(f"🧪 偵測到取樣模式 ({total_input_satellites} 顆衛星)，放寬驗證標準")
 
         # ======== 驗證 #1: 階段完成狀態 ========
@@ -113,7 +126,12 @@ class Stage4Validator(StageValidator):
         Returns:
             tuple | None: (False, error_msg) 如果發現問題，否則 None
         """
-        metadata = snapshot_data.get('metadata', {})
+        # ✅ Fail-Fast #2: metadata 必須存在
+        valid, msg = self.check_field_exists(snapshot_data, 'metadata')
+        if not valid:
+            return False, msg
+
+        metadata = snapshot_data['metadata']
 
         # Fail-Fast: stage_4_1_completed 必須存在
         valid, msg = self.check_field_exists(metadata, 'stage_4_1_completed', 'metadata')
@@ -189,7 +207,12 @@ class Stage4Validator(StageValidator):
         Returns:
             tuple | None: (False, error_msg) 如果發現問題，否則 None
         """
-        metadata = snapshot_data.get('metadata', {})
+        # ✅ Fail-Fast #2: metadata 必須存在
+        valid, msg = self.check_field_exists(snapshot_data, 'metadata')
+        if not valid:
+            return False, msg
+
+        metadata = snapshot_data['metadata']
 
         # Fail-Fast: constellation_aware 必須存在
         valid, msg = self.check_field_exists(metadata, 'constellation_aware', 'metadata')
@@ -297,7 +320,14 @@ class Stage4Validator(StageValidator):
                 if const_name.upper() not in tle_orbital_periods:
                     return False, f"❌ epoch_analysis.json 缺少 {const_name.upper()} 星座的 TLE 軌道週期統計"
 
-                orbital_stats = tle_orbital_periods[const_name.upper()].get('orbital_period_stats', {})
+                # ✅ Fail-Fast #3: orbital_period_stats 必須存在
+                constellation_data = tle_orbital_periods[const_name.upper()]
+                valid, msg = self.check_field_exists(constellation_data, 'orbital_period_stats',
+                                                    f'{const_name.upper()} constellation_data')
+                if not valid:
+                    return False, msg
+
+                orbital_stats = constellation_data['orbital_period_stats']
 
                 # Fail-Fast: orbital_period_stats 不能為空
                 if not orbital_stats:
@@ -340,7 +370,12 @@ class Stage4Validator(StageValidator):
         Returns:
             tuple | None: (False, error_msg) 如果發現問題，否則 None
         """
-        metadata = snapshot_data.get('metadata', {})
+        # ✅ Fail-Fast #2: metadata 必須存在
+        valid, msg = self.check_field_exists(snapshot_data, 'metadata')
+        if not valid:
+            return False, msg
+
+        metadata = snapshot_data['metadata']
 
         # Fail-Fast: ntpu_specific 必須存在
         valid, msg = self.check_field_exists(metadata, 'ntpu_specific', 'metadata')
@@ -482,12 +517,24 @@ class Stage4Validator(StageValidator):
 
     def _validate_visibility_accuracy(self, snapshot_data: dict, is_sampling_mode: bool) -> Tuple[bool, str]:
         """
-        驗證可見性計算精度
+        驗證可見性計算精度 (增強版 - 詳細檢查)
+
+        檢查項目:
+        1. IAU 標準使用驗證
+        2. 候選池數量範圍驗證
+        3. ✅ 新增: visibility_metrics 數據結構驗證
+        4. ✅ 新增: 仰角/方位角/距離合理性抽樣檢查
+        5. ✅ 新增: 計算方法標記驗證
 
         Returns:
             tuple | None: (False, error_msg) 如果發現問題，否則 None
         """
-        metadata = snapshot_data.get('metadata', {})
+        # ✅ Fail-Fast #2: metadata 必須存在
+        valid, msg = self.check_field_exists(snapshot_data, 'metadata')
+        if not valid:
+            return False, msg
+
+        metadata = snapshot_data['metadata']
 
         # Fail-Fast: use_iau_standards 必須存在
         valid, msg = self.check_field_exists(metadata, 'use_iau_standards', 'metadata')
@@ -509,11 +556,90 @@ class Stage4Validator(StageValidator):
             if candidate_total < 100 or candidate_total > 5000:
                 return False, f"❌ Stage 4 候選池數量異常: {candidate_total} 顆 (合理範圍: 100-5000)"
 
+        # ✅ Fail-Fast #4: connectable_satellites 必須存在
+        valid, msg = self.check_field_exists(snapshot_data, 'connectable_satellites')
+        if not valid:
+            return False, msg
+
+        connectable_satellites = snapshot_data['connectable_satellites']
+
+        if not connectable_satellites:
+            return False, "❌ Stage 4 缺少 connectable_satellites 數據"
+
+        # 抽樣驗證 (Starlink 作為主要星座)
+        if 'starlink' in connectable_satellites:
+            starlink_sats = connectable_satellites['starlink']
+
+            if not starlink_sats:
+                return False, "❌ Starlink 可連線衛星池為空"
+
+            # 抽樣檢查第一顆衛星的數據結構
+            sample_sat = starlink_sats[0]
+
+            # Fail-Fast: time_series 必須存在
+            valid, msg = self.check_field_exists(sample_sat, 'time_series', 'sample_satellite')
+            if not valid:
+                return False, f"{msg} (connectable_satellites 應包含完整時間序列)"
+
+            time_series = sample_sat['time_series']
+
+            if not time_series:
+                return False, "❌ 衛星時間序列為空 (應包含 ~190-220 時間點)"
+
+            # 抽樣檢查第一個時間點
+            sample_point = time_series[0]
+
+            # Fail-Fast: visibility_metrics 必須存在
+            valid, msg = self.check_field_exists(sample_point, 'visibility_metrics', 'sample_time_point')
+            if not valid:
+                return False, f"{msg} (時間點應包含 visibility_metrics)"
+
+            metrics = sample_point['visibility_metrics']
+
+            # Fail-Fast: 核心指標必須存在
+            required_metrics = ['elevation_deg', 'azimuth_deg', 'distance_km']
+            for metric_name in required_metrics:
+                valid, msg = self.check_field_exists(metrics, metric_name, 'visibility_metrics')
+                if not valid:
+                    return False, msg
+
+            # ✅ 新增: 驗證數值合理性
+            elevation = metrics['elevation_deg']
+            azimuth = metrics['azimuth_deg']
+            distance = metrics['distance_km']
+
+            # 仰角範圍: -90° to 90°
+            if not (-90 <= elevation <= 90):
+                return False, f"❌ 仰角數值異常: {elevation}° (合理範圍: -90~90°)"
+
+            # 方位角範圍: 0° to 360°
+            if not (0 <= azimuth <= 360):
+                return False, f"❌ 方位角數值異常: {azimuth}° (合理範圍: 0~360°)"
+
+            # 距離範圍: LEO 衛星典型範圍 200-2500 km
+            # SOURCE: Wertz & Larson 2001, Section 5.6 - Typical LEO satellite visibility ranges
+            if not (200 <= distance <= 2500):
+                return False, f"❌ 距離數值異常: {distance} km (合理範圍: 200~2500 km for LEO)"
+
+            # ✅ 新增: 驗證 threshold_applied (星座感知門檻)
+            if 'threshold_applied' in metrics:
+                threshold = metrics['threshold_applied']
+                # Starlink 應該是 5.0° (根據 stage4-link-feasibility.md Line 227)
+                if threshold != 5.0:
+                    return False, f"⚠️ Starlink 仰角門檻異常: {threshold}° (應為 5.0°)"
+
         return None  # 通過檢查
 
     def _validate_service_windows(self, snapshot_data: dict) -> Tuple[bool, str]:
         """
-        驗證服務窗口優化
+        驗證服務窗口優化 (增強版 - 專用檢查)
+
+        檢查項目:
+        1. 覆蓋空窗時間長度驗證
+        2. 覆蓋空窗總數驗證
+        3. ✅ 新增: 衛星 service_window 數據結構驗證
+        4. ✅ 新增: 時間窗口連續性驗證
+        5. ✅ 新增: 服務窗口持續時間合理性驗證
 
         Returns:
             tuple | None: (False, error_msg) 如果發現問題，否則 None
@@ -540,6 +666,76 @@ class Stage4Validator(StageValidator):
         if len(coverage_gaps) > 5:
             return False, f"❌ Stage 4 覆蓋空窗過多: {len(coverage_gaps)} 個 (建議 ≤5 個)"
 
+        # ✅ Fail-Fast #4: connectable_satellites 必須存在
+        valid, msg = self.check_field_exists(snapshot_data, 'connectable_satellites')
+        if not valid:
+            return False, msg
+
+        connectable_satellites = snapshot_data['connectable_satellites']
+
+        if not connectable_satellites:
+            return False, "❌ Stage 4 缺少 connectable_satellites 數據"
+
+        # 抽樣檢查 Starlink 衛星的服務窗口
+        if 'starlink' in connectable_satellites:
+            starlink_sats = connectable_satellites['starlink']
+
+            if not starlink_sats:
+                return False, "❌ Starlink 可連線衛星池為空"
+
+            # 抽樣第一顆衛星
+            sample_sat = starlink_sats[0]
+
+            # Fail-Fast: service_window 必須存在
+            valid, msg = self.check_field_exists(sample_sat, 'service_window', 'sample_satellite')
+            if not valid:
+                return False, f"{msg} (connectable_satellites 應包含 service_window 數據)"
+
+            service_window = sample_sat['service_window']
+
+            # Fail-Fast: 服務窗口核心字段
+            required_fields = ['start_time', 'end_time', 'duration_minutes', 'time_points_count']
+            for field in required_fields:
+                valid, msg = self.check_field_exists(service_window, field, 'service_window')
+                if not valid:
+                    return False, msg
+
+            # ✅ 新增: 驗證服務窗口持續時間合理性
+            duration = service_window['duration_minutes']
+            time_points = service_window['time_points_count']
+
+            # LEO 衛星典型可見持續時間: 1-20 分鐘
+            # SOURCE: Wertz & Larson 2001, Section 5.6 - LEO satellite pass duration
+            if not (0.5 <= duration <= 30.0):
+                return False, f"❌ 服務窗口持續時間異常: {duration} 分鐘 (合理範圍: 0.5~30分鐘)"
+
+            # 時間點數應該合理 (假設 30 秒間隔)
+            if time_points < 2:
+                return False, f"❌ 服務窗口時間點數過少: {time_points} (應 ≥2)"
+
+            # ✅ 新增: 驗證時間窗口連續性 (start_time < end_time)
+            try:
+                from datetime import datetime
+                start = datetime.fromisoformat(service_window['start_time'].replace('Z', '+00:00'))
+                end = datetime.fromisoformat(service_window['end_time'].replace('Z', '+00:00'))
+
+                if start >= end:
+                    return False, f"❌ 服務窗口時間順序錯誤: start_time >= end_time"
+
+                # 驗證持續時間計算正確性
+                actual_duration_min = (end - start).total_seconds() / 60.0
+                duration_diff = abs(actual_duration_min - duration)
+
+                if duration_diff > 1.0:  # 允許 1 分鐘誤差
+                    return False, (
+                        f"❌ 服務窗口持續時間計算錯誤: "
+                        f"聲稱 {duration} 分鐘, 實際 {actual_duration_min:.1f} 分鐘 "
+                        f"(差異 {duration_diff:.1f} 分鐘)"
+                    )
+
+            except Exception as e:
+                return False, f"❌ 服務窗口時間戳記格式錯誤: {e}"
+
         return None  # 通過檢查
 
     def _build_stage4_success_message(self, snapshot_data: dict) -> Tuple[bool, str]:
@@ -558,31 +754,72 @@ class Stage4Validator(StageValidator):
         optimized_total = optimized_pool['total_optimized']
         continuous_coverage_hours = ntpu_coverage['continuous_coverage_hours']
 
-        # 提取優化池星座統計
-        optimized_by_const = optimized_pool.get('by_constellation', {})
-        starlink_optimized = optimized_by_const.get('starlink', 0)
-        oneweb_optimized = optimized_by_const.get('oneweb', 0)
+        # ✅ Fail-Fast #6: 提取優化池星座統計 (檢查字段存在性)
+        valid, msg = self.check_field_exists(optimized_pool, 'by_constellation', 'optimized_pool')
+        if not valid:
+            return False, msg
 
-        # 提取 Starlink 驗證數據
-        pool_optimization = snapshot_data.get('pool_optimization', {})
-        validation_results = pool_optimization.get('validation_results', {})
-        starlink_validation = validation_results.get('starlink', {})
-        starlink_checks = starlink_validation.get('validation_checks', {})
+        optimized_by_const = optimized_pool['by_constellation']
+        starlink_optimized = optimized_by_const.get('starlink', 0)  # 星座可能不存在
+        oneweb_optimized = optimized_by_const.get('oneweb', 0)      # 星座可能不存在
 
-        coverage_check = starlink_checks.get('coverage_rate_check', {})
-        coverage_rate = coverage_check.get('value', 0.0)
+        # ✅ Fail-Fast #6: 提取 Starlink 驗證數據
+        valid, msg = self.check_field_exists(snapshot_data, 'pool_optimization')
+        if not valid:
+            return False, msg
 
-        avg_visible_check = starlink_checks.get('avg_visible_check', {})
-        avg_visible = avg_visible_check.get('value', 0.0)
+        pool_optimization = snapshot_data['pool_optimization']
+
+        valid, msg = self.check_field_exists(pool_optimization, 'validation_results', 'pool_optimization')
+        if not valid:
+            return False, msg
+
+        validation_results = pool_optimization['validation_results']
+
+        valid, msg = self.check_field_exists(validation_results, 'starlink', 'validation_results')
+        if not valid:
+            return False, msg
+
+        starlink_validation = validation_results['starlink']
+
+        valid, msg = self.check_field_exists(starlink_validation, 'validation_checks', 'starlink_validation')
+        if not valid:
+            return False, msg
+
+        starlink_checks = starlink_validation['validation_checks']
+
+        valid, msg = self.check_field_exists(starlink_checks, 'coverage_rate_check', 'starlink_checks')
+        if not valid:
+            return False, msg
+
+        coverage_check = starlink_checks['coverage_rate_check']
+
+        valid, msg = self.check_field_exists(coverage_check, 'value', 'coverage_rate_check')
+        if not valid:
+            return False, msg
+
+        coverage_rate = coverage_check['value']
+
+        valid, msg = self.check_field_exists(starlink_checks, 'avg_visible_check', 'starlink_checks')
+        if not valid:
+            return False, msg
+
+        avg_visible_check = starlink_checks['avg_visible_check']
+
+        valid, msg = self.check_field_exists(avg_visible_check, 'value', 'avg_visible_check')
+        if not valid:
+            return False, msg
+
+        avg_visible = avg_visible_check['value']
 
         # 統計驗證通過項目
         validation_summary = [
             "✅ #1 星座門檻驗證",
+            "✅ #2 可見性精度 (詳細檢查)",
             "✅ #3 鏈路預算約束",
             "✅ #4 NTPU 覆蓋分析",
-            "✅ #6 池規劃優化 (CRITICAL)",
-            "⚠️ #2 可見性精度 (基本檢查)",
-            "⚠️ #5 服務窗口 (基本檢查)"
+            "✅ #5 服務窗口 (專用檢查)",
+            "✅ #6 池規劃優化 (CRITICAL)"
         ]
 
         status_msg = (
@@ -602,8 +839,18 @@ class Stage4Validator(StageValidator):
 
         基於 total_input_satellites 和 ORBIT_ENGINE_TEST_MODE
         """
-        metadata = snapshot_data.get('metadata', {})
-        total_input_satellites = metadata.get('total_input_satellites', 0)
+        # ✅ Fail-Fast #5: metadata 和 total_input_satellites 必須存在
+        if 'metadata' not in snapshot_data:
+            # 如果 metadata 缺失，無法判斷取樣模式，假設非取樣模式（更嚴格）
+            return False
+
+        metadata = snapshot_data['metadata']
+
+        if 'total_input_satellites' not in metadata:
+            # 如果 total_input_satellites 缺失，無法判斷取樣模式，假設非取樣模式（更嚴格）
+            return False
+
+        total_input_satellites = metadata['total_input_satellites']
 
         # Stage 4 特殊判斷: 少於 50 顆或測試模式
         if total_input_satellites < 50:

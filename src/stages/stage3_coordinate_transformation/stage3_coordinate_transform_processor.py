@@ -127,11 +127,13 @@ class Stage3CoordinateTransformProcessor(BaseStageProcessor):
         })
 
         # 🚀 幾何預篩選配置
-        self.prefilter_enabled = self.config.get('enable_geometric_prefilter', True)
+        # NOTE: v3.1 預設禁用幾何預篩選以確保 100% Grade A 學術合規
+        # SOURCE: CRITICAL DEVELOPMENT PRINCIPLE - NO SIMPLIFIED ALGORITHMS
+        self.prefilter_enabled = self.config.get('enable_geometric_prefilter', False)
         self.ground_station_config = self.config.get('ground_station', {
             'latitude_deg': 24.9438888888889,
             'longitude_deg': 121.370833333333,
-            'altitude_m': 0.0
+            'altitude_m': 36.0
         })
 
         # 初始化真實座標系統管理器

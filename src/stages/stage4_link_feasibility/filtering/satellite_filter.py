@@ -57,14 +57,21 @@ class SatelliteFilter:
                 else:
                     constellation_key = 'other'
 
-                # 計算服務窗口
-                service_window = self.service_window_calculator.calculate(time_series)
+                # ✅ 修復: 只保留可連線的時間點 (仰角 > 門檻值)
+                # 原因: 下游驗證器和 Stage 5/6 不需要負仰角的數據點
+                connectable_time_series = [
+                    point for point in time_series
+                    if point['visibility_metrics']['is_connectable']
+                ]
+
+                # 計算服務窗口 (基於已過濾的時間序列)
+                service_window = self.service_window_calculator.calculate(connectable_time_series)
 
                 satellite_entry = {
                     'satellite_id': sat_id,
                     'name': sat_metrics['name'],
                     'constellation': constellation_key,
-                    'time_series': time_series,
+                    'time_series': connectable_time_series,  # ✅ 只保留可連線點
                     'service_window': service_window
                 }
 

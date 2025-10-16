@@ -84,7 +84,12 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """初始化軌道狀態傳播處理器"""
-        super().__init__(stage_number=2, stage_name="orbital_computing", config=config or {})
+        # ✅ Fail-Fast: 明確處理 None 配置，避免隱式回退
+        if config is None:
+            config = {}
+            logger.debug("未提供初始配置，將從配置文件加載")
+
+        super().__init__(stage_number=2, stage_name="orbital_computing", config=config)
 
         self.logger = logging.getLogger(f"{__name__}.Stage2OrbitalComputingProcessor")
 
@@ -535,7 +540,8 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
             completed = 0
             for future in as_completed(future_to_sat):
                 sat_data = future_to_sat[future]
-                satellite_id = sat_data.get('satellite_id', sat_data.get('name', 'unknown'))
+                # ✅ Fail-Fast: 嘗試獲取 satellite_id，若缺失則僅用於日誌
+                satellite_id = sat_data.get('satellite_id') or sat_data.get('name') or 'id_missing'
 
                 try:
                     result = future.result()
@@ -603,7 +609,11 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
             Optional[OrbitalStateResult]: 軌道傳播結果，失敗返回 None
         """
         try:
-            satellite_id = satellite_data.get('satellite_id', satellite_data.get('name', 'unknown'))
+            # ✅ Fail-Fast: 衛星 ID 必須存在，禁止使用 'unknown' 回退
+            satellite_id = satellite_data.get('satellite_id') or satellite_data.get('name')
+            if not satellite_id:
+                logger.error("衛星數據缺少 satellite_id 和 name 欄位，無法處理")
+                return None
 
             # 🚨 關鍵：使用 Stage 1 的 epoch_datetime，禁止重新解析 TLE
             if 'epoch_datetime' not in satellite_data:

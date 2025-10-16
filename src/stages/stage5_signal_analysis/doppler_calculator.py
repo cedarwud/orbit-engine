@@ -175,15 +175,30 @@ class DopplerCalculator:
         doppler_time_series = []
 
         for point in time_series:
-            # 提取必要數據
-            position_km = point.get('position_km')
-            velocity_km_per_s = point.get('velocity_km_per_s')
-            distance_km = point.get('distance_km')
-            timestamp = point.get('timestamp')
-
-            if not position_km or not velocity_km_per_s:
-                logger.warning(f"時間點 {timestamp} 缺少位置或速度數據，跳過")
+            # ✅ Fail-Fast: 明確檢查必要數據
+            # 提取 timestamp（用於日誌）
+            if 'timestamp' not in point:
+                logger.warning("時間點缺少 timestamp 字段，跳過")
                 continue
+            timestamp = point['timestamp']
+
+            # 提取 position_km
+            if 'position_km' not in point:
+                logger.warning(f"時間點 {timestamp} 缺少 position_km 字段，跳過")
+                continue
+            position_km = point['position_km']
+
+            # 提取 velocity_km_per_s
+            if 'velocity_km_per_s' not in point:
+                logger.warning(f"時間點 {timestamp} 缺少 velocity_km_per_s 字段，跳過")
+                continue
+            velocity_km_per_s = point['velocity_km_per_s']
+
+            # 提取 distance_km
+            if 'distance_km' not in point:
+                logger.warning(f"時間點 {timestamp} 缺少 distance_km 字段，跳過")
+                continue
+            distance_km = point['distance_km']
 
             # 計算都卜勒效應
             doppler_data = self.calculate_doppler_shift(
@@ -230,12 +245,20 @@ class DopplerCalculator:
         # 方法 2: 從 orbital_data 提取
         elif 'orbital_data' in satellite_data:
             orbital_data = satellite_data['orbital_data']
-            velocity = orbital_data.get('velocity_km_per_s')
+            # ✅ Fail-Fast: 明確檢查 velocity_km_per_s
+            if 'velocity_km_per_s' in orbital_data:
+                velocity = orbital_data['velocity_km_per_s']
+            else:
+                logger.debug("orbital_data 中缺少 velocity_km_per_s 字段")
 
         # 方法 3: 從 teme_state 提取
         elif 'teme_state' in satellite_data:
             teme_state = satellite_data['teme_state']
-            velocity = teme_state.get('velocity_km_per_s')
+            # ✅ Fail-Fast: 明確檢查 velocity_km_per_s
+            if 'velocity_km_per_s' in teme_state:
+                velocity = teme_state['velocity_km_per_s']
+            else:
+                logger.debug("teme_state 中缺少 velocity_km_per_s 字段")
 
         # 驗證速度數據
         if velocity is not None:

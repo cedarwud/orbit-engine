@@ -149,15 +149,32 @@ class TimeSeriesAnalyzer:
 
         for time_point in time_series:
             try:
-                # 提取時間點數據
-                # 🔧 修復: Stage 4 輸出格式將 elevation_deg/distance_km 放在 visibility_metrics 內
-                visibility_metrics = time_point.get('visibility_metrics', {})
-                elevation_deg = visibility_metrics.get('elevation_deg')
-                distance_km = visibility_metrics.get('distance_km')
-                is_connectable_str = visibility_metrics.get('is_connectable', 'False')
+                # ✅ Fail-Fast: 明確檢查必需字段，而非使用 .get() 回退
+                if 'visibility_metrics' not in time_point:
+                    self.logger.debug(f"時間點缺少 visibility_metrics，跳過")
+                    continue
+
+                visibility_metrics = time_point['visibility_metrics']
+
+                if 'elevation_deg' not in visibility_metrics:
+                    self.logger.debug(f"visibility_metrics 缺少 elevation_deg，跳過")
+                    continue
+                if 'distance_km' not in visibility_metrics:
+                    self.logger.debug(f"visibility_metrics 缺少 distance_km，跳過")
+                    continue
+                if 'is_connectable' not in visibility_metrics:
+                    self.logger.debug(f"visibility_metrics 缺少 is_connectable，跳過")
+                    continue
+                if 'timestamp' not in time_point:
+                    self.logger.debug(f"時間點缺少 timestamp，跳過")
+                    continue
+
+                elevation_deg = visibility_metrics['elevation_deg']
+                distance_km = visibility_metrics['distance_km']
+                is_connectable_str = visibility_metrics['is_connectable']
                 # 🔧 修復: is_connectable 是字符串 "True"/"False"，需要轉換為布爾值
                 is_connectable = (is_connectable_str == 'True' or is_connectable_str == True)
-                timestamp = time_point.get('timestamp')
+                timestamp = time_point['timestamp']
 
                 if elevation_deg is None or distance_km is None:
                     continue
@@ -186,14 +203,19 @@ class TimeSeriesAnalyzer:
                 )
 
                 # 構建時間點結果
+                # ✅ Fail-Fast: 如果信號計算失敗，offset 字段會缺失，直接跳過此時間點
+                if 'offset_mo_db' not in signal_quality or 'cell_offset_db' not in signal_quality:
+                    self.logger.debug(f"時間點 {timestamp} 缺少 A3 offset 數據，跳過")
+                    continue
+
                 time_point_result = {
                     'timestamp': timestamp,
                     'signal_quality': {
                         'rsrp_dbm': signal_quality['rsrp_dbm'],
                         'rsrq_db': signal_quality['rsrq_db'],
                         'rs_sinr_db': signal_quality['rs_sinr_db'],  # 修復: 使用 3GPP 標準命名
-                        'offset_mo_db': signal_quality.get('offset_mo_db', 0.0),        # A3 事件: Ofn/Ofp
-                        'cell_offset_db': signal_quality.get('cell_offset_db', 0.0),    # A3 事件: Ocn/Ocp
+                        'offset_mo_db': signal_quality['offset_mo_db'],        # A3 事件: Ofn/Ofp
+                        'cell_offset_db': signal_quality['cell_offset_db'],    # A3 事件: Ocn/Ocp
                         'calculation_standard': '3GPP_TS_38.214'
                     },
                     'is_connectable': is_connectable,
@@ -293,8 +315,7 @@ class TimeSeriesAnalyzer:
 
             # ✅ Grade A標準: Fail-Fast 模式 - 大氣參數必須在配置中提供
             # 依據: docs/ACADEMIC_STANDARDS.md Line 265-274 禁止使用預設值
-            atmospheric_config = self.config.get('atmospheric_model')
-            if not atmospheric_config:
+            if 'atmospheric_model' not in self.config:
                 raise ValueError(
                     "atmospheric_model 配置缺失\n"
                     "Grade A 標準禁止使用預設值\n"
@@ -304,6 +325,8 @@ class TimeSeriesAnalyzer:
                     "    pressure_hpa: 1013.25  # SOURCE: ICAO Standard\n"
                     "    water_vapor_density_g_m3: 7.5  # SOURCE: ITU-R P.835"
                 )
+
+            atmospheric_config = self.config['atmospheric_model']
 
             required_params = ['temperature_k', 'pressure_hpa', 'water_vapor_density_g_m3']
             missing_params = [p for p in required_params if p not in atmospheric_config]
@@ -431,8 +454,7 @@ class TimeSeriesAnalyzer:
 
             # ✅ Grade A標準: Fail-Fast 模式 - 大氣參數必須在配置中提供
             # 依據: docs/ACADEMIC_STANDARDS.md Line 265-274 禁止使用預設值
-            atmospheric_config = self.config.get('atmospheric_model')
-            if not atmospheric_config:
+            if 'atmospheric_model' not in self.config:
                 raise ValueError(
                     "atmospheric_model 配置缺失\n"
                     "Grade A 標準禁止使用預設值\n"
@@ -442,6 +464,8 @@ class TimeSeriesAnalyzer:
                     "    pressure_hpa: 1013.25  # SOURCE: ICAO Standard\n"
                     "    water_vapor_density_g_m3: 7.5  # SOURCE: ITU-R P.835"
                 )
+
+            atmospheric_config = self.config['atmospheric_model']
 
             required_params = ['temperature_k', 'pressure_hpa', 'water_vapor_density_g_m3']
             missing_params = [p for p in required_params if p not in atmospheric_config]
@@ -477,16 +501,20 @@ class TimeSeriesAnalyzer:
                 from .doppler_calculator import create_doppler_calculator
                 doppler_calc = create_doppler_calculator()
 
-                # 嘗試提取速度數據
-                velocity_km_per_s = time_point.get('velocity_km_per_s')
-                position_km = time_point.get('position_km')
+                # ✅ Fail-Fast: 明確檢查必需字段
+                # 都卜勒計算是可選的，但如果數據存在就必須完整
+                if 'velocity_km_per_s' in time_point and 'position_km' in time_point:
+                    velocity_km_per_s = time_point['velocity_km_per_s']
+                    position_km = time_point['position_km']
 
-                if velocity_km_per_s and position_km:
                     # ✅ Grade A標準: 觀測者位置必須從配置獲取，禁止硬編碼預設值
                     # 依據: docs/ACADEMIC_STANDARDS.md Line 27-44
-                    observer_position_km = self.config.get('observer_position_km')
-
-                    if observer_position_km:
+                    if 'observer_position_km' not in self.config:
+                        self.logger.debug(
+                            "⚠️ 缺少 observer_position_km 配置，無法計算都卜勒頻移"
+                        )
+                    else:
+                        observer_position_km = self.config['observer_position_km']
                         doppler_data = doppler_calc.calculate_doppler_shift(
                             velocity_km_per_s=velocity_km_per_s,
                             satellite_position_km=position_km,
@@ -496,11 +524,6 @@ class TimeSeriesAnalyzer:
 
                         doppler_shift_hz = doppler_data['doppler_shift_hz']
                         radial_velocity_ms = doppler_data['radial_velocity_ms']
-                    else:
-                        # ⚠️ Grade A標準: 缺少配置時記錄警告，但不使用預設值
-                        self.logger.debug(
-                            "⚠️ 缺少 observer_position_km 配置，無法計算都卜勒頻移"
-                        )
 
             # 傳播延遲 (精確計算)
             propagation_delay_ms = (distance_km * 1000.0) / physics_consts.SPEED_OF_LIGHT * 1000.0
@@ -512,17 +535,21 @@ class TimeSeriesAnalyzer:
                 try:
                     # Stage 4 在 time_point['position'] 中提供 lat/lon/alt
                     # 參見: stage4_link_feasibility_processor.py:373-377
-                    position = time_point.get('position', {})
-                    if 'latitude_deg' in position and 'longitude_deg' in position and 'altitude_km' in position:
-                        lat_deg = position['latitude_deg']
-                        lon_deg = position['longitude_deg']
-                        alt_km = position['altitude_km']
-                        alt_m = alt_km * 1000.0  # 轉換為米
+                    # ✅ Fail-Fast: ECEF 位置計算是可選的，但需要明確檢查
+                    if 'position' not in time_point:
+                        self.logger.debug("時間點缺少 position 數據，跳過 ECEF 計算")
+                    else:
+                        position = time_point['position']
+                        if position and 'latitude_deg' in position and 'longitude_deg' in position and 'altitude_km' in position:
+                            lat_deg = position['latitude_deg']
+                            lon_deg = position['longitude_deg']
+                            alt_km = position['altitude_km']
+                            alt_m = alt_km * 1000.0  # 轉換為米
 
-                        # Geodetic → ECEF 轉換
-                        from src.shared.utils.coordinate_converter import geodetic_to_ecef
-                        ecef_x, ecef_y, ecef_z = geodetic_to_ecef(lat_deg, lon_deg, alt_m)
-                        position_ecef_m = [ecef_x, ecef_y, ecef_z]
+                            # Geodetic → ECEF 轉換
+                            from src.shared.utils.coordinate_converter import geodetic_to_ecef
+                            ecef_x, ecef_y, ecef_z = geodetic_to_ecef(lat_deg, lon_deg, alt_m)
+                            position_ecef_m = [ecef_x, ecef_y, ecef_z]
                 except Exception as e:
                     self.logger.debug(f"⚠️ ECEF 位置計算失敗: {e}")
                     position_ecef_m = None
@@ -604,6 +631,10 @@ class TimeSeriesAnalyzer:
         """
         計算平均 RSRP
 
+        ✅ Grade A+ 標準: Fail-Fast 數據提取
+        - 明確檢查必需字段而非使用 .get() 回退
+        - 缺失字段時跳過該衛星並記錄 debug 日誌
+
         Args:
             satellites: 衛星數據字典
 
@@ -611,15 +642,31 @@ class TimeSeriesAnalyzer:
             float: 平均 RSRP (dBm)，無數據時返回 -100.0
         """
         rsrp_values = []
-        for sat_data in satellites.values():
-            rsrp = sat_data.get('signal_quality', {}).get('rsrp_dbm')
+        for sat_id, sat_data in satellites.items():
+            # ✅ Fail-Fast: 明確檢查必需字段
+            if 'signal_quality' not in sat_data:
+                self.logger.debug(f"衛星 {sat_id} 缺少 signal_quality，跳過 RSRP 統計")
+                continue
+
+            signal_quality = sat_data['signal_quality']
+
+            if 'rsrp_dbm' not in signal_quality:
+                self.logger.debug(f"衛星 {sat_id} 缺少 rsrp_dbm，跳過 RSRP 統計")
+                continue
+
+            rsrp = signal_quality['rsrp_dbm']
             if rsrp is not None:
                 rsrp_values.append(rsrp)
+
         return sum(rsrp_values) / len(rsrp_values) if rsrp_values else -100.0
 
     def calculate_average_sinr(self, satellites: Dict[str, Any]) -> float:
         """
         計算平均 RS-SINR
+
+        ✅ Grade A+ 標準: Fail-Fast 數據提取
+        - 明確檢查必需字段而非使用 .get() 回退
+        - 缺失字段時跳過該衛星並記錄 debug 日誌
 
         Args:
             satellites: 衛星數據字典
@@ -628,10 +675,22 @@ class TimeSeriesAnalyzer:
             float: 平均 RS-SINR (dB)，無數據時返回 10.0
         """
         sinr_values = []
-        for sat_data in satellites.values():
-            sinr = sat_data.get('signal_quality', {}).get('rs_sinr_db')  # 修復: 使用 3GPP 標準命名
+        for sat_id, sat_data in satellites.items():
+            # ✅ Fail-Fast: 明確檢查必需字段
+            if 'signal_quality' not in sat_data:
+                self.logger.debug(f"衛星 {sat_id} 缺少 signal_quality，跳過 SINR 統計")
+                continue
+
+            signal_quality = sat_data['signal_quality']
+
+            if 'rs_sinr_db' not in signal_quality:
+                self.logger.debug(f"衛星 {sat_id} 缺少 rs_sinr_db，跳過 SINR 統計")
+                continue
+
+            sinr = signal_quality['rs_sinr_db']  # 修復: 使用 3GPP 標準命名
             if sinr is not None:
                 sinr_values.append(sinr)
+
         return sum(sinr_values) / len(sinr_values) if sinr_values else 10.0
 
 

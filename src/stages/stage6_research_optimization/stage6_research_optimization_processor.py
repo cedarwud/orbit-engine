@@ -88,7 +88,7 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
 
     ⚠️ CRITICAL - Grade A 標準:
     - 所有預設值基於學術標準
-    - 數據缺失時使用保守估計值
+    - 數據缺失時立即報錯（Fail-Fast 原則）
     - 所有常數有明確 SOURCE 標註
     """
 
@@ -256,204 +256,202 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
         - 3GPP TS 38.331 v18.5.1 Section 5.5.4.15a (D2 閾值為可配置參數)
         - 自適應網路配置（Adaptive Network Configuration）
         """
-        try:
-            # ✅ Grade A+ 要求: Fail-fast 而非靜默回退
-            # 從 Stage 4/5 的 metadata 中提取動態閾值
-            metadata = input_data.get('metadata', {})
-            dynamic_thresholds = metadata.get('dynamic_d2_thresholds', {})
+        # ✅ Fail-Fast: 確保 metadata 存在
+        if 'metadata' not in input_data:
+            raise ValueError(
+                "❌ input_data 缺少 metadata 字段\n"
+                "請確保 Stage 5 正確傳遞 metadata\n"
+                "數據流完整性要求: Stage 1 → 4 → 5 → 6"
+            )
 
-            if not dynamic_thresholds:
-                # ❌ 違反 fail-fast 原則: 不應該靜默回退到配置文件
-                # ✅ 應該明確報錯，讓開發者修復數據流問題
-                error_msg = (
-                    "❌ Stage 4 動態閾值分析缺失 (違反數據流完整性)\n"
-                    f"\n檢查項目:\n"
-                    f"  1. Stage 4 是否生成 metadata.dynamic_d2_thresholds?\n"
-                    f"  2. Stage 5 是否正確傳遞 Stage 4 metadata?\n"
-                    f"  3. 當前輸入 metadata 可用字段: {list(metadata.keys())}\n"
-                    f"\n學術標準要求:\n"
-                    f"  - 數據流必須完整，不允許靜默回退\n"
-                    f"  - Stage 4 生成的動態閾值是基於當前 TLE 數據的自適應參數\n"
-                    f"  - 使用靜態配置文件預設值會導致參數與實際衛星配置不符\n"
-                    f"\n如需暫時禁用此檢查（僅用於調試）:\n"
-                    f"  在 Stage 6 配置中添加: allow_missing_dynamic_thresholds: true"
-                )
+        metadata = input_data['metadata']
 
-                # 允許配置覆蓋（僅用於調試/測試）
-                if not self.config.get('allow_missing_dynamic_thresholds', False):
-                    self.logger.error(error_msg)
-                    raise ValueError(error_msg)
-                else:
-                    self.logger.warning("⚠️ 動態閾值缺失，但配置允許回退到預設值（調試模式）")
-                    self.logger.warning(error_msg)
-                    return
+        # ✅ Fail-Fast: 確保動態閾值存在
+        if 'dynamic_d2_thresholds' not in metadata:
+            raise ValueError(
+                "❌ Stage 4 動態閾值分析缺失 (違反數據流完整性)\n"
+                "\n檢查項目:\n"
+                "  1. Stage 4 是否生成 metadata.dynamic_d2_thresholds?\n"
+                "  2. Stage 5 是否正確傳遞 Stage 4 metadata?\n"
+                f"  3. 當前輸入 metadata 可用字段: {list(metadata.keys())}\n"
+                "\n學術標準要求:\n"
+                "  - 數據流必須完整，不允許靜默回退\n"
+                "  - Stage 4 生成的動態閾值是基於當前 TLE 數據的自適應參數\n"
+                "  - 使用靜態配置文件預設值會導致參數與實際衛星配置不符"
+            )
 
-            self.logger.info("🔬 發現 Stage 4 動態閾值分析，開始應用...")
+        dynamic_thresholds = metadata['dynamic_d2_thresholds']
 
-            # 提取 Starlink 建議閾值
-            starlink_analysis = dynamic_thresholds.get('starlink', {})
-            starlink_thresholds = starlink_analysis.get('recommended_thresholds', {})
+        # ✅ Fail-Fast: 確保動態閾值不為空
+        if not dynamic_thresholds:
+            raise ValueError(
+                "❌ metadata.dynamic_d2_thresholds 為空字典\n"
+                "請確保 Stage 4 正確生成至少一個星座的動態閾值"
+            )
 
-            if starlink_thresholds and 'd2_threshold1_km' in starlink_thresholds:
-                old_t1 = self.gpp_detector.config.get('starlink', {}).get('d2_threshold1_km', 'N/A')
-                old_t2 = self.gpp_detector.config.get('starlink', {}).get('d2_threshold2_km', 'N/A')
+        self.logger.info("🔬 發現 Stage 4 動態閾值分析，開始應用...")
 
-                # 更新配置
-                if 'starlink' not in self.gpp_detector.config:
-                    self.gpp_detector.config['starlink'] = {}
+        # 提取 Starlink 建議閾值
+        starlink_analysis = dynamic_thresholds.get('starlink', {})
+        starlink_thresholds = starlink_analysis.get('recommended_thresholds', {})
 
-                self.gpp_detector.config['starlink']['d2_threshold1_km'] = starlink_thresholds['d2_threshold1_km']
-                self.gpp_detector.config['starlink']['d2_threshold2_km'] = starlink_thresholds['d2_threshold2_km']
+        if starlink_thresholds and 'd2_threshold1_km' in starlink_thresholds:
+            old_t1 = self.gpp_detector.config.get('starlink', {}).get('d2_threshold1_km', 'N/A')
+            old_t2 = self.gpp_detector.config.get('starlink', {}).get('d2_threshold2_km', 'N/A')
 
-                self.logger.info(
-                    f"✅ Starlink D2 閾值已更新（數據驅動）:\n"
-                    f"   Threshold1: {old_t1} → {starlink_thresholds['d2_threshold1_km']} km\n"
-                    f"   Threshold2: {old_t2} → {starlink_thresholds['d2_threshold2_km']} km\n"
-                    f"   數據來源: Stage 4 候選衛星距離分佈分析"
-                )
+            # 更新配置
+            if 'starlink' not in self.gpp_detector.config:
+                self.gpp_detector.config['starlink'] = {}
 
-            # 提取 OneWeb 建議閾值
-            oneweb_analysis = dynamic_thresholds.get('oneweb', {})
-            oneweb_thresholds = oneweb_analysis.get('recommended_thresholds', {})
+            self.gpp_detector.config['starlink']['d2_threshold1_km'] = starlink_thresholds['d2_threshold1_km']
+            self.gpp_detector.config['starlink']['d2_threshold2_km'] = starlink_thresholds['d2_threshold2_km']
 
-            if oneweb_thresholds and 'd2_threshold1_km' in oneweb_thresholds:
-                old_t1 = self.gpp_detector.config.get('oneweb', {}).get('d2_threshold1_km', 'N/A')
-                old_t2 = self.gpp_detector.config.get('oneweb', {}).get('d2_threshold2_km', 'N/A')
+            self.logger.info(
+                f"✅ Starlink D2 閾值已更新（數據驅動）:\n"
+                f"   Threshold1: {old_t1} → {starlink_thresholds['d2_threshold1_km']} km\n"
+                f"   Threshold2: {old_t2} → {starlink_thresholds['d2_threshold2_km']} km\n"
+                f"   數據來源: Stage 4 候選衛星距離分佈分析"
+            )
 
-                # 更新配置
-                if 'oneweb' not in self.gpp_detector.config:
-                    self.gpp_detector.config['oneweb'] = {}
+        # 提取 OneWeb 建議閾值
+        oneweb_analysis = dynamic_thresholds.get('oneweb', {})
+        oneweb_thresholds = oneweb_analysis.get('recommended_thresholds', {})
 
-                self.gpp_detector.config['oneweb']['d2_threshold1_km'] = oneweb_thresholds['d2_threshold1_km']
-                self.gpp_detector.config['oneweb']['d2_threshold2_km'] = oneweb_thresholds['d2_threshold2_km']
+        if oneweb_thresholds and 'd2_threshold1_km' in oneweb_thresholds:
+            old_t1 = self.gpp_detector.config.get('oneweb', {}).get('d2_threshold1_km', 'N/A')
+            old_t2 = self.gpp_detector.config.get('oneweb', {}).get('d2_threshold2_km', 'N/A')
 
-                self.logger.info(
-                    f"✅ OneWeb D2 閾值已更新（數據驅動）:\n"
-                    f"   Threshold1: {old_t1} → {oneweb_thresholds['d2_threshold1_km']} km\n"
-                    f"   Threshold2: {old_t2} → {oneweb_thresholds['d2_threshold2_km']} km\n"
-                    f"   數據來源: Stage 4 候選衛星距離分佈分析"
-                )
+            # 更新配置
+            if 'oneweb' not in self.gpp_detector.config:
+                self.gpp_detector.config['oneweb'] = {}
 
-        except Exception as e:
-            self.logger.warning(f"⚠️ 動態閾值應用失敗，回退到配置文件預設值: {e}")
+            self.gpp_detector.config['oneweb']['d2_threshold1_km'] = oneweb_thresholds['d2_threshold1_km']
+            self.gpp_detector.config['oneweb']['d2_threshold2_km'] = oneweb_thresholds['d2_threshold2_km']
+
+            self.logger.info(
+                f"✅ OneWeb D2 閾值已更新（數據驅動）:\n"
+                f"   Threshold1: {old_t1} → {oneweb_thresholds['d2_threshold1_km']} km\n"
+                f"   Threshold2: {old_t2} → {oneweb_thresholds['d2_threshold2_km']} km\n"
+                f"   數據來源: Stage 4 候選衛星距離分佈分析"
+            )
 
     def _detect_gpp_events(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """檢測 3GPP 事件
 
         依据: stage6-research-optimization.md Lines 220-240
         必须从 input_data 中提取 signal_analysis 字段
+
+        ✅ Fail-Fast: 不捕獲異常，讓錯誤自然傳播到頂層 process() 方法
         """
-        try:
-            self.logger.info("📡 開始 3GPP 事件檢測...")
+        self.logger.info("📡 開始 3GPP 事件檢測...")
 
-            # 🚨 P0 修正: 正确提取 signal_analysis 字段
-            # 错误: signal_analysis=input_data (传递整个字典)
-            # 正确: signal_analysis=input_data.get('signal_analysis', {})
-            signal_analysis = input_data.get('signal_analysis', {})
-
-            if not signal_analysis:
-                self.logger.error("❌ signal_analysis 字段為空，無法進行事件檢測")
-                return {
-                    'a3_events': [],
-                    'a4_events': [],
-                    'a5_events': [],
-                    'd2_events': [],
-                    'total_events': 0,
-                    'detection_summary': {'error': 'signal_analysis is empty'}
-                }
-
-            # 使用 GPP 檢測器檢測所有類型的事件
-            # 正确传递 signal_analysis 字段，而非整个 input_data
-            result = self.gpp_detector.detect_all_events(
-                signal_analysis=signal_analysis,  # ✅ 传递正确的字段
-                serving_satellite_id=None  # 讓檢測器自動選擇信號最強的衛星
+        # ✅ Fail-Fast: 確保 signal_analysis 字段存在
+        if 'signal_analysis' not in input_data:
+            raise ValueError(
+                "❌ input_data 缺少 signal_analysis 字段\n"
+                "請確保 Stage 5 正確生成信號分析數據\n"
+                "數據流完整性要求: Stage 5 → Stage 6"
             )
 
-            total_events = (
-                len(result.get('a3_events', [])) +
-                len(result.get('a4_events', [])) +
-                len(result.get('a5_events', [])) +
-                len(result.get('d2_events', []))
+        signal_analysis = input_data['signal_analysis']
+
+        # ✅ Fail-Fast: 確保 signal_analysis 不為空
+        if not signal_analysis:
+            raise ValueError(
+                "❌ signal_analysis 為空字典\n"
+                "請確保 Stage 5 至少分析了一顆衛星\n"
+                f"實際輸入: {type(signal_analysis)} = {signal_analysis}"
             )
 
-            self.processing_stats['total_events_detected'] = total_events
-            self.logger.info(
-                f"✅ 檢測到 {total_events} 個 3GPP 事件 "
-                f"(A3: {len(result.get('a3_events', []))}, "
-                f"A4: {len(result.get('a4_events', []))}, "
-                f"A5: {len(result.get('a5_events', []))}, "
-                f"D2: {len(result.get('d2_events', []))})"
-            )
+        # 使用 GPP 檢測器檢測所有類型的事件
+        # 正确传递 signal_analysis 字段，而非整个 input_data
+        result = self.gpp_detector.detect_all_events(
+            signal_analysis=signal_analysis,  # ✅ 传递正确的字段
+            serving_satellite_id=None  # 讓檢測器自動選擇信號最強的衛星
+        )
 
-            return result
+        total_events = (
+            len(result.get('a3_events', [])) +
+            len(result.get('a4_events', [])) +
+            len(result.get('a5_events', [])) +
+            len(result.get('d2_events', []))
+        )
 
-        except Exception as e:
-            self.logger.error(f"3GPP 事件檢測失敗: {e}", exc_info=True)
-            return {
-                'a3_events': [],
-                'a4_events': [],
-                'a5_events': [],
-                'd2_events': [],
-                'total_events': 0,
-                'detection_summary': {'error': str(e)}
-            }
+        self.processing_stats['total_events_detected'] = total_events
+        self.logger.info(
+            f"✅ 檢測到 {total_events} 個 3GPP 事件 "
+            f"(A3: {len(result.get('a3_events', []))}, "
+            f"A4: {len(result.get('a4_events', []))}, "
+            f"A5: {len(result.get('a5_events', []))}, "
+            f"D2: {len(result.get('d2_events', []))})"
+        )
+
+        return result
 
     def _verify_satellite_pool(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """驗證動態衛星池
 
         依据: stage6-research-optimization.md Lines 267-316
-        必须遍历时间序列验证每个时间点的可见衛星数
+        必须遍历时间序列验证每个时间点的可見衛星数
+
+        ✅ Fail-Fast: 不捕獲異常，讓錯誤自然傳播到頂層 process() 方法
         """
-        try:
-            self.logger.info("🔧 開始動態衛星池驗證...")
+        self.logger.info("🔧 開始動態衛星池驗證...")
 
-            # 從輸入數據提取候選衛星池
-            connectable_satellites = input_data.get('connectable_satellites', {})
-
-            if not connectable_satellites:
-                self.logger.error("❌ connectable_satellites 為空")
-                return {'verified': False, 'error': 'connectable_satellites is empty'}
-
-            # 🚨 P0: 验证时间序列数据存在性 (使用新模組)
-            # 依据: stage6-research-optimization.md Lines 267-316
-            has_time_series = self.input_output_validator.validate_time_series_presence(connectable_satellites)
-            if not has_time_series:
-                self.logger.warning("⚠️ connectable_satellites 缺少時間序列數據，使用當前狀態驗證")
-
-            # 執行池驗證 (验证器内部应该遍历时间序列)
-            result = self.pool_verifier.verify_all_pools(connectable_satellites)
-
-            # 更新統計
-            overall_verification = result.get('overall_verification', {})
-            # 修正：使用正確的欄位名稱 overall_passed
-            self.processing_stats['pool_verification_passed'] = overall_verification.get('overall_passed', False)
-
-            # 检查验证器是否正确执行了时间序列遍历
-            starlink_pool = result.get('starlink_pool', {})
-            oneweb_pool = result.get('oneweb_pool', {})
-
-            starlink_time_points = starlink_pool.get('time_points_analyzed', 0)
-            oneweb_time_points = oneweb_pool.get('time_points_analyzed', 0)
-
-            if has_time_series and (starlink_time_points == 0 or oneweb_time_points == 0):
-                self.logger.warning(
-                    f"⚠️ 驗證器未正確遍歷時間序列 "
-                    f"(Starlink: {starlink_time_points}點, OneWeb: {oneweb_time_points}點)"
-                )
-
-            self.logger.info(
-                f"✅ 動態池驗證完成 - "
-                f"Starlink: {starlink_pool.get('verification_passed', False)} "
-                f"({starlink_time_points}個時間點), "
-                f"OneWeb: {oneweb_pool.get('verification_passed', False)} "
-                f"({oneweb_time_points}個時間點)"
+        # ✅ Fail-Fast: 確保 connectable_satellites 字段存在
+        if 'connectable_satellites' not in input_data:
+            raise ValueError(
+                "❌ input_data 缺少 connectable_satellites 字段\n"
+                "請確保 Stage 4 正確生成可連線衛星數據\n"
+                "數據流完整性要求: Stage 4 → Stage 5 → Stage 6"
             )
 
-            return result
+        connectable_satellites = input_data['connectable_satellites']
 
-        except Exception as e:
-            self.logger.error(f"動態池驗證失敗: {e}", exc_info=True)
-            return {'verified': False, 'error': str(e)}
+        # ✅ Fail-Fast: 確保 connectable_satellites 不為空
+        if not connectable_satellites:
+            raise ValueError(
+                "❌ connectable_satellites 為空字典\n"
+                "請確保 Stage 4 至少生成一個星座的候選衛星\n"
+                f"實際輸入: {type(connectable_satellites)} = {connectable_satellites}"
+            )
+
+        # 🚨 P0: 验证时间序列数据存在性 (使用新模組)
+        # 依据: stage6-research-optimization.md Lines 267-316
+        has_time_series = self.input_output_validator.validate_time_series_presence(connectable_satellites)
+        if not has_time_series:
+            self.logger.warning("⚠️ connectable_satellites 缺少時間序列數據，使用當前狀態驗證")
+
+        # 執行池驗證 (验证器内部应该遍历时间序列)
+        result = self.pool_verifier.verify_all_pools(connectable_satellites)
+
+        # 更新統計
+        overall_verification = result.get('overall_verification', {})
+        # 修正：使用正確的欄位名稱 overall_passed
+        self.processing_stats['pool_verification_passed'] = overall_verification.get('overall_passed', False)
+
+        # 检查验证器是否正确执行了时间序列遍历
+        starlink_pool = result.get('starlink_pool', {})
+        oneweb_pool = result.get('oneweb_pool', {})
+
+        starlink_time_points = starlink_pool.get('time_points_analyzed', 0)
+        oneweb_time_points = oneweb_pool.get('time_points_analyzed', 0)
+
+        if has_time_series and (starlink_time_points == 0 or oneweb_time_points == 0):
+            self.logger.warning(
+                f"⚠️ 驗證器未正確遍歷時間序列 "
+                f"(Starlink: {starlink_time_points}點, OneWeb: {oneweb_time_points}點)"
+            )
+
+        self.logger.info(
+            f"✅ 動態池驗證完成 - "
+            f"Starlink: {starlink_pool.get('verification_passed', False)} "
+            f"({starlink_time_points}個時間點), "
+            f"OneWeb: {oneweb_pool.get('verification_passed', False)} "
+            f"({oneweb_time_points}個時間點)"
+        )
+
+        return result
 
     def _generate_ml_training_data(self, input_data: Dict[str, Any],
                                    gpp_events: Dict[str, Any]) -> Dict[str, Any]:
@@ -587,119 +585,116 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
 
         依据: stage6-research-optimization.md Lines 103-107
         必须从 signal_analysis 中提取服务卫星和候选卫星
+
+        ✅ Fail-Fast: 不捕獲最外層異常，讓錯誤自然傳播到頂層 process() 方法
+        註：內部保留特定的衛星數據不完整處理（返回決策不可用而非拋出異常）
         """
-        if not self.decision_support:
-            self.logger.warning("Real Time Decision Support 不可用，跳過決策支援")
+        # ✅ Fail-Fast (P3-1): 移除冗餘檢查
+        # decision_support 已在 __init__ 中強制檢查（Lines 111-121）
+        # 如果不存在會拋出 ImportError，此檢查永遠不會觸發
+        # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
+        assert self.decision_support is not None, "Decision support should be initialized in __init__"
+
+        self.logger.info("⚡ 開始實時決策支援...")
+
+        # ✅ Fail-Fast: 確保 signal_analysis 字段存在
+        if 'signal_analysis' not in input_data:
+            raise ValueError(
+                "❌ input_data 缺少 signal_analysis 字段\n"
+                "請確保 Stage 5 正確生成信號分析數據\n"
+                "數據流完整性要求: Stage 5 → Stage 6"
+            )
+
+        signal_analysis = input_data['signal_analysis']
+
+        # ✅ Fail-Fast: 確保 signal_analysis 不為空
+        if not signal_analysis:
+            raise ValueError(
+                "❌ signal_analysis 為空字典\n"
+                "請確保 Stage 5 至少分析了一顆衛星\n"
+                f"實際輸入: {type(signal_analysis)} = {signal_analysis}"
+            )
+
+        # 按 RSRP 排序，选择信号最强的作为服务卫星
+        # 修正：從 summary.average_rsrp_dbm 讀取平均信號強度
+        satellites_by_rsrp = sorted(
+            signal_analysis.items(),
+            key=lambda x: x[1].get('summary', {}).get('average_rsrp_dbm', -999),
+            reverse=True
+        )
+
+        if len(satellites_by_rsrp) == 0:
+            self.logger.warning("❌ 無可用衛星進行決策")
             return {
                 'supported': False,
-                'error': 'Decision support not available',
+                'error': 'No satellites available',
                 'decision_count': 0,
                 'current_recommendations': []
             }
 
+        # 提取服务卫星和候选卫星
+        # 修正：從 time_series 提取最新時間點的詳細數據
+        # ✅ Grade A+ Fail-Fast: 添加錯誤處理，數據不完整時跳過該衛星
+        serving_satellite_id, serving_data = satellites_by_rsrp[0]
         try:
-            self.logger.info("⚡ 開始實時決策支援...")
-
-            # 🚨 P0 修正: 从 signal_analysis 提取衛星數據
-            signal_analysis = input_data.get('signal_analysis', {})
-            if not signal_analysis:
-                self.logger.warning("❌ signal_analysis 為空，無法進行決策支援")
-                return {
-                    'supported': False,
-                    'error': 'No signal_analysis available',
-                    'decision_count': 0,
-                    'current_recommendations': []
-                }
-
-            # 按 RSRP 排序，选择信号最强的作为服务卫星
-            # 修正：從 summary.average_rsrp_dbm 讀取平均信號強度
-            satellites_by_rsrp = sorted(
-                signal_analysis.items(),
-                key=lambda x: x[1].get('summary', {}).get('average_rsrp_dbm', -999),
-                reverse=True
-            )
-
-            if len(satellites_by_rsrp) == 0:
-                self.logger.warning("❌ 無可用衛星進行決策")
-                return {
-                    'supported': False,
-                    'error': 'No satellites available',
-                    'decision_count': 0,
-                    'current_recommendations': []
-                }
-
-            # 提取服务卫星和候选卫星
-            # 修正：從 time_series 提取最新時間點的詳細數據
-            # ✅ Grade A+ Fail-Fast: 添加錯誤處理，數據不完整時跳過該衛星
-            serving_satellite_id, serving_data = satellites_by_rsrp[0]
-            try:
-                serving_satellite = self._extract_latest_snapshot(serving_satellite_id, serving_data)
-            except ValueError as e:
-                self.logger.warning(f"服務衛星 {serving_satellite_id} 數據不完整，無法進行決策: {e}")
-                return {
-                    'supported': False,
-                    'error': f'Serving satellite data incomplete: {str(e)}',
-                    'decision_count': 0,
-                    'current_recommendations': []
-                }
-
-            candidate_satellites = []
-            for sat_id, sat_data in satellites_by_rsrp[1:6]:  # 最多5个候选
-                try:
-                    candidate_snapshot = self._extract_latest_snapshot(sat_id, sat_data)
-                    candidate_satellites.append(candidate_snapshot)
-                except ValueError as e:
-                    self.logger.warning(f"候選衛星 {sat_id} 數據不完整，跳過: {e}")
-                    continue  # 跳過數據不完整的候選衛星
-
-            # 提取相關的 3GPP 事件
-            all_events = []
-            all_events.extend(gpp_events.get('a3_events', []))
-            all_events.extend(gpp_events.get('a4_events', []))
-            all_events.extend(gpp_events.get('a5_events', []))
-            all_events.extend(gpp_events.get('d2_events', []))
-
-            # 做出換手決策
-            decision = self.decision_support.make_handover_decision(
-                serving_satellite=serving_satellite,
-                candidate_satellites=candidate_satellites,
-                gpp_events=all_events
-            )
-
-            # 更新統計
-            self.processing_stats['decision_support_calls'] += 1
-            if 'handover' in decision.get('recommendation', ''):
-                self.processing_stats['handover_decisions'] += 1
-
-            self.logger.info(
-                f"✅ 決策支援完成 - 建議: {decision.get('recommendation')}, "
-                f"延遲: {decision.get('decision_latency_ms', 0):.2f}ms"
-            )
-
-            # 添加 performance_metrics 聚合字段
-            # 依据: stage6_validator.py Lines 84-86 期望此字段
-            decision_latency = decision.get('decision_latency_ms', 0)
-
-            return {
-                'current_recommendations': [decision],
-                'decision_count': 1,
-                'performance_metrics': {
-                    'average_decision_latency_ms': decision_latency,
-                    'total_decisions': 1,
-                    'decisions_under_100ms': 1 if decision_latency < 100 else 0,
-                    'max_latency_ms': decision_latency,
-                    'min_latency_ms': decision_latency
-                }
-            }
-
-        except Exception as e:
-            self.logger.error(f"實時決策支援失敗: {e}", exc_info=True)
+            serving_satellite = self._extract_latest_snapshot(serving_satellite_id, serving_data)
+        except ValueError as e:
+            self.logger.warning(f"服務衛星 {serving_satellite_id} 數據不完整，無法進行決策: {e}")
             return {
                 'supported': False,
-                'error': str(e),
+                'error': f'Serving satellite data incomplete: {str(e)}',
                 'decision_count': 0,
                 'current_recommendations': []
             }
+
+        candidate_satellites = []
+        for sat_id, sat_data in satellites_by_rsrp[1:6]:  # 最多5个候选
+            try:
+                candidate_snapshot = self._extract_latest_snapshot(sat_id, sat_data)
+                candidate_satellites.append(candidate_snapshot)
+            except ValueError as e:
+                self.logger.warning(f"候選衛星 {sat_id} 數據不完整，跳過: {e}")
+                continue  # 跳過數據不完整的候選衛星
+
+        # 提取相關的 3GPP 事件
+        all_events = []
+        all_events.extend(gpp_events.get('a3_events', []))
+        all_events.extend(gpp_events.get('a4_events', []))
+        all_events.extend(gpp_events.get('a5_events', []))
+        all_events.extend(gpp_events.get('d2_events', []))
+
+        # 做出換手決策
+        decision = self.decision_support.make_handover_decision(
+            serving_satellite=serving_satellite,
+            candidate_satellites=candidate_satellites,
+            gpp_events=all_events
+        )
+
+        # 更新統計
+        self.processing_stats['decision_support_calls'] += 1
+        if 'handover' in decision.get('recommendation', ''):
+            self.processing_stats['handover_decisions'] += 1
+
+        self.logger.info(
+            f"✅ 決策支援完成 - 建議: {decision.get('recommendation')}, "
+            f"延遲: {decision.get('decision_latency_ms', 0):.2f}ms"
+        )
+
+        # 添加 performance_metrics 聚合字段
+        # 依据: stage6_validator.py Lines 84-86 期望此字段
+        decision_latency = decision.get('decision_latency_ms', 0)
+
+        return {
+            'current_recommendations': [decision],
+            'decision_count': 1,
+            'performance_metrics': {
+                'average_decision_latency_ms': decision_latency,
+                'total_decisions': 1,
+                'decisions_under_100ms': 1 if decision_latency < 100 else 0,
+                'max_latency_ms': decision_latency,
+                'min_latency_ms': decision_latency
+            }
+        }
 
     def _build_stage6_output(self, original_data: Dict[str, Any],
                            gpp_events: Dict[str, Any],
@@ -714,12 +709,33 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
 
         # 🚨 P1: 确保 constellation_configs 正确传递
         # 依据: stage6-research-optimization.md Lines 256-265
-        metadata_from_input = original_data.get('metadata', {})
-        constellation_configs = metadata_from_input.get('constellation_configs')
+        # ✅ Fail-Fast: 確保 metadata 字段存在
+        if 'metadata' not in original_data:
+            raise ValueError(
+                "❌ original_data 缺少 metadata 字段\n"
+                "請確保 Stage 5 正確傳遞 metadata\n"
+                "數據流完整性要求: Stage 1 → 4 → 5 → 6"
+            )
 
+        metadata_from_input = original_data['metadata']
+
+        # ✅ Fail-Fast (P2-1): constellation_configs 缺失時應拋出異常，不使用回退
+        # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
+        if 'constellation_configs' not in metadata_from_input:
+            raise ValueError(
+                "❌ metadata 缺少 constellation_configs 字段\n"
+                "請確保 Stage 1/4/5 正確傳遞星座配置數據\n"
+                "constellation_configs 包含重要的星座配置參數，缺失時應明確報錯"
+            )
+
+        constellation_configs = metadata_from_input['constellation_configs']
+
+        # ✅ Fail-Fast: 確保 constellation_configs 不為空
         if not constellation_configs:
-            self.logger.warning("⚠️ metadata 缺少 constellation_configs，嘗試從其他來源獲取")
-            # 可以添加从 Stage 1 回退的逻辑
+            raise ValueError(
+                "❌ constellation_configs 為空字典\n"
+                "請確保至少包含 starlink 或 oneweb 星座配置"
+            )
 
         # 构建 metadata
         stage6_metadata = {

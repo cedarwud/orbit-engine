@@ -82,12 +82,22 @@ class Stage5ComplianceValidator:
         if stage_value not in ['stage4_link_feasibility', 'stage4_optimization']:
             errors.append(f"輸入階段標識錯誤: {stage_value} (期望: stage4_link_feasibility 或 stage4_optimization)")
 
-        # 驗證衛星數據字段 (優先使用 connectable_satellites)
-        satellites = input_data.get('connectable_satellites') or input_data.get('satellites')
-        if not isinstance(satellites, dict):
-            errors.append(f"衛星數據格式錯誤: {type(satellites).__name__} (期望: dict)")
-        elif len(satellites) == 0:
-            warnings.append("衛星數據為空 - Stage 5 可能無衛星需要處理")
+        # ✅ Fail-Fast: 明確檢查衛星數據字段（向後兼容新舊格式）
+        if has_connectable_satellites:
+            satellites = input_data['connectable_satellites']
+        elif has_satellites:
+            satellites = input_data['satellites']
+        else:
+            # 這種情況已在上面的錯誤檢查中捕獲，不應到達這裡
+            errors.append("內部錯誤：衛星數據字段檢查邏輯異常")
+            satellites = None
+
+        # 驗證衛星數據類型和內容
+        if satellites is not None:
+            if not isinstance(satellites, dict):
+                errors.append(f"衛星數據格式錯誤: {type(satellites).__name__} (期望: dict)")
+            elif len(satellites) == 0:
+                warnings.append("衛星數據為空 - Stage 5 可能無衛星需要處理")
 
         return {
             'valid': len(errors) == 0,
@@ -302,15 +312,38 @@ class Stage5ComplianceValidator:
             # 構建檢查摘要
             # ============================================================================
 
+            # ✅ Fail-Fast: 明確檢查 metadata 中的合規字段
+            gpp_compliance = False
+            itur_compliance = False
+            time_series_processing = False
+
+            if 'metadata' in results:
+                metadata_local = results['metadata']
+
+                if 'gpp_standard_compliance' in metadata_local:
+                    gpp_compliance = metadata_local['gpp_standard_compliance']
+                else:
+                    validation_results['warnings'].append('metadata 缺少 gpp_standard_compliance 字段')
+
+                if 'itur_standard_compliance' in metadata_local:
+                    itur_compliance = metadata_local['itur_standard_compliance']
+                else:
+                    validation_results['warnings'].append('metadata 缺少 itur_standard_compliance 字段')
+
+                if 'time_series_processing' in metadata_local:
+                    time_series_processing = metadata_local['time_series_processing']
+                else:
+                    validation_results['warnings'].append('metadata 缺少 time_series_processing 字段')
+
             validation_results['checks'] = {
                 'structure_valid': len(validation_results['errors']) == 0,
                 'satellite_count': len(signal_analysis),
                 'satellites_with_time_series': satellites_with_time_series,
                 'total_time_points': total_time_points,
                 'has_metadata': 'metadata' in results,
-                'gpp_compliance': metadata.get('gpp_standard_compliance', False) if 'metadata' in results else False,
-                'itur_compliance': metadata.get('itur_standard_compliance', False) if 'metadata' in results else False,
-                'time_series_processing': metadata.get('time_series_processing', False) if 'metadata' in results else False
+                'gpp_compliance': gpp_compliance,
+                'itur_compliance': itur_compliance,
+                'time_series_processing': time_series_processing
             }
 
             # 添加主腳本期望的字段格式

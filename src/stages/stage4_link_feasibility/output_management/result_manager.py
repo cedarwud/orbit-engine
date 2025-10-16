@@ -238,7 +238,7 @@ class Stage4ResultManager(BaseResultManager):
         )
 
         # 構建快照數據
-        return {
+        snapshot = {
             'status': 'success' if overall_validation_passed else 'warning',
             'metadata': metadata,
             'feasibility_summary': feasibility_summary,
@@ -250,6 +250,12 @@ class Stage4ResultManager(BaseResultManager):
                 'oneweb_optimized_pool_size': pool_optimization.get('oneweb', {}).get('optimized_pool_size', 0)
             }
         }
+
+        # ✅ 添加 connectable_satellites 供驗證器使用 (stage4_validator.py 必需)
+        if 'connectable_satellites' in processing_results:
+            snapshot['connectable_satellites'] = processing_results['connectable_satellites']
+
+        return snapshot
 
     # ==================== Backward Compatibility Interface ====================
 

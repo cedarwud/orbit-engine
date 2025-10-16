@@ -36,7 +36,7 @@ ground_station:
   name: "National Taipei University of Technology"
   latitude_deg: 24.9441
   longitude_deg: 121.3714
-  altitude_m: 200.0
+  altitude_m: 36.0
 
 # Epoch 驗證設置 (計劃 B)
 epoch_validation:

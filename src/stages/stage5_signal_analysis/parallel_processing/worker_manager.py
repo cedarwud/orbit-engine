@@ -75,11 +75,20 @@ class SignalAnalysisWorkerManager:
         }
 
         for satellite in satellites:
-            satellite_id = satellite.get('satellite_id')
-            time_series = satellite.get('time_series', [])
+            # ✅ Fail-Fast: 明確檢查 satellite_id
+            if 'satellite_id' not in satellite:
+                self.logger.warning("衛星數據缺少 satellite_id 字段，跳過此衛星")
+                continue
+            satellite_id = satellite['satellite_id']
+
+            # ✅ Fail-Fast: 明確檢查 time_series
+            if 'time_series' not in satellite:
+                self.logger.warning(f"衛星 {satellite_id} 缺少 time_series 字段，跳過")
+                continue
+            time_series = satellite['time_series']
 
             if not time_series:
-                self.logger.warning(f"衛星 {satellite_id} 缺少時間序列數據，跳過")
+                self.logger.warning(f"衛星 {satellite_id} 的 time_series 為空，跳過")
                 continue
 
             stats['total_satellites_analyzed'] += 1
@@ -141,7 +150,7 @@ class SignalAnalysisWorkerManager:
 
         # 創建進程池並提交任務
         with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            # 提交所有衛星處理任務
+            # ✅ Fail-Fast: 提交所有衛星處理任務（明確檢查 time_series）
             future_to_satellite = {
                 executor.submit(
                     _process_single_satellite_worker,
@@ -150,7 +159,8 @@ class SignalAnalysisWorkerManager:
                     system_config,
                     self.signal_thresholds,
                     self.config
-                ): satellite for satellite in satellites if satellite.get('time_series')
+                ): satellite for satellite in satellites
+                if 'time_series' in satellite and satellite['time_series']
             }
 
             # 收集結果
@@ -159,7 +169,13 @@ class SignalAnalysisWorkerManager:
 
             for future in as_completed(future_to_satellite):
                 satellite = future_to_satellite[future]
-                satellite_id = satellite.get('satellite_id')
+
+                # ✅ Fail-Fast: 明確檢查 satellite_id
+                if 'satellite_id' not in satellite:
+                    self.logger.warning("結果收集：衛星數據缺少 satellite_id 字段")
+                    completed += 1
+                    continue
+                satellite_id = satellite['satellite_id']
                 completed += 1
 
                 try:
@@ -168,8 +184,19 @@ class SignalAnalysisWorkerManager:
                         analyzed_satellites[result['satellite_id']] = result
                         stats['total_satellites_analyzed'] += 1
 
+                        # ✅ Fail-Fast: 明確檢查 summary 和 average_quality_level
+                        if 'summary' not in result:
+                            self.logger.warning(f"衛星 {satellite_id} 結果缺少 summary 字段，標記為 poor")
+                            avg_quality = 'poor'
+                        else:
+                            summary = result['summary']
+                            if 'average_quality_level' not in summary:
+                                self.logger.warning(f"衛星 {satellite_id} summary 缺少 average_quality_level 字段，標記為 poor")
+                                avg_quality = 'poor'
+                            else:
+                                avg_quality = summary['average_quality_level']
+
                         # 更新統計
-                        avg_quality = result.get('summary', {}).get('average_quality_level', 'poor')
                         if avg_quality == 'excellent':
                             stats['excellent_signals'] += 1
                         elif avg_quality == 'good':
@@ -210,10 +237,20 @@ def _process_single_satellite_worker(
         from ..time_series_analyzer import create_time_series_analyzer
         time_series_analyzer = create_time_series_analyzer(config, signal_thresholds)
 
-        satellite_id = satellite.get('satellite_id')
-        time_series = satellite.get('time_series', [])
+        # ✅ Fail-Fast: 明確檢查 satellite_id
+        if 'satellite_id' not in satellite:
+            logger.warning("Worker: 衛星數據缺少 satellite_id 字段")
+            return None
+        satellite_id = satellite['satellite_id']
+
+        # ✅ Fail-Fast: 明確檢查 time_series
+        if 'time_series' not in satellite:
+            logger.warning(f"Worker: 衛星 {satellite_id} 缺少 time_series 字段")
+            return None
+        time_series = satellite['time_series']
 
         if not time_series:
+            logger.debug(f"Worker: 衛星 {satellite_id} 的 time_series 為空")
             return None
 
         # 分析時間序列
@@ -234,5 +271,7 @@ def _process_single_satellite_worker(
         }
 
     except Exception as e:
-        logger.error(f"❌ Worker 處理衛星 {satellite.get('satellite_id')} 失敗: {e}")
+        # ✅ Fail-Fast: 明確檢查 satellite_id（用於錯誤日誌）
+        sat_id = satellite.get('satellite_id', 'UNKNOWN')  # ✅ Exception 處理中可使用預設值
+        logger.error(f"❌ Worker 處理衛星 {sat_id} 失敗: {e}")
         return None

@@ -46,6 +46,26 @@ signal_calculator:
   # - 室溫 (17°C): 290.15 K
   # - ITU-R P.372 標準噪聲溫度: 290 K
 
+  # 3GPP TS 38.331 測量偏移配置 (A3 事件檢測)
+  # SOURCE: 3GPP TS 38.331 V18.5.1 (2024-03) Section 5.5.4.4
+  measurement_offsets:
+    # Starlink 星座測量偏移
+    starlink:
+      # 測量物件偏移 (Measurement Object Offset)
+      offset_mo_db: 0.0
+      # 用於調整相鄰小區測量值的偏移量
+      # 範圍: -24.0 ~ 24.0 dB (0.5 dB steps)
+
+      # 小區專用偏移 (Cell-specific Offset)
+      cell_offset_db: 0.0
+      # 針對特定小區的額外偏移量
+      # 範圍: -24.0 ~ 24.0 dB (0.5 dB steps)
+
+    # OneWeb 星座測量偏移
+    oneweb:
+      offset_mo_db: 0.0
+      cell_offset_db: 0.0
+
 # ==============================================================================
 # ITU-R P.676 大氣衰減模型配置
 # ==============================================================================

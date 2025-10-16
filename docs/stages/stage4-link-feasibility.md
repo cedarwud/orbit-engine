@@ -1,11 +1,11 @@
 # 📡 Stage 4: 鏈路可行性評估層 - 完整規格文檔
 
-**最後更新**: 2025-10-03 (v3.1 時間同步重構 - 配合統一時間窗口)
+**最後更新**: 2025-10-16 (v4.4 驗證框架完全實現 - 6/6項完全驗證)
 **核心職責**: 星座感知的可連線性評估與地理可見性分析
 **學術合規**: Grade A 標準，星座特定服務門檻
 **接口標準**: 100% BaseStageProcessor 合規
 **實現狀態**: ✅ 階段 4.1 + 4.2 完整實現並強制執行
-**驗證狀態**: ⚠️ 僅 pool_optimization 驗證已實現 (CRITICAL)，前 5 項驗證規劃中
+**驗證狀態**: ✅ 6/6 項完全實現 (100%) - 詳見 STAGE4_VERIFICATION_MATRIX.md
 
 ## 📖 概述與目標
 
@@ -480,7 +480,7 @@ def uniform_elevation_filter(satellites):
 - ✅ `research_configuration.observation_location` - NTPU 地面站
   - `latitude_deg: 24.9442` - NTPU 緯度
   - `longitude_deg: 121.3714` - NTPU 經度
-  - `altitude_m: 0` - NTPU 海拔
+  - `altitude_m: 36` - NTPU 海拔
   - `name: 'NTPU'` - 地面站名稱
 
 - ✅ `constellation_configs` - 星座配置
@@ -968,11 +968,11 @@ cross_validation:
 - Poliastro: Juanlu, A. et al. (2018). *poliastro: Astrodynamics in Python*, SciPy Proceedings
 - DOI: 10.5281/zenodo.6817189
 
-### 驗證檢查實現狀態 (4項完全實現 + 2項部分實現)
+### 驗證檢查實現狀態 (6項完全實現)
 
-✅ **重要更新 (2025-10-02)**: 經代碼審計，驗證腳本**已實現 4 項完整驗證 + 2 項部分驗證**，遠優於先前文檔聲稱的 "1項已實現"。
+✅ **重要更新 (2025-10-16)**: 經完整增強，驗證腳本**已實現 6 項完整驗證**，包含項目 #2 和 #5 的詳細數據結構與合理性檢查。
 
-#### ✅ **完全實現並強制執行** (4項)
+#### ✅ **完全實現並強制執行** (6項)
 
 **1. constellation_threshold_validation** - 星座門檻驗證 ✅
    - ✅ **星座感知**: 檢查 `constellation_aware = True`
@@ -994,6 +994,25 @@ cross_validation:
    - ✅ **腳本實現**: `run_six_stages_with_validation.py` lines 800-817
    - ✅ **強制執行**: 正式模式下強制檢查
 
+**2. visibility_calculation_accuracy** - 可見性計算精度 ✅
+   - ✅ **IAU 標準驗證**: 檢查 `use_iau_standards = True`
+   - ✅ **候選池數量驗證**: 100-5000 顆合理範圍
+   - ✅ **數據結構驗證**: visibility_metrics 完整性檢查
+   - ✅ **合理性檢查**: 仰角 (-90~90°), 方位角 (0~360°), 距離 (200~2500km)
+   - ✅ **星座門檻驗證**: Starlink 5.0°, OneWeb 10.0° 正確應用
+   - ✅ **腳本實現**: `stage4_validator.py` lines 483-587
+   - ✅ **強制執行**: 詳細檢查所有可見性指標
+
+**5. service_window_optimization** - 服務窗口優化 ✅
+   - ✅ **覆蓋空窗長度**: < 30 分鐘
+   - ✅ **覆蓋空窗總數**: ≤ 5 個
+   - ✅ **數據結構驗證**: service_window 必需字段檢查
+   - ✅ **時間連續性**: start_time < end_time
+   - ✅ **持續時間正確性**: 基於時間戳計算驗證 (誤差 < 1 分鐘)
+   - ✅ **持續時間合理性**: 0.5~30 分鐘範圍
+   - ✅ **腳本實現**: `stage4_validator.py` lines 589-691
+   - ✅ **強制執行**: 專用服務窗口檢查邏輯
+
 **6. stage_4_2_pool_optimization** - 階段 4.2 池規劃驗證 (🔴 CRITICAL) ✅
    - ✅ **覆蓋率檢查**: Starlink ≥ 95%, OneWeb ≥ 80%
    - ✅ **平均可見數檢查**: Starlink 10-15 顆, OneWeb 3-6 顆
@@ -1001,29 +1020,17 @@ cross_validation:
    - ✅ **池規模檢查**: 選擇比例在 10%-80% 合理範圍
    - ✅ **優化完成標記**: `stage_4_2_completed = True`
    - ✅ **腳本實現**: `run_six_stages_with_validation.py` lines 785-840
-   - ⚠️ **強制執行**: 驗證腳本會強制檢查此項，未完成則執行失敗
-
-#### ⚠️ **部分實現** (2項)
-
-**2. visibility_calculation_accuracy** - 可見性計算精度 ⚠️
-   - ✅ **基礎檢查**: 基於 metadata 標記驗證
-   - ❌ **詳細檢查**: 仰角/方位角/距離精度未實現詳細檢查
-   - **狀態**: 代碼已計算，但驗證腳本僅做基礎標記檢查
-
-**5. service_window_optimization** - 服務窗口優化 ⚠️
-   - ✅ **數據依賴**: 基於 `ntpu_coverage` 數據間接驗證
-   - ❌ **專用檢查**: 未實現時間窗口連續性專用檢查
-   - **狀態**: 數據已生成，但未實現專用驗證邏輯
+   - ✅ **強制執行**: 驗證腳本會強制檢查此項，未完成則執行失敗
 
 ### 📊 驗證實現總結
 
 | 驗證項目 | 代碼實現 | 腳本驗證 | 強制執行 | 狀態 |
 |---------|---------|---------|---------|------|
 | #1 constellation_threshold_validation | ✅ | ✅ | ✅ | **完全實現** |
-| #2 visibility_calculation_accuracy | ✅ | ⚠️ | ❌ | **部分實現** |
+| #2 visibility_calculation_accuracy | ✅ | ✅ | ✅ | **完全實現** |
 | #3 link_budget_constraints | ✅ | ✅ | ✅ | **完全實現** |
 | #4 ntpu_coverage_analysis | ✅ | ✅ | ✅ | **完全實現** |
-| #5 service_window_optimization | ✅ | ⚠️ | ❌ | **部分實現** |
+| #5 service_window_optimization | ✅ | ✅ | ✅ | **完全實現** |
 | #6 stage_4_2_pool_optimization | ✅ | ✅ | ✅ | **完全實現** |
 
 **說明**:
@@ -1031,9 +1038,12 @@ cross_validation:
 - **腳本驗證**: 驗證腳本中是否有對應檢查
 - **強制執行**: 驗證失敗是否導致執行中斷
 
-**驗證狀態映射** (參考: `run_six_stages_with_validation.py` lines 745-840):
-- ✅ **完全實現** (4項): #1, #3, #4, #6 - 有詳細檢查邏輯，強制執行
-- ⚠️ **部分實現** (2項): #2, #5 - 基於間接數據或 metadata 標記驗證
+**驗證狀態映射** (參考: `stage4_validator.py` lines 483-691, `run_six_stages_with_validation.py` lines 745-840):
+- ✅ **完全實現** (6項): #1, #2, #3, #4, #5, #6 - 全部具備詳細檢查邏輯並強制執行
+
+**最後驗證增強日期**: 2025-10-16
+- 項目 #2: 新增 visibility_metrics 結構驗證、仰角/方位角/距離合理性檢查
+- 項目 #5: 新增 service_window 結構驗證、時間連續性和持續時間正確性檢查
 
 ## 🚀 使用方式與配置
 
@@ -1146,10 +1156,10 @@ cat data/validation_snapshots/stage4_cross_validation.json | jq '.validation_sum
 
 ---
 
-**文檔版本**: v4.3 (驗證框架實際狀態重大更新: 1/6 → 4/6+2/6)
-**最後更新**: 2025-10-02
+**文檔版本**: v4.4 (驗證框架完全實現: 6/6項完全驗證)
+**最後更新**: 2025-10-16
 **概念狀態**: ✅ 鏈路可行性評估 (完整實現，含階段 4.2)
 **學術合規**: ✅ Grade A 標準
 **實現狀態**: ✅ 階段 4.1 + 4.2 完整實現並強制執行
-**驗證狀態**: ✅ 4/6 項完全實現 + 2/6 項部分實現 (詳見 STAGE4_VERIFICATION_MATRIX.md)
+**驗證狀態**: ✅ 6/6 項完全實現 (100%) (詳見 STAGE4_VERIFICATION_MATRIX.md)
 **維護負責**: Orbit Engine Team

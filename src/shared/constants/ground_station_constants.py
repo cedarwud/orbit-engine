@@ -30,7 +30,7 @@ NTPU_STATION: Dict[str, Any] = {
     'full_name': 'National Taipei University',
     'latitude_deg': 24.9442,           # 24°56'39"N
     'longitude_deg': 121.3714,         # 121°22'17"E
-    'altitude_m': 0,                   # 近似海平面（实际约36m，简化为0）
+    'altitude_m': 36,                  # GPS实测海拔（m）
     'coordinates': "24°56'39\"N 121°22'17\"E",
     'location': 'New Taipei City, Taiwan',
     'timezone': 'Asia/Taipei',

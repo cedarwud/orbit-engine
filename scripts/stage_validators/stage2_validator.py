@@ -58,10 +58,18 @@ class Stage2Validator(StageValidator):
         data_summary = snapshot_data.get('data_summary', {})
         validation_checks = snapshot_data.get('validation_checks', {})
 
-        # 基本數據檢查
-        total_satellites = data_summary.get('total_satellites_processed', 0)
-        successful_propagations = data_summary.get('successful_propagations', 0)
-        total_teme_positions = data_summary.get('total_teme_positions', 0)
+        # ✅ Fail-Fast: 基本數據檢查 - 關鍵欄位必須存在
+        total_satellites = data_summary.get('total_satellites_processed')
+        if total_satellites is None:
+            return False, "❌ data_summary 缺少 total_satellites_processed 欄位 (Fail-Fast)"
+
+        successful_propagations = data_summary.get('successful_propagations')
+        if successful_propagations is None:
+            return False, "❌ data_summary 缺少 successful_propagations 欄位 (Fail-Fast)"
+
+        total_teme_positions = data_summary.get('total_teme_positions')
+        if total_teme_positions is None:
+            return False, "❌ data_summary 缺少 total_teme_positions 欄位 (Fail-Fast)"
 
         # 使用基類工具方法進行檢查
         if total_satellites == 0:

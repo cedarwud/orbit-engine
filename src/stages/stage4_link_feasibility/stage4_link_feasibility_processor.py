@@ -266,65 +266,63 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
 
             for point in wgs84_coordinates:
                 try:
-                    # 提取座標
+                    # ✅ Fail-Fast: 提取必需字段（無預設值）
                     lat = point.get('latitude_deg')
                     lon = point.get('longitude_deg')
-                    alt_m = point.get('altitude_m', 0)
+
+                    # ✅ Fail-Fast #3: 海拔必須存在
+                    if 'altitude_m' not in point:
+                        raise ValueError(
+                            f"❌ Fail-Fast: 衛星海拔數據缺失\n"
+                            f"衛星: {sat_id}\n"
+                            f"點索引: {len(satellite_time_series)}\n"
+                            f"點數據字段: {list(point.keys())}\n"
+                            f"該字段應由 Stage 2/3 提供\n"
+                            f"依據: ACADEMIC_STANDARDS.md - 禁止使用預設值"
+                        )
+                    alt_m = point['altitude_m']
+
                     # 處理單位問題 (可能是米或公里)
                     alt_km = alt_m / 1000.0 if alt_m > 1000 else alt_m
-                    timestamp = point.get('timestamp', '')
 
-                    if lat is None or lon is None:
-                        continue
-
-                    # 解析時間戳記 (Skyfield IAU 標準需要精確時間)
-                    timestamp_dt = None
-                    if timestamp:
-                        try:
-                            timestamp_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                        except:
-                            timestamp_dt = None
-
-                    # 計算仰角 (Skyfield 優先使用時間戳記)
-                    if timestamp_dt:
-                        elevation = self.visibility_calculator.calculate_satellite_elevation(
-                            lat, lon, alt_km, timestamp_dt
-                        )
-                    else:
-                        elevation = self.visibility_calculator.calculate_satellite_elevation(
-                            lat, lon, alt_km
-                        )
-
-                    # 計算距離
-                    if timestamp_dt:
-                        distance_km = self.visibility_calculator.calculate_satellite_distance(
-                            lat, lon, alt_km, timestamp_dt
-                        )
-                    else:
-                        distance_km = self.visibility_calculator.calculate_satellite_distance(
-                            lat, lon, alt_km
-                        )
-
-                    # 計算方位角
-                    if timestamp_dt:
-                        azimuth = self.visibility_calculator.calculate_azimuth(
-                            lat, lon, alt_km, timestamp_dt
-                        )
-                    else:
-                        azimuth = self.visibility_calculator.calculate_azimuth(lat, lon)
-
-                    # ✅ Grade A+ Fail-Fast: 驗證 timestamp 必須有效
-                    # 移除隨機數交叉驗證採樣 (違反 ACADEMIC_STANDARDS.md)
-                    # 依據: docs/ACADEMIC_STANDARDS.md Lines 19-21 - 禁止 random() 生成數據
-                    # 如需交叉驗證，應使用確定性方法（如每第 N 個樣本）
-                    if not timestamp_dt:
+                    # ✅ Fail-Fast #2: 時間戳必須存在
+                    if 'timestamp' not in point or not point['timestamp']:
                         raise ValueError(
-                            f"❌ Fail-Fast: 時間戳記缺失或無效\n"
+                            f"❌ Fail-Fast: 時間戳記缺失\n"
                             f"衛星: {sat_id}\n"
-                            f"原始 timestamp: {timestamp}\n"
-                            f"學術標準要求: 所有計算必須基於實際時間數據，禁止使用系統當前時間作為 fallback\n"
+                            f"點索引: {len(satellite_time_series)}\n"
+                            f"點數據字段: {list(point.keys())}\n"
+                            f"學術標準要求: 所有計算必須基於實際時間數據\n"
                             f"依據: ACADEMIC_STANDARDS.md - 禁止估計值/假設值"
                         )
+                    timestamp = point['timestamp']
+
+                    if lat is None or lon is None:
+                        raise ValueError(
+                            f"❌ Fail-Fast: 衛星經緯度缺失\n"
+                            f"衛星: {sat_id}\n"
+                            f"點索引: {len(satellite_time_series)}\n"
+                            f"lat: {lat}, lon: {lon}\n"
+                            f"該字段應由 Stage 2/3 提供"
+                        )
+
+                    # ✅ Fail-Fast: 解析時間戳（移除 try-except，讓錯誤直接拋出）
+                    timestamp_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+
+                    # 計算仰角（移除 else 分支，timestamp_dt 必須存在）
+                    elevation = self.visibility_calculator.calculate_satellite_elevation(
+                        lat, lon, alt_km, timestamp_dt
+                    )
+
+                    # 計算距離
+                    distance_km = self.visibility_calculator.calculate_satellite_distance(
+                        lat, lon, alt_km, timestamp_dt
+                    )
+
+                    # 計算方位角
+                    azimuth = self.visibility_calculator.calculate_azimuth(
+                        lat, lon, alt_km, timestamp_dt
+                    )
 
                     # 使用鏈路預算分析器判斷可連線性 (仰角 + 距離雙重約束)
                     link_analysis = self.link_budget_analyzer.analyze_link_feasibility(
@@ -356,8 +354,14 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
                     satellite_time_series.append(time_point)
 
                 except Exception as e:
-                    self.logger.debug(f"時間點計算失敗: {e}")
-                    continue
+                    # ✅ Fail-Fast #4: 時間點計算失敗必須拋出異常
+                    raise ValueError(
+                        f"❌ Fail-Fast: 衛星時間點計算失敗\n"
+                        f"衛星: {sat_id}\n"
+                        f"點索引: {len(satellite_time_series)}\n"
+                        f"原始錯誤: {e}\n"
+                        f"依據: ACADEMIC_STANDARDS.md - 禁止靜默跳過計算錯誤"
+                    ) from e
 
             # 存儲該衛星的完整時間序列
             if satellite_time_series:
@@ -393,12 +397,33 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
         """
         self.logger.info("🔬 開始動態 D2 閾值分析（自適應於當前 TLE 數據）")
 
-        # NTPU 地面站位置
+        # ✅ Fail-Fast #6: NTPU 地面站位置（必須從配置讀取）
         # SOURCE: GPS Survey 2025-10-02
-        ue_position = {
-            'lat': self.config.get('ground_station_latitude', 24.94388888),
-            'lon': self.config.get('ground_station_longitude', 121.37083333)
-        }
+        # 依據: ACADEMIC_STANDARDS.md - 地面站座標為實測值，不允許硬編碼預設值
+        ground_station = self.config.get('ground_station')
+        if not ground_station:
+            raise ValueError(
+                "❌ Fail-Fast: 地面站配置缺失\n"
+                "必須在 config/stage4_link_feasibility_config.yaml 中提供:\n"
+                "ground_station:\n"
+                "  latitude_deg: 24.9441\n"
+                "  longitude_deg: 121.3714\n"
+                "  altitude_m: 36.0\n"
+                "依據: ACADEMIC_STANDARDS.md - 禁止硬編碼地面站座標"
+            )
+
+        lat = ground_station.get('latitude_deg')
+        lon = ground_station.get('longitude_deg')
+
+        if lat is None or lon is None:
+            raise ValueError(
+                f"❌ Fail-Fast: 地面站座標不完整\n"
+                f"當前配置: {ground_station}\n"
+                f"必需字段: latitude_deg, longitude_deg\n"
+                f"依據: ACADEMIC_STANDARDS.md - 地面站座標必須為 GPS 實測值"
+            )
+
+        ue_position = {'lat': lat, 'lon': lon}
 
         # 調用動態閾值分析器
         threshold_analysis = self.threshold_analyzer.analyze_candidate_distances(
@@ -614,6 +639,7 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
             # SOURCE: Wertz & Larson 2001 Section 5.6 + 3GPP TR 38.821 Section 6.2.2
             COVERAGE_GAP_THRESHOLD_MINUTES = 5.0
 
+            # ✅ Fail-Fast #7: 覆蓋空窗時間解析（移除靜默 continue）
             coverage_gaps = []
             for i in range(1, len(timestamps_sorted)):
                 try:
@@ -623,8 +649,17 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
 
                     if gap_minutes > COVERAGE_GAP_THRESHOLD_MINUTES:
                         coverage_gaps.append(gap_minutes)
-                except:
-                    continue
+                except Exception as e:
+                    raise ValueError(
+                        f"❌ Fail-Fast: 覆蓋空窗時間戳解析失敗\n"
+                        f"星座: {constellation_name}\n"
+                        f"時間戳索引: {i-1} → {i}\n"
+                        f"prev_timestamp: {timestamps_sorted[i-1]}\n"
+                        f"curr_timestamp: {timestamps_sorted[i]}\n"
+                        f"原始錯誤: {e}\n"
+                        f"依據: ACADEMIC_STANDARDS.md - 禁止靜默跳過時間戳解析錯誤\n"
+                        f"時間戳記應由 Stage 2/3 提供標準 ISO 8601 格式"
+                    ) from e
 
             return {
                 'continuous_coverage_hours': coverage_hours,

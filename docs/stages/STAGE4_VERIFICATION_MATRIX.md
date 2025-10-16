@@ -2,7 +2,7 @@
 
 **用途**: 明確記錄每項功能的實現與驗證狀態
 **更新頻率**: 每次代碼修改後必須同步更新
-**最後更新**: 2025-10-02 (重大更新: 4項完全實現 + 2項部分實現)
+**最後更新**: 2025-10-16 (✨ 重大更新: 6項完全實現 - 增強項目 #2 和 #5)
 
 ---
 
@@ -11,10 +11,10 @@
 | # | 驗證項目 | 代碼實現位置 | 驗證腳本位置 | 強制執行 | 狀態 | 最後驗證 |
 |---|---------|------------|------------|---------|------|---------|
 | 1 | constellation_threshold_validation | `stage4_link_feasibility_processor.py:220-250` | `run_six_stages_with_validation.py:786-798` | ✅ | ✅ **完全實現** | 2025-10-02 |
-| 2 | visibility_calculation_accuracy | `ntpu_visibility_calculator.py:80-150` | `run_six_stages_with_validation.py` (metadata) | ❌ | ⚠️ **部分實現** | 2025-10-02 |
+| 2 | visibility_calculation_accuracy | `skyfield_visibility_calculator.py:93-175` | `stage4_validator.py:483-587` | ✅ | ✅ **完全實現** | 2025-10-16 |
 | 3 | link_budget_constraints | `stage4_link_feasibility_processor.py:180-200` | `run_six_stages_with_validation.py:819-823` | ✅ | ✅ **完全實現** | 2025-10-02 |
 | 4 | ntpu_coverage_analysis | `stage4_link_feasibility_processor.py:300-350` | `run_six_stages_with_validation.py:800-817` | ✅ | ✅ **完全實現** | 2025-10-02 |
-| 5 | service_window_optimization | `stage4_link_feasibility_processor.py:400-450` | `run_six_stages_with_validation.py` (ntpu_coverage) | ❌ | ⚠️ **部分實現** | 2025-10-02 |
+| 5 | service_window_optimization | `service_window_calculator.py` + `stage4_link_feasibility_processor.py:510-658` | `stage4_validator.py:589-691` | ✅ | ✅ **完全實現** | 2025-10-16 |
 | 6 | stage_4_2_pool_optimization | `pool_optimizer.py:1-585` | `run_six_stages_with_validation.py:785-840` | ✅ | ✅ **完全實現** | 2025-10-01 |
 
 ---
@@ -96,14 +96,103 @@ python scripts/run_six_stages_with_validation.py --stage 4
 
 ---
 
-### ⚠️ 項目2-5: 其他驗證項目 (未驗證)
+### ✅ 項目2: visibility_calculation_accuracy (完全實現 - 2025-10-16增強)
 
-**共同問題**:
-- 代碼中已實現相關邏輯
-- 數據輸出中包含相關字段
-- 驗證腳本中**完全沒有檢查**
+**代碼實現**:
+- 文件: `src/stages/stage4_link_feasibility/skyfield_visibility_calculator.py`
+- 函數: `calculate_visibility_metrics()`, `calculate_topocentric_position()`
+- 行號: 93-175
+- 邏輯: 使用 Skyfield IAU 標準計算仰角、方位角、距離
 
-**待實現**: 需要在 `run_six_stages_with_validation.py` 中添加對應檢查函數
+**驗證腳本**: ✅ **已完整實現**
+- 文件: `scripts/stage_validators/stage4_validator.py`
+- 函數: `_validate_visibility_accuracy()`
+- 行號: 483-587
+- 檢查項目:
+  ```python
+  # 1. IAU 標準使用驗證
+  if not use_iau_standards:
+      return False, "❌ Stage 4 未使用 IAU 標準座標計算"
+
+  # 2. 候選池數量範圍驗證
+  if candidate_total < 100 or candidate_total > 5000:
+      return False, f"❌ Stage 4 候選池數量異常: {candidate_total} 顆"
+
+  # 3. ✅ 新增: visibility_metrics 數據結構驗證
+  # 4. ✅ 新增: 仰角/方位角/距離合理性檢查
+  if not (-90 <= elevation <= 90):
+      return False, f"❌ 仰角數值異常: {elevation}°"
+
+  # 5. ✅ 新增: 星座感知門檻驗證
+  if threshold != 5.0:  # Starlink
+      return False, f"⚠️ Starlink 仰角門檻異常: {threshold}°"
+  ```
+
+**驗證通過標準**:
+- ✅ `use_iau_standards = True`
+- ✅ 候選池數量在 100-5000 範圍
+- ✅ visibility_metrics 數據結構完整
+- ✅ 仰角 (-90~90°), 方位角 (0~360°), 距離 (200~2500km) 合理
+- ✅ Starlink 門檻 = 5.0°
+
+**狀態**: ✅ 代碼已實現，驗證腳本已增強並強制執行
+
+---
+
+### ✅ 項目5: service_window_optimization (完全實現 - 2025-10-16增強)
+
+**代碼實現**:
+- 文件: `src/stages/stage4_link_feasibility/data_processing/service_window_calculator.py`
+- 文件: `src/stages/stage4_link_feasibility/stage4_link_feasibility_processor.py`
+- 函數: `_analyze_ntpu_coverage()`
+- 行號: 510-658
+- 邏輯: 計算服務窗口、覆蓋連續性、空窗檢測
+
+**驗證腳本**: ✅ **已完整實現**
+- 文件: `scripts/stage_validators/stage4_validator.py`
+- 函數: `_validate_service_windows()`
+- 行號: 589-691
+- 檢查項目:
+  ```python
+  # 1. 覆蓋空窗時間長度驗證
+  long_gaps = [gap for gap in coverage_gaps if gap > 30.0]
+  if long_gaps:
+      return False, f"❌ Stage 4 存在過長覆蓋空窗"
+
+  # 2. 覆蓋空窗總數驗證
+  if len(coverage_gaps) > 5:
+      return False, f"❌ Stage 4 覆蓋空窗過多"
+
+  # 3. ✅ 新增: service_window 數據結構驗證
+  required_fields = ['start_time', 'end_time', 'duration_minutes', 'time_points_count']
+
+  # 4. ✅ 新增: 時間窗口連續性驗證
+  if start >= end:
+      return False, f"❌ 服務窗口時間順序錯誤"
+
+  # 5. ✅ 新增: 持續時間計算正確性驗證
+  if duration_diff > 1.0:
+      return False, f"❌ 服務窗口持續時間計算錯誤"
+  ```
+
+**驗證通過標準**:
+- ✅ 覆蓋空窗 < 30 分鐘
+- ✅ 覆蓋空窗總數 ≤ 5 個
+- ✅ service_window 數據結構完整
+- ✅ start_time < end_time
+- ✅ 持續時間計算正確 (誤差 < 1 分鐘)
+- ✅ 持續時間合理 (0.5~30 分鐘)
+
+**狀態**: ✅ 代碼已實現，驗證腳本已增強並強制執行
+
+---
+
+### ✅ 項目3-4: 其他完全實現項目
+
+**項目3**: link_budget_constraints ✅ 完全實現
+**項目4**: ntpu_coverage_analysis ✅ 完全實現
+
+詳細規格請參考原有文檔章節
 
 ---
 
@@ -137,6 +226,7 @@ python scripts/run_six_stages_with_validation.py --stage 4
 
 | 日期 | 更新內容 | 負責人 |
 |------|---------|--------|
+| 2025-10-16 | ✨ 增強項目 #2 和 #5 驗證 - 6項全部完全實現 | Claude Code |
 | 2025-10-01 | 創建驗證狀態矩陣，記錄當前實際狀態 | Claude Code |
 
 ---

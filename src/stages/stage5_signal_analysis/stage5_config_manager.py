@@ -163,11 +163,23 @@ class Stage5ConfigManager(BaseConfigManager):
         errors = []
 
         # ========== signal_calculator 驗證 ==========
-        signal_calc = config.get('signal_calculator', {})
-
-        if not signal_calc:
-            errors.append("缺少必要的 'signal_calculator' 配置")
+        # ✅ Fail-Fast: 必需的配置區塊不使用 .get() 回退
+        if 'signal_calculator' not in config:
+            errors.append(
+                "缺少必要的 'signal_calculator' 配置\n"
+                "Grade A 標準禁止使用預設值\n"
+                "必須在配置文件中明確提供:\n"
+                "  signal_calculator:\n"
+                "    bandwidth_mhz: <value>  # SOURCE: 3GPP TS 38.104\n"
+                "    subcarrier_spacing_khz: <value>  # SOURCE: 3GPP TS 38.211\n"
+                "    noise_figure_db: <value>  # SOURCE: Hardware specs\n"
+                "    temperature_k: <value>  # SOURCE: ITU-R P.372"
+            )
+            signal_calc = {}  # 避免後續檢查時 KeyError
         else:
+            signal_calc = config['signal_calculator']
+
+        if signal_calc:
             # 驗證必要參數
             required_params = {
                 'bandwidth_mhz': (1.0, 400.0),          # 1-400 MHz
@@ -196,11 +208,22 @@ class Stage5ConfigManager(BaseConfigManager):
                         )
 
         # ========== atmospheric_model 驗證 ==========
-        atmos_model = config.get('atmospheric_model', {})
-
-        if not atmos_model:
-            errors.append("缺少必要的 'atmospheric_model' 配置")
+        # ✅ Fail-Fast: 必需的配置區塊不使用 .get() 回退
+        if 'atmospheric_model' not in config:
+            errors.append(
+                "缺少必要的 'atmospheric_model' 配置\n"
+                "Grade A 標準禁止使用預設值\n"
+                "必須在配置文件中明確提供:\n"
+                "  atmospheric_model:\n"
+                "    temperature_k: <value>  # SOURCE: ITU-R P.835-6\n"
+                "    pressure_hpa: <value>  # SOURCE: ICAO Standard Atmosphere\n"
+                "    water_vapor_density_g_m3: <value>  # SOURCE: ITU-R P.835-6"
+            )
+            atmos_model = {}  # 避免後續檢查時 KeyError
         else:
+            atmos_model = config['atmospheric_model']
+
+        if atmos_model:
             # 驗證必要參數
             required_params = {
                 'temperature_k': (200.0, 350.0),            # 200-350 K
@@ -228,7 +251,16 @@ class Stage5ConfigManager(BaseConfigManager):
                         )
 
         # ========== signal_thresholds 驗證 (optional but recommended) ==========
-        signal_thresholds = config.get('signal_thresholds', {})
+        # ✅ Fail-Fast: 即使是可選配置也要明確檢查，而非靜默回退
+        if 'signal_thresholds' not in config:
+            # 可選配置，但應該記錄警告
+            self.logger.warning(
+                "未配置 signal_thresholds，將使用預設值\n"
+                "建議在配置中明確提供以符合 Grade A 標準"
+            )
+            signal_thresholds = {}
+        else:
+            signal_thresholds = config['signal_thresholds']
 
         if signal_thresholds:
             # 驗證 RSRP 門檻合理性 (遞減順序)
@@ -245,10 +277,24 @@ class Stage5ConfigManager(BaseConfigManager):
                         break
 
         # ========== parallel_processing 驗證 (optional) ==========
-        parallel_config = config.get('parallel_processing', {})
+        # ✅ Fail-Fast: 即使是可選配置也要明確檢查，而非靜默回退
+        if 'parallel_processing' not in config:
+            # 可選配置，將使用自動檢測
+            self.logger.info(
+                "未配置 parallel_processing，將使用自動檢測\n"
+                "max_workers 將自動設置為 min(cpu_count, 30)"
+            )
+            parallel_config = {}
+        else:
+            parallel_config = config['parallel_processing']
 
         if parallel_config:
-            max_workers = parallel_config.get('max_workers')
+            # ✅ Fail-Fast: 明確檢查是否存在，而非使用 .get()
+            if 'max_workers' in parallel_config:
+                max_workers = parallel_config['max_workers']
+            else:
+                max_workers = None  # 明確設置為 None 表示使用自動檢測
+
             if max_workers is not None:
                 if not isinstance(max_workers, int) or max_workers < 1:
                     errors.append(

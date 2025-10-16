@@ -436,8 +436,18 @@ class Stage2Validator:
             snapshot_dir = "data/validation_snapshots"
             os.makedirs(snapshot_dir, exist_ok=True)
 
-            # 提取 metadata (必須有)
-            metadata = result_data.get('metadata', {})
+            # ✅ Fail-Fast: 驗證 metadata 存在性和類型
+            metadata = result_data.get('metadata')
+            if metadata is None:
+                raise ValueError(
+                    "result_data 缺少 metadata 欄位 (Fail-Fast)\n"
+                    "驗證快照生成需要完整的 metadata 信息\n"
+                    "請確保 Stage 2 processor 正確生成了 metadata"
+                )
+            if not isinstance(metadata, dict):
+                raise TypeError(
+                    f"metadata 必須是字典類型，實際類型: {type(metadata)} (Fail-Fast)"
+                )
 
             # 生成驗證快照數據
             snapshot_data = {
