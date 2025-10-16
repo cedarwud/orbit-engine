@@ -28,14 +28,14 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
 
 try:
-    from shared.base_processor import BaseStageProcessor
-    from shared.interfaces.processor_interface import ProcessingResult, ProcessingStatus, create_processing_result
+    from shared.base import BaseStageProcessor
+    from shared.base import ProcessingResult, ProcessingStatus, create_processing_result
 except ImportError:
     import sys
     from pathlib import Path
     sys.path.append(str(Path(__file__).parent.parent.parent))
-    from shared.base_processor import BaseStageProcessor
-    from shared.interfaces.processor_interface import ProcessingResult, ProcessingStatus, create_processing_result
+    from shared.base import BaseStageProcessor
+    from shared.base import ProcessingResult, ProcessingStatus, create_processing_result
 
 from .sgp4_calculator import SGP4Calculator, SGP4Position, SGP4OrbitResult
 from .stage2_validator import Stage2Validator
@@ -401,9 +401,12 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
             self.logger.error("缺少衛星數據字段 (satellites 或 tle_data)")
             return False
 
-        # 檢查 Stage 標識
-        if 'stage' in input_data and input_data['stage'] != 'data_loading':
-            self.logger.warning(f"Stage 字段值異常: {input_data['stage']}, 預期: data_loading")
+        # 檢查 Stage 標識 - 接受數字 1 或字符串 "data_loading"
+        if 'stage' in input_data:
+            stage_value = input_data['stage']
+            # 兼容 Stage 1 可能輸出數字或字符串格式
+            if stage_value not in [1, '1', 'data_loading', 'stage1_tle_data_loading']:
+                self.logger.warning(f"Stage 字段值異常: {stage_value}, 預期: 1 或 'data_loading'")
 
         # ❌ Fail-Fast: 移除空列表回退
         satellites_data = input_data.get('satellites') or input_data.get('tle_data')

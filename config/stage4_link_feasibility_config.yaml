@@ -120,3 +120,39 @@ references:
   - "Rhodes, B. (2019). Skyfield: High precision research-grade positions for planets and Earth satellites."
   - "Kodheli, O., et al. (2021). Satellite Communications in the New Space Era. IEEE Communications Surveys & Tutorials."
   - "IAU SOFA (2021). IAU Standards of Fundamental Astronomy."
+
+# ==================== 環境變數覆寫支援 ====================
+# 支援的環境變數 (由 BaseConfigManager 自動處理):
+#
+# 頂層鍵 (Top-level keys):
+# - ORBIT_ENGINE_STAGE4_USE_IAU_STANDARDS: 覆寫 use_iau_standards
+# - ORBIT_ENGINE_STAGE4_VALIDATE_EPOCHS: 覆寫 validate_epochs
+# - ORBIT_ENGINE_STAGE4_ENABLE_POOL_OPTIMIZATION: 覆寫 enable_pool_optimization
+# - ORBIT_ENGINE_STAGE4_TIME_INTERVAL_SECONDS: 覆寫 time_interval_seconds
+#
+# 嵌套鍵 (Nested keys) - 使用三重下劃線 (___) 分隔層級:
+# - ORBIT_ENGINE_STAGE4_CONSTELLATION_THRESHOLDS___STARLINK___ELEVATION_DEG: 覆寫 constellation_thresholds.starlink.elevation_deg
+# - ORBIT_ENGINE_STAGE4_CONSTELLATION_THRESHOLDS___ONEWEB___ELEVATION_DEG: 覆寫 constellation_thresholds.oneweb.elevation_deg
+# - ORBIT_ENGINE_STAGE4_POOL_OPTIMIZATION_TARGETS___STARLINK___MIN_POOL_SIZE: 覆寫 pool_optimization_targets.starlink.min_pool_size
+# - ORBIT_ENGINE_STAGE4_POOL_OPTIMIZATION_TARGETS___STARLINK___TARGET_COVERAGE_RATE: 覆寫 pool_optimization_targets.starlink.target_coverage_rate
+# - ORBIT_ENGINE_STAGE4_POOL_OPTIMIZATION_TARGETS___ONEWEB___TARGET_COVERAGE_RATE: 覆寫 pool_optimization_targets.oneweb.target_coverage_rate
+# - ORBIT_ENGINE_STAGE4_PERFORMANCE___MAX_WORKERS: 覆寫 performance.max_workers
+# - ORBIT_ENGINE_STAGE4_PERFORMANCE___PARALLEL_PROCESSING: 覆寫 performance.parallel_processing
+# - ORBIT_ENGINE_STAGE4_EPOCH_VALIDATION___MIN_DIVERSITY_RATIO: 覆寫 epoch_validation.min_diversity_ratio
+# - ORBIT_ENGINE_STAGE4_LOGGING___LEVEL: 覆寫 logging.level
+#
+# 範例:
+#   # 單個覆寫 - 測試不同仰角門檻
+#   export ORBIT_ENGINE_STAGE4_CONSTELLATION_THRESHOLDS___STARLINK___ELEVATION_DEG=10.0
+#   ./run.sh --stage 4
+#
+#   # 多個覆寫 - 池優化實驗
+#   export ORBIT_ENGINE_STAGE4_POOL_OPTIMIZATION_TARGETS___STARLINK___MIN_POOL_SIZE=12
+#   export ORBIT_ENGINE_STAGE4_POOL_OPTIMIZATION_TARGETS___STARLINK___MAX_POOL_SIZE=18
+#   export ORBIT_ENGINE_STAGE4_POOL_OPTIMIZATION_TARGETS___STARLINK___TARGET_COVERAGE_RATE=0.98
+#   ./run.sh --stage 4
+#
+#   # 調試模式
+#   export ORBIT_ENGINE_STAGE4_LOGGING___LEVEL="DEBUG"
+#   export ORBIT_ENGINE_STAGE4_PERFORMANCE___MAX_WORKERS=8
+#   ./run.sh --stage 4

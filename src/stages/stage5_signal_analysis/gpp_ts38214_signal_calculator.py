@@ -454,7 +454,7 @@ class GPPTS38214SignalCalculator:
         return {
             'rsrp_dbm': rsrp_dbm,
             'rsrq_db': rsrq_db,
-            'sinr_db': sinr_db,
+            'rs_sinr_db': sinr_db,  # 修復: 使用 3GPP 標準命名 RS-SINR
             'rssi_dbm': rssi_dbm,
             'noise_power_dbm': noise_power_dbm,
             'interference_power_dbm': interference_power_dbm,

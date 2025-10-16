@@ -127,7 +127,7 @@ class TimeSeriesAnalyzer:
                     'signal_quality': {
                         'rsrp_dbm': float,
                         'rsrq_db': float,
-                        'sinr_db': float,
+                        'rs_sinr_db': float,  # 修復: 使用 3GPP 標準命名 RS-SINR
                         'offset_mo_db': float,      # A3 事件: Ofn/Ofp
                         'cell_offset_db': float,    # A3 事件: Ocn/Ocp
                         'calculation_standard': '3GPP_TS_38.214'
@@ -191,7 +191,7 @@ class TimeSeriesAnalyzer:
                     'signal_quality': {
                         'rsrp_dbm': signal_quality['rsrp_dbm'],
                         'rsrq_db': signal_quality['rsrq_db'],
-                        'sinr_db': signal_quality['sinr_db'],
+                        'rs_sinr_db': signal_quality['rs_sinr_db'],  # 修復: 使用 3GPP 標準命名
                         'offset_mo_db': signal_quality.get('offset_mo_db', 0.0),        # A3 事件: Ofn/Ofp
                         'cell_offset_db': signal_quality.get('cell_offset_db', 0.0),    # A3 事件: Ocn/Ocp
                         'calculation_standard': '3GPP_TS_38.214'
@@ -207,8 +207,8 @@ class TimeSeriesAnalyzer:
                     rsrp_values.append(signal_quality['rsrp_dbm'])
                 if signal_quality['rsrq_db'] is not None:
                     rsrq_values.append(signal_quality['rsrq_db'])
-                if signal_quality['sinr_db'] is not None:
-                    sinr_values.append(signal_quality['sinr_db'])
+                if signal_quality['rs_sinr_db'] is not None:
+                    sinr_values.append(signal_quality['rs_sinr_db'])
 
                 # 品質分類統計
                 quality_level = self.classify_signal_quality(signal_quality['rsrp_dbm'])
@@ -219,13 +219,24 @@ class TimeSeriesAnalyzer:
                 continue
 
         # 計算摘要統計
+        average_rsrp = sum(rsrp_values) / len(rsrp_values) if rsrp_values else None
+
+        # ✅ 計算鏈路裕度 (Link Margin)
+        # 定義: 接收功率 - 最低可連接門檻
+        # SOURCE: 通用鏈路預算概念，3GPP TS 38.101-1 Section 7.3 (Receiver characteristics)
+        link_margin_db = None
+        if average_rsrp is not None and 'rsrp_minimum' in self.signal_thresholds:
+            rsrp_minimum = self.signal_thresholds['rsrp_minimum']
+            link_margin_db = average_rsrp - rsrp_minimum  # 例: -35 - (-120) = 85 dB
+
         summary = {
             'total_time_points': len(time_series_results),
-            'average_rsrp_dbm': sum(rsrp_values) / len(rsrp_values) if rsrp_values else None,
+            'average_rsrp_dbm': average_rsrp,
             'average_rsrq_db': sum(rsrq_values) / len(rsrq_values) if rsrq_values else None,
-            'average_sinr_db': sum(sinr_values) / len(sinr_values) if sinr_values else None,
+            'average_rs_sinr_db': sum(sinr_values) / len(sinr_values) if sinr_values else None,  # 修復: 使用 3GPP 標準命名
             'quality_distribution': quality_counts,
-            'average_quality_level': max(quality_counts, key=quality_counts.get) if quality_counts else 'poor'
+            'average_quality_level': max(quality_counts, key=quality_counts.get) if quality_counts else 'poor',
+            'link_margin_db': link_margin_db  # ✅ Stage 6 決策支援需要此欄位
         }
 
         # 物理摘要
@@ -366,7 +377,7 @@ class TimeSeriesAnalyzer:
             return {
                 'rsrp_dbm': signal_quality['rsrp_dbm'],
                 'rsrq_db': signal_quality['rsrq_db'],
-                'sinr_db': signal_quality['sinr_db'],
+                'rs_sinr_db': signal_quality['rs_sinr_db'],  # 修復: 使用 3GPP 標準命名
                 'offset_mo_db': measurement_offsets['offset_mo_db'],        # A3 事件: Ofn/Ofp
                 'cell_offset_db': measurement_offsets['cell_offset_db'],    # A3 事件: Ocn/Ocp
                 'rssi_dbm': signal_quality['rssi_dbm'],
@@ -381,7 +392,7 @@ class TimeSeriesAnalyzer:
             return {
                 'rsrp_dbm': None,
                 'rsrq_db': None,
-                'sinr_db': None
+                'rs_sinr_db': None  # 修復: 使用 3GPP 標準命名
             }
 
     def calculate_itur_physics(
@@ -518,6 +529,7 @@ class TimeSeriesAnalyzer:
 
             return {
                 'distance_km': distance_km,  # ✅ Stage 6 需要此欄位計算 3GPP 事件
+                'elevation_deg': elevation_deg,  # ✅ Stage 6 需要此欄位計算可見性指標
                 'path_loss_db': path_loss_db,
                 'atmospheric_loss_db': atmospheric_loss_db,
                 'doppler_shift_hz': doppler_shift_hz,
@@ -533,6 +545,7 @@ class TimeSeriesAnalyzer:
             self.logger.warning(f"ITU-R 物理計算失敗: {e}")
             return {
                 'distance_km': distance_km if distance_km else None,  # ✅ 保留距離，即使計算失敗
+                'elevation_deg': elevation_deg if elevation_deg else None,  # ✅ 保留仰角，即使計算失敗
                 'path_loss_db': None,
                 'atmospheric_loss_db': None,
                 'doppler_shift_hz': None,
@@ -606,17 +619,17 @@ class TimeSeriesAnalyzer:
 
     def calculate_average_sinr(self, satellites: Dict[str, Any]) -> float:
         """
-        計算平均 SINR
+        計算平均 RS-SINR
 
         Args:
             satellites: 衛星數據字典
 
         Returns:
-            float: 平均 SINR (dB)，無數據時返回 10.0
+            float: 平均 RS-SINR (dB)，無數據時返回 10.0
         """
         sinr_values = []
         for sat_data in satellites.values():
-            sinr = sat_data.get('signal_quality', {}).get('sinr_db')
+            sinr = sat_data.get('signal_quality', {}).get('rs_sinr_db')  # 修復: 使用 3GPP 標準命名
             if sinr is not None:
                 sinr_values.append(sinr)
         return sum(sinr_values) / len(sinr_values) if sinr_values else 10.0

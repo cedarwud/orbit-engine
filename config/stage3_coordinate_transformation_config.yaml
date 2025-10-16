@@ -1,0 +1,233 @@
+# Stage 3: 座標系統轉換配置
+# Standardized Configuration - Phase 4 Refactoring
+# SOURCE: Stage 3 執行器硬編碼參數外部化
+# Date: 2025-10-15
+
+# ==================== 幾何預篩選配置 ====================
+geometric_prefilter:
+  # 是否啟用幾何預篩選
+  # v3.1: 已禁用預篩選，改為完整處理所有衛星
+  # SOURCE: 架構優化決策 - 避免過早篩選導致數據丟失
+  # REFERENCE: Phase 3 完成報告 - 數據流完整性改進
+  enabled: false
+
+  # 預篩選參數 (僅在 enabled=true 時生效)
+  # min_elevation_deg: 0.0  # 最小仰角 (度)
+  # max_distance_km: 2000.0  # 最大距離 (km)
+
+# ==================== 座標轉換配置 ====================
+coordinate_config:
+  # 源座標系統
+  # SOURCE: Stage 2 SGP4 輸出為 TEME (True Equator Mean Equinox) 座標系統
+  # REFERENCE: Vallado 2013 - "Fundamentals of Astrodynamics and Applications", Chapter 3
+  source_frame: TEME
+
+  # 目標座標系統
+  # SOURCE: WGS84 為標準地理座標系統 (GPS 標準)
+  # REFERENCE: NIMA TR8350.2 (2000) - Department of Defense World Geodetic System 1984
+  target_frame: WGS84
+
+  # 是否啟用時間修正
+  # SOURCE: IAU 標準要求 - UT1-UTC, TAI-UTC 時間系統修正
+  # REFERENCE: IAU SOFA Time Scale and Calendar Tools
+  # NOTE: 精確座標轉換必須考慮時間系統差異（~1秒量級）
+  time_corrections: true
+
+  # 是否啟用極移修正
+  # SOURCE: IERS Bulletin A - 地球極移參數
+  # REFERENCE: IERS Conventions (2010) - Chapter 5
+  # NOTE: 極移影響座標轉換精度 (~10米量級)
+  polar_motion: true
+
+  # 歲差章動模型
+  # OPTIONS:
+  #   - IAU2000A: 高精度模型 (亞米級精度) - 推薦
+  #   - IAU2000B: 簡化模型 (米級精度)
+  #   - IAU1980: 舊標準 (已棄用)
+  # SOURCE: IAU SOFA Standards (2000A 為當前推薦標準)
+  # REFERENCE: IAU 2000 Resolution B1.6
+  nutation_model: IAU2000A
+
+# ==================== 精度配置 ====================
+precision_config:
+  # 目標精度 (米)
+  # SOURCE: 研究需求 - 亞米級精度 (< 1m)
+  # JUSTIFICATION: 與 GNSS 精度相當 (RTK-GPS: 0.01-0.05m)
+  # NOTE: 學術研究要求高精度座標以支援信號分析
+  target_accuracy_m: 0.5
+
+  # 迭代收斂門檻 (米)
+  # SOURCE: 座標轉換迭代算法收斂條件
+  # REFERENCE: Geodetic-to-Geocentric 迭代算法 (Bowring 1976)
+  convergence_threshold_m: 0.001
+
+  # 最大迭代次數
+  # SOURCE: 防止無窮迴圈，通常 3-5 次即可收斂
+  # REFERENCE: Numerical Recipes in C - Iterative Methods
+  max_iterations: 10
+
+# ==================== IERS 數據配置 ====================
+iers_data:
+  # IERS 數據緩存目錄
+  # SOURCE: Astropy IERS 數據自動下載位置
+  cache_directory: data/cache/iers
+
+  # 自動下載 IERS 數據
+  # SOURCE: Astropy 自動下載 IERS Bulletin A
+  # REFERENCE: IERS Rapid Service/Prediction Center
+  # NOTE: 首次執行時自動下載，後續使用緩存
+  auto_download: true
+
+  # IERS 數據過期警告門檻 (天)
+  # SOURCE: IERS 數據每週更新，30天以上視為過期
+  # REFERENCE: IERS Bulletin A 發布頻率
+  expiry_warning_days: 30
+
+# ==================== 座標系統參考框架 ====================
+reference_frames:
+  # WGS84 橢球參數
+  # SOURCE: NIMA TR8350.2 (2000) - WGS84 Official Specification
+  # REFERENCE: Department of Defense World Geodetic System 1984
+  wgs84:
+    # 長半軸 (a) - 赤道半徑
+    # VALUE: 6,378,137.0 meters (exact, by definition)
+    semi_major_axis_m: 6378137.0
+
+    # 扁率 (f) - 地球橢球扁平程度
+    # VALUE: 1/298.257223563 (derived from gravitational constant)
+    # COMPUTED: semi_minor_axis (b) = 6,356,752.314245 m
+    flattening: 0.00335281066474748
+
+  # TEME 座標系統說明
+  # SOURCE: NORAD SGP4/SDP4 Technical Report
+  # REFERENCE: Vallado 2013 - Appendix D
+  teme:
+    description: "True Equator Mean Equinox of Epoch"
+    note: "SGP4/SDP4 輸出的慣性座標系統，基於 TLE epoch 的真赤道平春分點"
+    reference: "Hoots & Roehrich 1980 - Spacetrack Report No. 3"
+
+# ==================== HDF5 緩存配置 ====================
+cache_config:
+  # 是否啟用 HDF5 緩存
+  # PURPOSE: 加速重複執行 (首次 ~25min，緩存後 ~2min)
+  # SOURCE: Phase 3 性能優化 - HDF5 緩存策略
+  # BENEFIT: 95% 加速，特別適合開發和測試場景
+  enabled: true
+
+  # 緩存目錄
+  # SOURCE: 標準緩存目錄結構
+  cache_directory: data/cache/stage3
+
+  # 緩存檔案名稱模式
+  # NOTE: {hash} 基於 Stage 2 輸出檔案的 SHA256
+  filename_pattern: "coordinate_cache.h5"
+
+  # 緩存有效性檢查
+  # METHOD: 比較 Stage 2 輸出檔案的修改時間
+  # SOURCE: Stage3HDF5Cache.is_cache_valid() 實作
+  validate_by_timestamp: true
+
+  # 自動清理舊緩存
+  # PURPOSE: 避免緩存目錄過大
+  auto_cleanup: true
+
+  # 最大緩存大小 (MB)
+  # SOURCE: Stage 3 完整數據約 150-200 MB (9,000 顆衛星)
+  max_cache_size_mb: 500
+
+# ==================== 並行處理配置 ====================
+parallel_config:
+  # 最大工作進程數
+  # SOURCE: 動態配置基於 CPU 核心數
+  # NOTE: 0 表示自動檢測 (使用 min(32, CPU核心數 * 0.95))
+  # REFERENCE: Python multiprocessing.cpu_count()
+  max_workers: 0
+
+  # 批次大小
+  # SOURCE: 平衡內存使用和並行效率
+  # JUSTIFICATION: 每批 100 顆衛星適合 4GB 內存環境
+  chunk_size: 100
+
+  # 是否顯示進度條
+  # PURPOSE: 提供視覺反饋（tqdm progress bar）
+  show_progress: true
+
+# ==================== 輸出配置 ====================
+output:
+  # 輸出目錄
+  # SOURCE: 標準輸出目錄結構
+  directory: data/outputs/stage3
+
+  # 檔案名稱模式
+  # NOTE: _real 後綴表示使用真實座標轉換（非模擬）
+  # {timestamp}: YYYYMMDD_HHMMSS (UTC)
+  filename_pattern: "stage3_coordinate_transformation_real_{timestamp}.json"
+
+  # 是否保存驗證快照
+  # SOURCE: Grade A+ 標準 - 所有階段必須保存驗證快照
+  save_validation_snapshot: true
+
+  # 輸出格式
+  # OPTIONS:
+  #   - json: JSON 格式 (預設，可讀性高)
+  #   - hdf5: HDF5 格式 (大數據量，壓縮後 ~50MB)
+  # SOURCE: BaseResultManager 支援雙格式輸出
+  format: json
+
+# ==================== 驗證配置 ====================
+validation:
+  # 座標範圍檢查
+  # PURPOSE: 確保轉換後座標在物理有效範圍內
+  coordinate_range_check: true
+
+  # 座標有效範圍 (WGS84)
+  # SOURCE: Geographic coordinate system standard ranges
+  valid_ranges:
+    # 緯度範圍 (-90° 南極 to +90° 北極)
+    latitude_deg: [-90, 90]
+
+    # 經度範圍 (-180° 西經 to +180° 東經)
+    longitude_deg: [-180, 180]
+
+    # 高度範圍 (LEO 衛星典型高度)
+    # SOURCE: Starlink 550km, OneWeb 1200km
+    # RANGE: 200-2000 km 涵蓋所有 LEO 衛星
+    altitude_km: [200, 2000]
+
+  # 數據完整性檢查
+  # PURPOSE: 確保每顆衛星都有完整時間序列數據
+  data_integrity_check: true
+
+  # 最小數據點數量 (每顆衛星)
+  # SOURCE: Stage 2 產生 180 個時間點（30分鐘 / 10秒間隔）
+  # REFERENCE: Stage 2 配置 - duration_minutes: 30, time_step_minutes: 0.1667
+  min_data_points: 180
+
+# ==================== 性能配置 ====================
+performance:
+  # 內存限制 (MB)
+  # SOURCE: 實測數據 - 處理 9,000 顆衛星約需 4GB 內存
+  # RECOMMENDATION: 8GB 環境運行 Stage 3
+  memory_limit_mb: 8192
+
+  # 日誌等級
+  # OPTIONS: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  # SOURCE: Python logging standard levels
+  log_level: INFO
+
+  # 性能統計
+  # PURPOSE: 記錄處理時間、內存使用等性能指標
+  # NOTE: 啟用後會增加 ~5% 運行時間
+  enable_profiling: false
+
+# ==================== 環境變數覆寫支援 ====================
+# 支援的環境變數 (由 BaseConfigManager 自動處理):
+# - ORBIT_ENGINE_STAGE3_CACHE_ENABLED: 覆寫 cache_config.enabled
+# - ORBIT_ENGINE_STAGE3_MAX_WORKERS: 覆寫 parallel_config.max_workers
+# - ORBIT_ENGINE_STAGE3_LOG_LEVEL: 覆寫 performance.log_level
+# - ORBIT_ENGINE_STAGE3_GEOMETRIC_PREFILTER_ENABLED: 覆寫 geometric_prefilter.enabled
+#
+# 範例:
+#   export ORBIT_ENGINE_STAGE3_NO_PREFILTER=1  # 特殊環境變數（向後相容）
+#   export ORBIT_ENGINE_STAGE3_MAX_WORKERS=16
+#   ./run.sh --stage 3

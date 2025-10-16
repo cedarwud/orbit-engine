@@ -1,0 +1,349 @@
+# Stage 6: 研究數據生成與優化配置
+# Standardized Configuration - Phase 4 Refactoring
+# SOURCE: Stage 6 處理器硬編碼參數外部化
+# Date: 2025-10-15
+
+# ==================== 3GPP 事件檢測配置 ====================
+gpp_events:
+  # A3 事件配置 (Neighbour becomes offset better than serving)
+  # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.4
+  a3:
+    # A3 offset (dB)
+    # DEFINITION: Offset value used in A3 event condition
+    # FORMULA: Mn + Ofn + Ocn - Hys > Ms + Ofs + Ocs + Off
+    # SOURCE: 3GPP TS 38.331 Section 5.5.4.4
+    # RANGE: -30 to 30 dB (integer values)
+    offset_db: 3.0
+
+    # Hysteresis (dB)
+    # PURPOSE: Prevent ping-pong effect in handover decisions
+    # SOURCE: 3GPP TS 38.331 Section 5.5.4.1
+    # RANGE: 0 to 15 dB (0.5 dB steps)
+    hysteresis_db: 2.0
+
+    # Time to Trigger (milliseconds)
+    # PURPOSE: Event must persist for this duration before reporting
+    # SOURCE: 3GPP TS 38.331 Section 5.5.4.1
+    # VALUES: 0, 40, 64, 80, 100, 128, 160, 256, 320, 480, 512, 640, 1024, 1280, 2560, 5120 ms
+    time_to_trigger_ms: 100
+
+  # A4 事件配置 (Neighbour becomes better than threshold)
+  # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.5
+  a4:
+    # RSRP threshold (dBm)
+    # PURPOSE: Neighbour RSRP must exceed this threshold
+    # SOURCE: 3GPP TS 38.215 v18.1.0 - RSRP measurement range
+    # RANGE: -156 to -31 dBm
+    rsrp_threshold_dbm: -100.0
+
+    # Hysteresis (dB)
+    hysteresis_db: 2.0
+
+    # Time to Trigger (milliseconds)
+    time_to_trigger_ms: 100
+
+  # A5 事件配置 (Serving becomes worse than threshold1 AND Neighbour becomes better than threshold2)
+  # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.6
+  a5:
+    # Serving cell threshold (dBm)
+    # PURPOSE: Serving RSRP must fall below this threshold
+    # JUSTIFICATION: -110 dBm represents poor signal quality
+    rsrp_threshold1_dbm: -110.0
+
+    # Neighbour cell threshold (dBm)
+    # PURPOSE: Neighbour RSRP must exceed this threshold
+    # JUSTIFICATION: -95 dBm represents acceptable signal quality
+    rsrp_threshold2_dbm: -95.0
+
+    # Hysteresis (dB)
+    hysteresis_db: 2.0
+
+    # Time to Trigger (milliseconds)
+    time_to_trigger_ms: 100
+
+  # D2 事件配置 (Distance-based handover)
+  # NOTE: Dynamic thresholds from Stage 4 analysis take priority
+  # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.15a
+  d2:
+    # Starlink 距離門檻配置
+    # NOTE: 這些是預設值，實際運行時會被 Stage 4 動態閾值覆寫
+    starlink:
+      # D2 Threshold 1 (近距離門檻，公里)
+      # PURPOSE: Satellite distance falls below this threshold
+      # SOURCE: Stage 4 候選衛星距離分佈分析
+      # REFERENCE: Starlink 550km altitude typical slant range 600-2000 km
+      d2_threshold1_km: 800.0
+
+      # D2 Threshold 2 (遠距離門檻，公里)
+      # PURPOSE: Neighbour satellite distance exceeds this threshold
+      # SOURCE: Stage 4 候選衛星距離分佈分析
+      d2_threshold2_km: 1500.0
+
+    # OneWeb 距離門檻配置
+    # NOTE: 這些是預設值，實際運行時會被 Stage 4 動態閾值覆寫
+    oneweb:
+      # D2 Threshold 1 (近距離門檻，公里)
+      # SOURCE: Stage 4 候選衛星距離分佈分析
+      # REFERENCE: OneWeb 1200km altitude typical slant range 1300-2500 km
+      d2_threshold1_km: 1500.0
+
+      # D2 Threshold 2 (遠距離門檻，公里)
+      # SOURCE: Stage 4 候選衛星距離分佈分析
+      d2_threshold2_km: 2200.0
+
+    # Hysteresis (kilometers)
+    # PURPOSE: Prevent ping-pong effect in distance-based handover
+    # SOURCE: 3GPP handover hysteresis adapted for distance metric
+    hysteresis_km: 50.0
+
+    # Time to Trigger (milliseconds)
+    time_to_trigger_ms: 100
+
+# ==================== 動態衛星池驗證配置 ====================
+pool_verification:
+  # Starlink 衛星池目標配置
+  starlink:
+    # 目標可見衛星數量範圍
+    # SOURCE: Stage 1 constellation_configs (繼承)
+    # REFERENCE: 研究需求 - 動態池優化目標
+    target_min: 10
+    target_max: 15
+
+    # 驗證容差 (允許短暫低於目標的比例)
+    # PURPOSE: 允許 10% 時間點低於目標最小值
+    # JUSTIFICATION: 衛星軌道動態變化，短暫不足可接受
+    tolerance_ratio: 0.1
+
+  # OneWeb 衛星池目標配置
+  oneweb:
+    # 目標可見衛星數量範圍
+    # SOURCE: Stage 1 constellation_configs (繼承)
+    target_min: 3
+    target_max: 6
+
+    # 驗證容差
+    tolerance_ratio: 0.1
+
+# ==================== ML 訓練數據生成配置 ====================
+ml_training:
+  # 強化學習算法配置
+  # NOTE: ML Training Data Generator 已移除，配置保留供未來實作
+  # REFERENCE: 將在 tools/ml_training_data_generator/ 中實作
+  enabled: false
+
+  # 支援的強化學習算法
+  # SOURCE: Deep Reinforcement Learning 常用算法
+  algorithms:
+    - DQN    # Deep Q-Network
+    - A3C    # Asynchronous Advantage Actor-Critic
+    - PPO    # Proximal Policy Optimization
+    - SAC    # Soft Actor-Critic
+
+  # 狀態空間配置
+  # SOURCE: 衛星切換決策的關鍵特徵
+  state_features:
+    - rsrp_dbm              # 信號強度
+    - rsrq_db               # 信號質量
+    - sinr_db               # 信噪比
+    - distance_km           # 衛星距離
+    - elevation_deg         # 仰角
+    - link_margin_db        # 鏈路裕度
+    - doppler_shift_khz     # 多普勒頻移
+
+  # 動作空間配置
+  # SOURCE: 換手決策的可能動作
+  actions:
+    - maintain_connection   # 維持當前連接
+    - handover_to_best      # 切換到信號最強衛星
+    - handover_to_nearest   # 切換到最近衛星
+    - handover_to_stable    # 切換到最穩定衛星
+
+  # 獎勵函數配置
+  # SOURCE: 強化學習獎勵設計
+  reward_weights:
+    signal_quality: 0.4      # 信號質量權重
+    connection_stability: 0.3 # 連接穩定性權重
+    handover_cost: -0.2      # 換手代價權重（負值）
+    coverage_continuity: 0.1 # 覆蓋連續性權重
+
+# ==================== 換手決策評估配置 ====================
+decision_support:
+  # 決策延遲要求 (milliseconds)
+  # SOURCE: 實時系統要求 - 決策必須在 100ms 內完成
+  # REFERENCE: 3GPP NR 低延遲需求
+  target_latency_ms: 100
+
+  # 決策策略
+  # OPTIONS:
+  #   - signal_based: 基於信號強度決策（預設）
+  #   - distance_based: 基於距離決策
+  #   - hybrid: 混合決策（信號+距離）
+  # SOURCE: 研究需求 - 多策略決策支援
+  strategy: signal_based
+
+  # 換手決策門檻
+  # SOURCE: 3GPP 換手決策標準
+  handover_thresholds:
+    # 最小 RSRP 改善 (dB)
+    # PURPOSE: 換手必須帶來至少 5dB 信號改善
+    # JUSTIFICATION: 避免頻繁換手帶來的開銷
+    min_rsrp_improvement_db: 5.0
+
+    # 最小鏈路裕度 (dB)
+    # PURPOSE: 目標衛星必須有足夠鏈路裕度
+    # SOURCE: 鏈路預算分析 - 最小 3dB 裕度
+    min_link_margin_db: 3.0
+
+    # 最大換手頻率 (次/分鐘)
+    # PURPOSE: 避免 ping-pong effect
+    # SOURCE: 3GPP 換手優化建議
+    max_handover_rate_per_minute: 6
+
+# ==================== 驗證框架配置 ====================
+validation:
+  # 3GPP 標準合規驗證
+  gpp_standard_compliance:
+    # 最小事件數量門檻
+    # PURPOSE: 確保檢測到足夠的 3GPP 事件
+    # JUSTIFICATION: 至少 1 個事件表示系統正常工作
+    min_events_detected: 1
+
+    # 事件類型完整性檢查
+    # PURPOSE: 驗證所有事件類型都被正確檢測
+    check_event_types: true
+
+  # ML 訓練數據質量驗證
+  ml_training_data_quality:
+    # 最小訓練樣本數量
+    # SOURCE: 深度強化學習數據需求
+    # JUSTIFICATION: 至少 1000 個樣本才能訓練有效模型
+    min_training_samples: 1000
+
+    # 特徵完整性檢查
+    # PURPOSE: 確保所有狀態特徵都存在
+    check_feature_completeness: true
+
+  # 動態衛星池優化驗證
+  satellite_pool_optimization:
+    # 池驗證必須通過
+    # PURPOSE: 確保動態池目標達成
+    require_pool_verification_pass: true
+
+    # 時間序列完整性檢查
+    # PURPOSE: 確保遍歷所有時間點
+    check_time_series_completeness: true
+
+  # 實時決策性能驗證
+  real_time_decision_performance:
+    # 決策延遲門檻 (milliseconds)
+    # SOURCE: 實時系統要求
+    max_decision_latency_ms: 100
+
+    # 決策成功率門檻
+    # PURPOSE: 至少 95% 決策成功
+    min_decision_success_rate: 0.95
+
+  # 研究目標達成驗證
+  research_goal_achievement:
+    # Starlink 衛星池達成率
+    starlink_achievement_threshold: 0.9  # 90% 時間點達成目標
+
+    # OneWeb 衛星池達成率
+    oneweb_achievement_threshold: 0.9    # 90% 時間點達成目標
+
+    # 連續覆蓋達成
+    continuous_coverage_required: true
+
+# ==================== 動態閾值處理配置 ====================
+dynamic_thresholds:
+  # 是否允許缺少動態閾值（調試模式）
+  # PURPOSE: 開發/測試時可暫時禁用嚴格檢查
+  # NOTE: 生產環境必須設為 false
+  # SOURCE: Grade A+ Fail-Fast 原則
+  allow_missing_dynamic_thresholds: false
+
+  # 動態閾值優先級
+  # PRIORITY:
+  #   1. Stage 4 動態閾值分析（基於當前 TLE 數據）
+  #   2. Stage 6 配置文件預設值
+  # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.15a
+  use_stage4_dynamic_thresholds: true
+
+# ==================== 輸出配置 ====================
+output:
+  # 輸出目錄
+  directory: data/outputs/stage6
+
+  # 檔案名稱模式
+  # {timestamp}: YYYYMMDD_HHMMSS (UTC)
+  filename_pattern: "stage6_research_optimization_{timestamp}.json"
+
+  # 是否保存驗證快照
+  # SOURCE: Grade A+ 標準 - 所有階段必須保存驗證快照
+  save_validation_snapshot: true
+
+  # 輸出格式
+  format: json
+
+# ==================== 性能配置 ====================
+performance:
+  # 日誌等級
+  # OPTIONS: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_level: INFO
+
+  # 是否顯示詳細統計
+  # PURPOSE: 輸出詳細的處理統計信息
+  show_detailed_stats: true
+
+  # 性能 Profiling
+  # PURPOSE: 記錄各組件執行時間
+  enable_profiling: false
+
+# ==================== 學術標準配置 ====================
+academic_standards:
+  # Grade A+ 標準等級
+  # SOURCE: docs/ACADEMIC_STANDARDS.md
+  standard_level: "Grade_A"
+
+  # 學術合規檢查
+  compliance_checks:
+    # 3GPP 標準合規
+    # SOURCE: 3GPP TS 38.331 v18.5.1
+    gpp_standard_compliance: true
+
+    # ML 研究就緒性
+    # PURPOSE: 確保生成的數據適合機器學習研究
+    ml_research_readiness: true
+
+    # 實時決策能力
+    # PURPOSE: 確保決策延遲符合實時要求
+    real_time_capability: true
+
+  # Fail-Fast 原則
+  # SOURCE: ACADEMIC_STANDARDS.md Lines 265-274
+  # PURPOSE: 數據缺失時立即報錯，不使用預設值
+  fail_fast_on_missing_data: true
+
+# ==================== 環境變數覆寫支援 ====================
+# 支援的環境變數 (由 BaseConfigManager 自動處理):
+#
+# 頂層鍵 (Top-level keys):
+# - ORBIT_ENGINE_STAGE6_LOG_LEVEL: 覆寫 performance.log_level
+#
+# 嵌套鍵 (Nested keys) - 使用三重下劃線 (___) 分隔層級:
+# - ORBIT_ENGINE_STAGE6_GPP_EVENTS___A3___OFFSET_DB: 覆寫 gpp_events.a3.offset_db
+# - ORBIT_ENGINE_STAGE6_GPP_EVENTS___A4___RSRP_THRESHOLD_DBM: 覆寫 gpp_events.a4.rsrp_threshold_dbm
+# - ORBIT_ENGINE_STAGE6_DYNAMIC_THRESHOLDS___ALLOW_MISSING_DYNAMIC_THRESHOLDS: 覆寫 dynamic_thresholds.allow_missing_dynamic_thresholds
+# - ORBIT_ENGINE_STAGE6_DECISION_SUPPORT___STRATEGY: 覆寫 decision_support.strategy
+# - ORBIT_ENGINE_STAGE6_DECISION_SUPPORT___TARGET_LATENCY_MS: 覆寫 decision_support.target_latency_ms
+#
+# 範例:
+#   # 單個覆寫
+#   export ORBIT_ENGINE_STAGE6_GPP_EVENTS___A3___OFFSET_DB=5.0
+#   ./run.sh --stage 6
+#
+#   # 多個覆寫
+#   export ORBIT_ENGINE_STAGE6_GPP_EVENTS___A3___OFFSET_DB=5.0
+#   export ORBIT_ENGINE_STAGE6_GPP_EVENTS___A4___RSRP_THRESHOLD_DBM=-95.0
+#   export ORBIT_ENGINE_STAGE6_DECISION_SUPPORT___STRATEGY="hybrid"
+#   ./run.sh --stage 6

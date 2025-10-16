@@ -58,8 +58,8 @@ from src.stages.stage3_coordinate_transformation.stage3_compliance_validator imp
 from src.stages.stage3_coordinate_transformation.stage3_results_manager import create_results_manager
 
 # 共享模組導入
-from src.shared.base_processor import BaseStageProcessor
-from src.shared.interfaces import ProcessingStatus, ProcessingResult, create_processing_result
+from src.shared.base import BaseStageProcessor
+from src.shared.base import ProcessingStatus, ProcessingResult, create_processing_result
 
 logger = logging.getLogger(__name__)
 
@@ -406,28 +406,14 @@ class Stage3CoordinateTransformProcessor(BaseStageProcessor):
             except Exception as cache_error:
                 self.logger.warning(f"⚠️ 緩存保存失敗（不影響結果）: {cache_error}")
 
-            # 💾 步驟 8: 保存主要結果文件和驗證快照 (移自 execute() 覆蓋)
-            try:
-                output_file = self.results_manager.save_results(result_data)
-                self.logger.info(f"✅ Stage 3 結果已保存: {output_file}")
-            except Exception as e:
-                self.logger.warning(f"⚠️ 保存 Stage 3 結果失敗: {e}")
-
-            try:
-                snapshot_success = self.results_manager.save_validation_snapshot(
-                    result_data,
-                    self.processing_stats
-                )
-                if snapshot_success:
-                    self.logger.info("✅ Stage 3 驗證快照保存成功")
-            except Exception as e:
-                self.logger.warning(f"⚠️ Stage 3 驗證快照保存失敗: {e}")
+            # 🎯 修復: 移除重複保存邏輯，讓基類的 execute() 方法統一處理
+            # 基類會自動調用 self.save_results() 和 self.save_validation_snapshot()
+            # 這符合 Template Method Pattern 的設計原則
 
             return create_processing_result(
                 status=ProcessingStatus.SUCCESS,
                 data=result_data,
-                message=f"成功轉換 {self.processing_stats['total_satellites_processed']} 顆衛星的座標",
-                metadata={'output_file': output_file} if 'output_file' in locals() else {}
+                message=f"成功轉換 {self.processing_stats['total_satellites_processed']} 顆衛星的座標"
             )
 
         except Exception as e:

@@ -1,0 +1,379 @@
+"""
+Stage 2 Configuration Manager - Orbital Propagation
+====================================================
+
+Configuration management for Stage 2: Orbital State Propagation Layer
+
+Responsibilities:
+- Load time series generation parameters (unified window, interval seconds)
+- Load SGP4 propagation configuration
+- Load performance settings (parallel processing, CPU strategy)
+- Validate academic compliance (Grade A standards)
+
+Author: Orbit Engine Refactoring Team
+Date: 2025-10-15
+Version: 1.0 (Phase 4 P1 Day 1-2)
+"""
+
+import logging
+from typing import Dict, Any, List, Tuple, Optional
+import multiprocessing as mp
+
+try:
+    from shared.config_manager import BaseConfigManager
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).parent.parent.parent))
+    from shared.config_manager import BaseConfigManager
+
+
+class Stage2ConfigManager(BaseConfigManager):
+    """
+    Stage 2 配置管理器 - 軌道狀態傳播層 (v3.1)
+
+    管理配置項目:
+    - 時間序列生成（統一時間窗口 vs 獨立 epoch）
+    - SGP4 軌道傳播參數
+    - 並行處理性能配置
+    - 學術標準驗證參數
+    - 輸出格式與日誌配置
+
+    繼承自 BaseConfigManager，支持:
+    - YAML 配置文件加載
+    - 環境變數覆寫（flat + nested keys）
+    - Fail-Fast 驗證
+    """
+
+    def get_stage_number(self) -> int:
+        """返回 Stage 編號"""
+        return 2
+
+    def get_default_config(self) -> Dict[str, Any]:
+        """
+        返回 Stage 2 預設配置
+
+        ⚠️ 注意: Grade A 標準要求所有參數都應從 YAML 配置文件讀取
+        預設配置僅作為回退保障，生產環境必須提供完整 YAML 配置
+
+        Returns:
+            Dict[str, Any]: 預設配置字典
+        """
+        return {
+            # ==================== 時間序列配置 (v3.1) ====================
+            'time_series': {
+                # 時間序列生成模式
+                # SOURCE: Stage 2 v3.1 架構 - 統一時間窗口設計
+                'mode': 'unified_window',  # 'unified_window' | 'independent_epoch'
+
+                # 統一時間窗口配置
+                'unified_window': {
+                    'reference_time_source': 'stage1_analysis',  # 'stage1_analysis' | 'manual'
+                    'max_epoch_deviation_hours': 12,  # 參考時刻與 epoch 最大偏差
+                },
+
+                # 星座軌道週期配置
+                # SOURCE: Kepler's Third Law (T = 2π√(a³/μ))
+                # REFERENCE: Starlink 550km altitude → T≈95min
+                #            OneWeb 1200km altitude → T≈110min
+                'constellation_orbital_periods': {
+                    'starlink_minutes': 95,   # Starlink 軌道週期
+                    'oneweb_minutes': 110,    # OneWeb 軌道週期
+                    'default_minutes': 100,   # 其他 LEO 衛星默認週期
+                },
+
+                # 時間解析度配置
+                # SOURCE: Stage 2 documentation - 30秒解析度要求
+                'interval_seconds': 30,       # 時間步長（秒）
+
+                # 動態計算配置
+                # PURPOSE: 基於實際TLE數據計算軌道週期
+                'use_orbital_period': True,   # 使用實際軌道週期
+                'dynamic_calculation': True,  # 啟用動態計算（Grade A 要求）
+                'min_positions': 30,          # 最小位置點數
+                'coverage_cycles': 1.0,       # 完整軌道週期覆蓋倍數
+            },
+
+            # ==================== SGP4 軌道傳播配置 ====================
+            'sgp4_propagation': {
+                # SGP4 算法選擇
+                # SOURCE: Simplified General Perturbations Satellite Orbit Model No. 4
+                # REFERENCE: Vallado et al. (2006), AIAA 2006-6753
+                'method': 'SGP4',             # 標準 SGP4 算法
+
+                # 輸出座標系統
+                # SOURCE: TEME (True Equator Mean Equinox) coordinate system
+                # PURPOSE: Stage 2 專職輸出 TEME 座標，Stage 3 負責轉換
+                'output_coordinate_system': 'TEME',
+            },
+
+            # ==================== 軌道計算配置 ====================
+            'orbital_calculation': {
+                # SGP4 算法配置
+                'algorithm': 'SGP4',          # 使用標準 SGP4 算法 (Skyfield)
+
+                # 動態時間點計算
+                # SOURCE: v3.0 架構 - 基於實際軌道參數計算
+                'dynamic_time_points': True,  # 啟用動態時間點
+                'time_interval_seconds': 30,  # 30秒時間解析度
+                'coverage_cycles': 1.0,       # 完整軌道週期
+                'use_orbital_period': True,   # 使用實際軌道週期
+
+                # 座標系統配置
+                'coordinate_system': 'TEME',  # TEME 座標系統輸出
+
+                # 精度等級
+                # SOURCE: docs/ACADEMIC_STANDARDS.md
+                'precision_grade': 'A',       # Grade A 學術級精度（NASA JPL 標準）
+            },
+
+            # ==================== 性能配置 ====================
+            'performance': {
+                # 並行處理配置
+                # SOURCE: Python multiprocessing best practices
+                'max_workers': None,          # None = 動態計算，或指定數字
+                'force_single_thread': False, # 強制單線程（除錯用）
+
+                # 動態 CPU 工作器策略
+                # SOURCE: Linux kernel scheduler 和系統管理最佳實踐
+                # REFERENCE: Intel Threading Building Blocks (TBB) 動態調度策略
+                'dynamic_worker_strategy': {
+                    'cpu_usage_threshold_high': 30,   # CPU < 30%: 使用 95% 核心
+                    'cpu_usage_threshold_medium': 50, # CPU 30-50%: 使用 75% 核心
+                },
+
+                # 超時門檻配置
+                # PURPOSE: 防止處理時間過長
+                'timeout_thresholds': {
+                    'orbital_propagation': 600.0,  # 軌道傳播超時（秒）
+                },
+
+                # 記憶體限制配置
+                # PURPOSE: 防止記憶體溢出
+                'memory_limits': {
+                    'max_satellites_batch': 10000,   # 批次處理最大衛星數
+                    'max_positions_cache': 1000000,  # 軌道狀態點緩存上限
+                },
+
+                # 測試模式配置
+                # PURPOSE: 開發驗證用快速取樣
+                'testing_mode': {
+                    'enabled': False,             # 禁用測試模式
+                    'satellite_sample_size': 100, # 測試用取樣數量
+                    'sample_method': 'random',    # 取樣方法
+                    'preserve_constellation_ratio': True,  # 保持星座比例
+                },
+            },
+
+            # ==================== 驗證配置 ====================
+            'validation': {
+                # 學術標準配置
+                # SOURCE: docs/ACADEMIC_STANDARDS.md - Grade A requirements
+                'academic_standards': {
+                    'grade': 'A',                 # Grade A 學術級等級
+                    'position_accuracy_km': 1.0,  # SGP4 位置精度 <1km
+                    'velocity_accuracy_km_s': 0.001,  # 速度精度 <0.001 km/s
+                    'time_accuracy_seconds': 1.0, # 時間精度 <1s
+                },
+
+                # 質量檢查配置
+                'quality_checks': {
+                    'min_satellites_processed': 9000,  # 最少處理衛星數
+                    'min_success_rate': 0.99,          # 最低成功率 99%
+                    'max_calculation_time': 600,       # 最大計算時間（秒）
+                },
+
+                # 禁止項目清單
+                # SOURCE: docs/ACADEMIC_STANDARDS.md - Prohibited practices
+                'prohibited_items': [
+                    'tle_reparsing',           # 禁止 TLE 重新解析
+                    'coordinate_transformation', # 禁止座標轉換（移至 Stage 3）
+                    'visibility_analysis',     # 禁止可見性分析（移至 Stage 4）
+                    'simplified_algorithms',   # 禁止簡化算法
+                    'mock_data',              # 禁止模擬數據
+                ],
+            },
+
+            # ==================== 輸出配置 ====================
+            'output': {
+                # 輸出格式配置
+                # SOURCE: shared/interfaces/processor_interface.py
+                'format': 'standard',          # 標準 ProcessingResult 格式
+                'coordinate_system': 'TEME',   # TEME 座標系統輸出
+                'include_metadata': True,      # 包含軌道傳播元數據
+                'include_statistics': True,    # 包含處理統計
+                'include_validation': True,    # 包含 5 項專用驗證結果
+                'compress_results': False,     # 不壓縮（保持可讀性）
+            },
+
+            # ==================== 日誌配置 ====================
+            'logging': {
+                # 日誌等級
+                # OPTIONS: DEBUG, INFO, WARNING, ERROR, CRITICAL
+                'level': 'INFO',
+
+                # 詳細資訊配置
+                'include_performance': True,           # 包含效能指標
+                'include_validation': True,            # 包含驗證信息
+                'academic_compliance_tracking': True,  # 學術合規追蹤
+            },
+
+            # ==================== 版本與元數據 ====================
+            'metadata': {
+                'version': '3.1.0',                    # v3.1 架構版本
+                'architecture': 'orbital_state_propagation',  # 軌道狀態傳播層
+                'academic_grade': 'A',                 # Grade A 標準
+                'compliance_standard': 'SGP4_Skyfield_NASA_JPL',  # Skyfield NASA JPL 標準
+                'author': 'Orbit Engine Team',
+                'description': 'v3.1 Orbital State Propagation Layer - Unified Time Window Support',
+            },
+        }
+
+    def validate_config(self, config: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+        """
+        驗證 Stage 2 配置參數
+
+        驗證項目:
+        - 時間序列配置必須完整
+        - SGP4 配置必須使用 TEME 座標系統
+        - 動態計算必須啟用（Grade A 要求）
+        - 並行處理配置合理性
+        - 學術標準合規性
+
+        Args:
+            config: 配置字典
+
+        Returns:
+            Tuple[bool, Optional[str]]: (is_valid, error_message)
+            - (True, None) if valid
+            - (False, error_message) if invalid
+        """
+        errors = []
+
+        # ========== 時間序列配置驗證 ==========
+        time_config = config.get('time_series', {})
+
+        if not time_config:
+            errors.append("缺少必要的 'time_series' 配置")
+        else:
+            # 驗證時間序列模式
+            mode = time_config.get('mode')
+            if mode not in ['unified_window', 'independent_epoch']:
+                errors.append(
+                    f"time_series.mode 必須是 'unified_window' 或 'independent_epoch'，"
+                    f"當前值: {mode}"
+                )
+
+            # 驗證時間間隔
+            interval = time_config.get('interval_seconds')
+            if interval is None:
+                errors.append("缺少必要的 'time_series.interval_seconds' 配置")
+            elif not isinstance(interval, (int, float)) or interval <= 0:
+                errors.append(
+                    f"time_series.interval_seconds 必須是正數，當前值: {interval}"
+                )
+
+            # 驗證動態計算設置（Grade A 要求）
+            dynamic_calc = time_config.get('dynamic_calculation')
+            if dynamic_calc is None:
+                errors.append("缺少必要的 'time_series.dynamic_calculation' 配置")
+            elif not dynamic_calc:
+                errors.append(
+                    "time_series.dynamic_calculation 必須為 True (Grade A 標準要求)\n"
+                    "SOURCE: docs/ACADEMIC_STANDARDS.md Lines 265-274"
+                )
+
+            # 驗證最小位置點數
+            min_pos = time_config.get('min_positions')
+            if min_pos is None:
+                errors.append("缺少必要的 'time_series.min_positions' 配置")
+            elif not isinstance(min_pos, int) or min_pos < 10:
+                errors.append(
+                    f"time_series.min_positions 必須 ≥ 10，當前值: {min_pos}"
+                )
+
+            # 驗證覆蓋週期
+            coverage = time_config.get('coverage_cycles')
+            if coverage is None:
+                errors.append("缺少必要的 'time_series.coverage_cycles' 配置")
+            elif not isinstance(coverage, (int, float)) or coverage <= 0:
+                errors.append(
+                    f"time_series.coverage_cycles 必須是正數，當前值: {coverage}"
+                )
+
+        # ========== SGP4 配置驗證 ==========
+        sgp4_config = config.get('sgp4_propagation', {})
+
+        if not sgp4_config:
+            errors.append("缺少必要的 'sgp4_propagation' 配置")
+        else:
+            # 驗證座標系統必須是 TEME
+            coord_sys = sgp4_config.get('output_coordinate_system')
+            if coord_sys != 'TEME':
+                errors.append(
+                    f"sgp4_propagation.output_coordinate_system 必須是 'TEME'，"
+                    f"當前值: {coord_sys}\n"
+                    "SOURCE: Stage 2 v3.0 架構 - TEME 座標專職輸出"
+                )
+
+            # 驗證方法必須是 SGP4
+            method = sgp4_config.get('method')
+            if method != 'SGP4':
+                errors.append(
+                    f"sgp4_propagation.method 必須是 'SGP4'，當前值: {method}"
+                )
+
+        # ========== 性能配置驗證 ==========
+        performance_config = config.get('performance', {})
+
+        if performance_config:
+            # 驗證 max_workers 配置
+            max_workers = performance_config.get('max_workers')
+            if max_workers is not None:
+                if not isinstance(max_workers, int) or max_workers < 1:
+                    errors.append(
+                        f"performance.max_workers 必須是正整數或 null，"
+                        f"當前值: {max_workers}"
+                    )
+                elif max_workers > mp.cpu_count() * 2:
+                    errors.append(
+                        f"performance.max_workers 不建議超過 CPU 核心數的 2 倍，"
+                        f"當前值: {max_workers}, CPU 核心: {mp.cpu_count()}"
+                    )
+
+        # ========== 驗證配置驗證 ==========
+        validation_config = config.get('validation', {})
+
+        if validation_config:
+            academic_std = validation_config.get('academic_standards', {})
+            grade = academic_std.get('grade')
+
+            if grade and grade != 'A':
+                errors.append(
+                    f"validation.academic_standards.grade 應為 'A'（Grade A 標準），"
+                    f"當前值: {grade}"
+                )
+
+        # ========== 輸出配置驗證 ==========
+        output_config = config.get('output', {})
+
+        if output_config:
+            # 驗證輸出座標系統必須是 TEME
+            output_coord = output_config.get('coordinate_system')
+            if output_coord and output_coord != 'TEME':
+                errors.append(
+                    f"output.coordinate_system 必須是 'TEME'，當前值: {output_coord}\n"
+                    "SOURCE: Stage 2 v3.0 架構 - TEME 座標專職輸出"
+                )
+
+        # Return validation result
+        if errors:
+            error_message = "\n".join(errors)
+            return False, error_message
+        return True, None
+
+
+# Convenience function for backward compatibility
+def create_stage2_config_manager() -> Stage2ConfigManager:
+    """創建 Stage 2 配置管理器"""
+    return Stage2ConfigManager()

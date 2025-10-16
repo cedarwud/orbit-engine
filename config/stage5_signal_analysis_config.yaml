@@ -174,3 +174,37 @@ observer:
 # - ITU-R P.676-13: Attenuation by Atmospheric Gases
 # - ITU-R P.835-6: Reference Standard Atmospheres
 # - ICAO Standard Atmosphere (1993)
+
+# ==============================================================================
+# 環境變數覆寫支援
+# ==============================================================================
+# 支援的環境變數 (由 BaseConfigManager 自動處理):
+#
+# 頂層鍵 (Top-level keys):
+# (Stage 5 使用嵌套配置，建議使用嵌套鍵語法)
+#
+# 嵌套鍵 (Nested keys) - 使用三重下劃線 (___) 分隔層級:
+# - ORBIT_ENGINE_STAGE5_SIGNAL_CALCULATOR___BANDWIDTH_MHZ: 覆寫 signal_calculator.bandwidth_mhz
+# - ORBIT_ENGINE_STAGE5_SIGNAL_CALCULATOR___SUBCARRIER_SPACING_KHZ: 覆寫 signal_calculator.subcarrier_spacing_khz
+# - ORBIT_ENGINE_STAGE5_SIGNAL_CALCULATOR___NOISE_FIGURE_DB: 覆寫 signal_calculator.noise_figure_db
+# - ORBIT_ENGINE_STAGE5_SIGNAL_CALCULATOR___TEMPERATURE_K: 覆寫 signal_calculator.temperature_k
+# - ORBIT_ENGINE_STAGE5_ATMOSPHERIC_MODEL___TEMPERATURE_K: 覆寫 atmospheric_model.temperature_k
+# - ORBIT_ENGINE_STAGE5_ATMOSPHERIC_MODEL___PRESSURE_HPA: 覆寫 atmospheric_model.pressure_hpa
+# - ORBIT_ENGINE_STAGE5_ATMOSPHERIC_MODEL___WATER_VAPOR_DENSITY_G_M3: 覆寫 atmospheric_model.water_vapor_density_g_m3
+# - ORBIT_ENGINE_STAGE5_SIGNAL_THRESHOLDS___RSRP_MINIMUM: 覆寫 signal_thresholds.rsrp_minimum
+# - ORBIT_ENGINE_STAGE5_PARALLEL_PROCESSING___MAX_WORKERS: 覆寫 parallel_processing.max_workers
+#
+# 範例:
+#   # 單個覆寫 - 測試不同帶寬
+#   export ORBIT_ENGINE_STAGE5_SIGNAL_CALCULATOR___BANDWIDTH_MHZ=200.0
+#   ./run.sh --stage 5
+#
+#   # 多個覆寫 - 測試不同大氣條件
+#   export ORBIT_ENGINE_STAGE5_ATMOSPHERIC_MODEL___TEMPERATURE_K=300.0
+#   export ORBIT_ENGINE_STAGE5_ATMOSPHERIC_MODEL___WATER_VAPOR_DENSITY_G_M3=19.6
+#   ./run.sh --stage 5
+#
+#   # 調試模式 - 低噪聲係數
+#   export ORBIT_ENGINE_STAGE5_SIGNAL_CALCULATOR___NOISE_FIGURE_DB=3.0
+#   export ORBIT_ENGINE_STAGE5_PARALLEL_PROCESSING___MAX_WORKERS=8
+#   ./run.sh --stage 5
