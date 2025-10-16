@@ -22,6 +22,9 @@ from datetime import datetime, timezone, timedelta
 from shared.constants.tle_constants import TLEConstants
 from shared.constants.constellation_constants import ConstellationRegistry
 
+# ✅ P1-2: 導入 ChecksumValidator (統一 Checksum 驗證實現)
+from .validators.checksum_validator import ChecksumValidator
+
 # 🎓 學術級驗證：引入 NASA 官方 sgp4 庫
 try:
     from sgp4.io import twoline2rv, verify_checksum
@@ -58,7 +61,10 @@ class TLEDataLoader:
         
         self.tle_data_dir = Path(tle_data_dir)
         self.logger = logging.getLogger(f"{__name__}.TLEDataLoader")
-        
+
+        # ✅ P1-2: 初始化 ChecksumValidator (統一 Checksum 驗證實現)
+        self.checksum_validator = ChecksumValidator()
+
         # 載入統計
         self.load_statistics = {
             "files_scanned": 0,
@@ -479,61 +485,15 @@ class TLEDataLoader:
                 f"Fail-Fast 原則: 立即失敗，不返回 None"
             ) from e
 
-    def _verify_tle_checksum(self, tle_line: str) -> bool:
-        """
-        驗證 TLE 行的 checksum 是否正確
-
-        🎓 學術級實現 - 官方 NORAD Modulo 10 算法：
-        - 數字 (0-9): 加上該數字的值
-        - 負號 (-): 算作 1
-        - 其他字符 (字母、空格、句點、正號+): 忽略
-        - Checksum = (sum % 10)
-
-        參考文獻：
-        - CelesTrak TLE Format: https://celestrak.org/NORAD/documentation/tle-fmt.php
-        - USSPACECOM Two-Line Element Set Format
-        - 與 python-sgp4 (Rhodes, 2020) 實現一致
-
-        Returns:
-            bool: checksum 是否正確
-        """
-        if len(tle_line) != TLEConstants.TLE_LINE_LENGTH:
-            return False
-
-        try:
-            # 計算前 68 個字符的 checksum (官方標準算法)
-            checksum_calculated = 0
-            for char in tle_line[:68]:
-                if char.isdigit():
-                    checksum_calculated += int(char)
-                elif char == '-':
-                    checksum_calculated += 1
-                # 其他字符（字母、空格、句點、正號+）被忽略
-
-            expected_checksum = checksum_calculated % 10
-            actual_checksum = int(tle_line[68])
-
-            return expected_checksum == actual_checksum
-
-        except (ValueError, IndexError):
-            return False
-
     def _fix_tle_checksum(self, tle_line: str) -> str:
         """
-        修復 TLE 行的 checksum，使用官方 NORAD 標準重新計算
+        修復 TLE 行的 checksum（使用 ChecksumValidator 統一實現）
 
-        🎓 學術級實現 - 官方 NORAD Modulo 10 算法：
-        - 數字 (0-9): 加上該數字的值
-        - 負號 (-): 算作 1
-        - 其他字符 (字母、空格、句點、正號+): 忽略
-        - Checksum = (sum % 10)
+        ✅ P1-2 重構：使用 ChecksumValidator 作為 Single Source of Truth
+        移除重複的 checksum 計算邏輯，統一使用官方標準化實現
 
-        參考文獻：
-        - CelesTrak TLE Format: https://celestrak.org/NORAD/documentation/tle-fmt.php
-        - USSPACECOM Two-Line Element Set Format
-        - 與 python-sgp4 (Rhodes, 2020) 實現一致
-
-        Note: 若 python-sgp4 可用，後續會用官方解析器二次驗證
+        Args:
+            tle_line: TLE 行字符串（69字符）
 
         Returns:
             str: 修復後的 TLE 行（69字符）
@@ -542,26 +502,16 @@ class TLEDataLoader:
             return tle_line  # 如果長度不對，返回原行
 
         try:
-            # 使用官方標準算法計算正確的 checksum
-            checksum_official = 0
-            for char in tle_line[:68]:  # 前68個字符
-                if char.isdigit():
-                    checksum_official += int(char)
-                elif char == '-':
-                    checksum_official += 1
-                # 其他字符（字母、空格、句點、正號+）被忽略
-
-            correct_checksum = checksum_official % 10
-
-            # 構建修復後的 TLE 行
-            fixed_line = tle_line[:68] + str(correct_checksum)
+            # ✅ 使用 ChecksumValidator 統一實現
+            fixed_line = self.checksum_validator.fix_checksum(tle_line)
 
             # 如果 checksum 被修復了，記錄統計
-            original_checksum = int(tle_line[68])
-            if original_checksum != correct_checksum:
+            if fixed_line != tle_line:
                 if not hasattr(self, 'checksum_fixes'):
                     self.checksum_fixes = 0
                 self.checksum_fixes += 1
+                original_checksum = tle_line[68]
+                correct_checksum = fixed_line[68]
                 self.logger.debug(f"🔧 修復 checksum: {original_checksum} → {correct_checksum}")
 
             return fixed_line

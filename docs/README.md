@@ -20,7 +20,7 @@
 #### 2. 階段詳細規格 (開發必讀)
 - **[Stage 1: TLE數據載入層](stages/stage1-specification.md)** - 獨立時間基準設計
 - **[Stage 2: 軌道狀態傳播層](stages/stage2-orbital-computing.md)** - ✅ **已重構 - Skyfield 直接實現**
-- **[Stage 3: 座標系統轉換層](stages/stage3-signal-analysis.md)** - Skyfield專業轉換
+- **[Stage 3: 座標系統轉換層](stages/stage3-coordinate-transformation.md)** - Skyfield專業轉換
 - **[Stage 4: 鏈路可行性評估層](stages/stage4-link-feasibility.md)** - 星座感知篩選
 - **[Stage 5: 信號品質分析層](stages/stage5-signal-analysis.md)** - 3GPP/ITU-R標準
 - **[Stage 6: 研究數據生成層](stages/stage6-research-optimization.md)** - 3GPP事件+ML
@@ -30,7 +30,7 @@
 #### 學術標準與合規
 - **[學術合規性標準指南](ACADEMIC_STANDARDS.md)** - 全局學術標準規範 ⭐⭐⭐
 - **[參數確定方法論](parameter_determination_methodology.md)** - D2/A5 參數確定方法 (25KB)
-- **[三層級數據分析](三層級數據分析與參數選擇依據.md)** - 數據層級選擇依據 (14KB)
+- **[三層級數據分析](hierarchical_data_analysis.md)** - 數據層級選擇依據 (14KB)
 
 #### 技術標準規範
 - **[衛星換手標準](satellite_handover_standards.md)** - 3GPP NTN標準實現 (26KB)
@@ -69,16 +69,6 @@
 - **3GPP NTN**: A4/A5/D2事件完整支援
 - **強化學習**: DQN/A3C/PPO/SAC多算法訓練數據
 
-## 📂 文檔歷史歸檔
-
-### 歸檔文檔位置
-- **[歸檔說明](archive/README.md)** - 歸檔文檔索引與說明
-  - `archive/reports/` - 一次性分析報告
-  - `archive/retrospectives/` - 事後回顧文檔
-  - `archive/clarifications/` - 歷史澄清文檔
-  - `archive/development/` - 已整合的流程文檔
-- **注意**: 歸檔文檔僅供參考，請勿用於開發！使用最新的活躍文檔。
-
 ## ⚠️ 開發者重要提醒
 
 ### ✅ 正確的文檔使用
@@ -87,7 +77,6 @@
 3. **標準合規**: 遵循各項專業標準文檔
 
 ### ❌ 禁止使用的文檔
-- `archives/` 目錄下的任何文檔
 - 任何標示為 v2.0 的文檔
 - 任何與當前 v3.0 定義衝突的文檔
 
@@ -108,14 +97,18 @@
 
 ## 📋 最近更新
 
+### 2025-10-16 - 文檔清理與優化
+- ✅ 刪除過時重構文檔 (`docs/refactoring/` 整個目錄，660KB)
+- ✅ 刪除臨時測試報告 (`FINAL_VERIFIED_METRICS_20251010.md`)
+- ✅ 刪除過時歸檔文檔 (`docs/archive/` 整個目錄，84KB)
+- ✅ 修正損壞鏈接 (三層級數據分析)
+- ✅ 清理結果: 釋放 ~837KB，文檔更清晰易維護
+
 ### 2025-10-10 - 文檔重組與整合
 - ✅ 創建 `development/CONTRIBUTING.md` - 整合所有開發流程指南
-- ✅ 歸檔歷史文檔至 `archive/` (6 個文件，完整保留)
 - ✅ 整合流程文檔: 3 個分散文檔 → 1 個完整指南
 - ✅ 重命名模糊文件: `ts.md` → `3GPP_TS38331_EVENT_DEFINITIONS.md`
 - ✅ 移動驗證文檔: `distance_calculation_validation.md` → `stages/`
-- ✅ 整理結果: 主目錄文檔減少 43.75% (16→9)，活躍文檔減少 17.9%
-- ✅ 零刪除政策: 所有文檔完整保留在 `archive/`
 
 ### 2025-10-02 - 文檔整理
 - ✅ 移除重複的學術標準文件 (已整合至 `ACADEMIC_STANDARDS.md`)

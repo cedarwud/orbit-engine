@@ -11,13 +11,13 @@ Core Components:
 - BaseValidator: Base validator class
 - ValidationResult: Validation result management
 - FailureCriteria: Dynamic failure criteria
-- StageXValidator: Stage-specific validators
-- AcademicValidationFramework: Academic standard validator (Grade A+)
-- RealTimeSnapshotSystem: Validation snapshot management
+
+Note: Stage-specific validators have been moved to scripts/stage_validators/
+      as part of Phase 2 refactoring (2025-10-12)
 
 Author: Orbit Engine Refactoring Team
-Date: 2025-10-15
-Version: 2.1.0 (Phase 5 - Module Reorganization)
+Date: 2025-10-16 (Cleanup: Removed unused legacy validators)
+Version: 2.2.0 (Phase 5 - Module Reorganization + Cleanup)
 Standards: ITU-R P.618, 3GPP TS 38.821, IEEE 802.11, NORAD TLE Format
 """
 
@@ -31,25 +31,6 @@ from .validation_engine import (
     ValidationRegistry
 )
 
-from .stage4_validator import Stage4TimeseriesValidator
-
-# Stage2Validator 已移除（v3.0 架構重構，可見性功能移至 Stage 4）
-# Stage3Validator 已移除（重構中）
-# from .stage3_validator import Stage3SignalValidator
-
-# 學術標準驗證框架（新增）
-try:
-    from .academic_validation_framework import (
-        AcademicValidationFramework,
-        PhysicsValidator,
-        AcademicGrade,
-        validate_satellite_data_quick,
-        generate_academic_test_validator
-    )
-    _ACADEMIC_FRAMEWORK_AVAILABLE = True
-except ImportError:
-    _ACADEMIC_FRAMEWORK_AVAILABLE = False
-
 __all__ = [
     'ValidationEngine',
     'BaseValidator',
@@ -58,17 +39,4 @@ __all__ = [
     'ValidationStatus',
     'FailureCriteria',
     'ValidationRegistry',
-    # 'Stage2VisibilityValidator',  # 已移除（v3.0 架構重構）
-    # 'Stage3SignalValidator',  # 已移除（重構中）
-    'Stage4TimeseriesValidator'
 ]
-
-# 如果學術框架可用，添加到導出列表
-if _ACADEMIC_FRAMEWORK_AVAILABLE:
-    __all__.extend([
-        'AcademicValidationFramework',
-        'PhysicsValidator',
-        'AcademicGrade',
-        'validate_satellite_data_quick',
-        'generate_academic_test_validator'
-    ])

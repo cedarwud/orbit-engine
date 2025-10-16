@@ -443,7 +443,7 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
             raise ValueError(
                 "❌ 找不到星座配置！\n"
                 "請確保以下至少一項存在:\n"
-                "1. config/stage1_orbital_calculation.yaml 包含 constellation_configs\n"
+                "1. config/stage1_orbital_initialization_config.yaml 包含 constellation_configs\n"
                 "2. config/stage4_link_feasibility_config.yaml 包含 pool_optimization_targets"
             )
 

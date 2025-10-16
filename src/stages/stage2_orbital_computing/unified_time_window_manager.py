@@ -130,7 +130,7 @@ class UnifiedTimeWindowManager:
                 raise ValueError(
                     "配置缺少 constellation_orbital_periods.starlink_minutes\n"
                     "Grade A 標準禁止使用預設值\n"
-                    "請在 config/stage2_orbital_computing.yaml 中設定此參數"
+                    "請在 config/stage2_orbital_computing_config.yaml 中設定此參數"
                 )
             period_minutes = self.constellation_periods['starlink_minutes']
         elif 'ONEWEB' in name_upper:
@@ -138,7 +138,7 @@ class UnifiedTimeWindowManager:
                 raise ValueError(
                     "配置缺少 constellation_orbital_periods.oneweb_minutes\n"
                     "Grade A 標準禁止使用預設值\n"
-                    "請在 config/stage2_orbital_computing.yaml 中設定此參數"
+                    "請在 config/stage2_orbital_computing_config.yaml 中設定此參數"
                 )
             period_minutes = self.constellation_periods['oneweb_minutes']
         else:
@@ -146,7 +146,7 @@ class UnifiedTimeWindowManager:
                 raise ValueError(
                     "配置缺少 constellation_orbital_periods.default_minutes\n"
                     "Grade A 標準禁止使用預設值\n"
-                    "請在 config/stage2_orbital_computing.yaml 中設定此參數"
+                    "請在 config/stage2_orbital_computing_config.yaml 中設定此參數"
                 )
             period_minutes = self.constellation_periods['default_minutes']
 
@@ -192,7 +192,7 @@ class UnifiedTimeWindowManager:
                     "Grade A 標準要求 use_orbital_period=True\n"
                     "禁止使用固定軌道週期值（如 90 分鐘硬編碼）\n"
                     "必須從配置的 constellation_orbital_periods 或實際 TLE 數據計算\n"
-                    "請在 config/stage2_orbital_computing.yaml 中設定 use_orbital_period: true"
+                    "請在 config/stage2_orbital_computing_config.yaml 中設定 use_orbital_period: true"
                 )
 
         else:

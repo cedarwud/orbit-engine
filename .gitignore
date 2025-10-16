@@ -113,3 +113,7 @@ data/cache/
 # 4. data/outputs/ 和 data/validation_snapshots/ 包含 >1GB 單檔
 # 5. 保留 .gitkeep 檔案維持目錄結構
 # =============================================================================
+
+# Backup files
+*.bak
+*.bak[0-9]

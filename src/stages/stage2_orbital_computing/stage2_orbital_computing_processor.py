@@ -130,7 +130,7 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
         try:
             config_path = os.path.join(
                 os.path.dirname(__file__),
-                "../../../config/stage2_orbital_computing.yaml"
+                "../../../config/stage2_orbital_computing_config.yaml"
             )
 
             if os.path.exists(config_path):
@@ -160,7 +160,7 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
                 raise RuntimeError(
                     "配置文件缺少 time_series.min_positions\n"
                     "Grade A 標準禁止使用預設值\n"
-                    "請在 config/stage2_orbital_computing.yaml 中設定此參數\n"
+                    "請在 config/stage2_orbital_computing_config.yaml 中設定此參數\n"
                     "參考: docs/ACADEMIC_STANDARDS.md 第265-274行"
                 )
             self.min_positions = time_config['min_positions']
@@ -169,7 +169,7 @@ class Stage2OrbitalPropagationProcessor(BaseStageProcessor):
                 raise RuntimeError(
                     "配置文件缺少 time_series.coverage_cycles\n"
                     "Grade A 標準禁止使用預設值\n"
-                    "請在 config/stage2_orbital_computing.yaml 中設定此參數"
+                    "請在 config/stage2_orbital_computing_config.yaml 中設定此參數"
                 )
             self.coverage_cycles = time_config['coverage_cycles']
 

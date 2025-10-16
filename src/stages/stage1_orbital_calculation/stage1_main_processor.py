@@ -32,6 +32,9 @@ from .time_reference_manager import TimeReferenceManager
 # 🆕 導入 Epoch 分析組件 (2025-10-03)
 from .epoch_analyzer import EpochAnalyzer, EpochFilter
 
+# ✅ P1-2: 導入 ChecksumValidator (統一 Checksum 驗證實現)
+from .validators.checksum_validator import ChecksumValidator
+
 # 導入標準接口
 from shared.base import ProcessingResult, ProcessingStatus, ProcessingMetrics
 from shared.base import BaseStageProcessor
@@ -91,6 +94,9 @@ class Stage1MainProcessor(BaseStageProcessor):
         self.tle_loader = TLEDataLoader()
         self.data_validator = DataValidator()
         self.time_manager = TimeReferenceManager()
+
+        # ✅ P1-2: 初始化 ChecksumValidator (統一 Checksum 驗證實現)
+        self.checksum_validator = ChecksumValidator()
 
         # 🆕 初始化 Epoch 分析組件 (v2.1 - 2025-10-03)
         self.epoch_analyzer = EpochAnalyzer()
@@ -700,34 +706,19 @@ class Stage1MainProcessor(BaseStageProcessor):
 
     def _calculate_tle_checksum(self, line: str) -> int:
         """
-        計算 TLE 行的 checksum (官方 Modulo 10 算法)
+        計算 TLE 行的 checksum（使用 ChecksumValidator 統一實現）
 
-        🎓 學術級實現 - 官方 NORAD Modulo 10 算法：
-        - 數字 (0-9): 加上該數字的值
-        - 負號 (-): 算作 1
-        - 其他字符 (字母、空格、句點、正號+): 忽略
-        - Checksum = (sum % 10)
-
-        參考文獻：
-        - CelesTrak TLE Format: https://celestrak.org/NORAD/documentation/tle-fmt.php
-        - USSPACECOM Two-Line Element Set Format
-        - 與 python-sgp4 (Rhodes, 2020) 實現一致
+        ✅ P1-2 重構：使用 ChecksumValidator 作為 Single Source of Truth
+        移除重複的 checksum 計算邏輯，統一使用官方標準化實現
 
         Args:
-            line: TLE 行數據 (不含 checksum 位)
+            line: TLE 行數據（不含 checksum 位，至少68字符）
 
         Returns:
             int: 計算得出的 checksum (0-9)
         """
-        checksum = 0
-        for char in line:
-            if char.isdigit():
-                checksum += int(char)
-            elif char == '-':
-                checksum += 1  # 負號算作 1
-            # 其他字符 (字母、空格、句點、正號+) 被忽略
-
-        return checksum % 10
+        # ✅ 使用 ChecksumValidator 統一實現
+        return self.checksum_validator.calculate_checksum(line)
 
 
 # 工廠函數

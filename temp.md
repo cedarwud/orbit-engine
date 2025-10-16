@@ -1,28 +1,10 @@
+1. 程式唯一
 請仔細檢查被歸類在階段一執行會使用到的所有檔案中，是否所有檔案中的程式都有被使用?是否所有邏輯都只有一個執行方法，沒有類似、重複、過時的程式，也沒有硬編碼、模擬數據、簡化算法等問題，或是檔案中存在不屬於階段一的程式，是其他階段在使用的程式?本來就定義是共用的程式或是檔案除外，整個階段一的程式都有符合 @docs/stages/stage1-specification.md 的描述
 
 以及 @docs/ACADEMIC_STANDARDS.md 的標準，也有符合 @docs/final.md 中預期六階段之中的分工
 
-1. 文件-程式同步
+2. 文件-程式同步
 請仔細檢查目前六階段中的階段一的文件 @docs/stages/stage1-specification.md 跟程式 @scripts/run_six_stages_with_validation.py --stage 1 是否同步，沒有哪一個超前或落後的狀況
-
-2. 程式唯一
-請仔細檢查 @src/stages/stage1_orbital_calculation/ 中的所有程式是否都沒有重複、過時、沒有在使用的，使用
-  @scripts/run_six_stages_with_validation.py --stage 1 執行時，只會有一組程式在執行，不存在多個執行入口
-
- 請仔細檢查 @src/stages/stage2_orbital_computing/ 中的所有程式是否都沒有重複、過時、沒有在使用的，使用
-  @scripts/run_six_stages_with_validation.py --stage 2 執行時，只會有一組程式在執行，不存在多個執行入口
-
-請仔細檢查 @src/stages/stage3_coordinate_transformation/ 中的所有程式是否都沒有重複、過時、沒有在使用的，使用
-  @scripts/run_six_stages_with_validation.py --stage 3 執行時，只會有一組程式在執行，不存在多個執行入口
-
-請仔細檢查 @src/stages/stage4_link_feasibility/ 中的所有程式是否都沒有重複、過時、沒有在使用的，使用
-  @scripts/run_six_stages_with_validation.py --stage 4 執行時，只會有一組程式在執行，不存在多個執行入口
-
-請仔細檢查 @src/stages/stage5_signal_analysis/ 中的所有程式是否都沒有重複、過時、沒有在使用的，使用
-  @scripts/run_six_stages_with_validation.py --stage 5 執行時，只會有一組程式在執行，不存在多個執行入口
-
-請仔細檢查 @src/stages/stage6_research_optimization/ 中的所有程式是否都沒有重複、過時、沒有在使用的，使用
-  @scripts/run_six_stages_with_validation.py --stage 6 執行時，只會有一組程式在執行，不存在多個執行入口
 
 3. 程式沒有硬編碼
 請再檢查階段四的程式中是否存在任何硬編碼、模擬數據、簡化算法，不能只用關鍵字搜尋，要實際查看演算法跟參數，請參考

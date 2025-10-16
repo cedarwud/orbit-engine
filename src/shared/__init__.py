@@ -86,7 +86,6 @@ def __getattr__(name):
 
         # Validation framework
         'ValidationEngine': ('shared.validation', 'validation_engine', 'ValidationEngine'),
-        'AcademicValidationFramework': ('shared.validation', 'academic_validation_framework', 'AcademicValidationFramework'),
     }
 
     if name in compatibility_map:
