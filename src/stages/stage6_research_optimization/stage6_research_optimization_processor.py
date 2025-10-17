@@ -180,6 +180,14 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
 
             self.logger.info("✅ Stage 6: 研究數據生成與優化完成")
 
+            # 💾 保存結果到文件 (修復：添加輸出文件保存邏輯)
+            try:
+                output_file = self.save_results(result_data)
+                self.logger.info(f"💾 Stage 6 結果已保存: {output_file}")
+            except Exception as e:
+                self.logger.warning(f"⚠️ 保存 Stage 6 結果失敗: {e}")
+                output_file = None
+
             processing_time = time.time() - start_time
 
             return create_processing_result(
@@ -192,7 +200,8 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
                     'processing_time': processing_time,  # 🔧 修復: processing_time 放入 metadata
                     'events_detected': self.processing_stats['total_events_detected'],
                     'ml_samples_generated': self.processing_stats['ml_training_samples'],
-                    'pool_verification_passed': self.processing_stats['pool_verification_passed']
+                    'pool_verification_passed': self.processing_stats['pool_verification_passed'],
+                    'output_file': output_file  # 添加輸出文件路徑
                 }
             )
 
@@ -815,6 +824,36 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
             validation_results = processing_results['validation_results']
 
         return self.snapshot_manager.save_validation_snapshot(processing_results, validation_results)
+
+    def save_results(self, results: Dict[str, Any]) -> str:
+        """保存處理結果到文件
+
+        Args:
+            results: Stage 6 處理結果
+
+        Returns:
+            str: 輸出文件路徑
+
+        Raises:
+            Exception: 保存失敗時拋出異常
+        """
+        try:
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            output_file = self.output_dir / f"stage6_research_optimization_{timestamp}.json"
+
+            # 確保輸出目錄存在
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+
+            # 保存結果
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(results, f, indent=2, ensure_ascii=False)
+
+            self.logger.info(f"✅ Stage 6 輸出已保存: {output_file}")
+            return str(output_file)
+
+        except Exception as e:
+            self.logger.error(f"❌ 保存 Stage 6 結果失敗: {e}")
+            raise
 
 
 def create_stage6_processor(config: Optional[Dict[str, Any]] = None) -> Stage6ResearchOptimizationProcessor:

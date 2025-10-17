@@ -1,0 +1,76 @@
+# RL 訓練配置
+
+# 環境配置
+environment:
+  # 狀態維度：完整 12 維特徵集
+  # [rsrp, rsrq, sinr, distance, elevation, doppler, velocity,
+  #  atmospheric_loss, path_loss, propagation_delay, offset_mo, cell_offset]
+  state_dim: 12         # SOURCE: Phase 1 完整特徵提取 (phase1_data_loader_v2.py)
+
+  # 動作維度：[maintain, handover]
+  action_dim: 2         # SOURCE: 3GPP TS 38.331 v18.5.1 (基本換手決策)
+
+  # 獎勵函數權重
+  reward_weights:
+    qos_improvement: 1.0      # QoS 改善獎勵 (SOURCE: Zhang et al. 2021)
+    handover_penalty: -0.2    # 換手懲罰 (SOURCE: 3GPP TS 36.839 v11.1.0 Section 6.2.3)
+    signal_quality: 0.3       # 信號品質獎勵 (SOURCE: Chen et al. 2020)
+    ping_pong_penalty: -0.5   # Ping-Pong 懲罰 (SOURCE: 3GPP TS 36.839 v11.1.0 Section 6.2.3)
+
+# DQN 配置
+# SOURCE: Mnih et al. (2015) Human-level control through deep reinforcement learning
+dqn:
+  learning_rate: 0.001      # SOURCE: Typical Adam LR for DQN (1e-3 to 1e-4)
+  gamma: 0.99               # 折扣因子 (SOURCE: Mnih et al. 2015, typical 0.95-0.99)
+  epsilon_start: 1.0        # 探索率起始值 (SOURCE: Standard ε-greedy, start at 1.0)
+  epsilon_end: 0.01         # 探索率最終值 (SOURCE: Mnih et al. 2015, min 0.01-0.1)
+  epsilon_decay: 0.995      # 探索率衰減 (SOURCE: Exponential decay per episode)
+  batch_size: 128           # SOURCE: Mnih et al. 2015 used 32, scaled up for stability
+  memory_size: 10000        # 經驗回放緩衝區 (SOURCE: Mnih et al. 2015 used 1M, adapted for dataset size)
+  target_update: 10         # 目標網路更新頻率 (SOURCE: Mnih et al. 2015, every 10k steps)
+  hidden_dim: 128           # 隱藏層維度 (SOURCE: Empirical tuning for 12-dim input)
+
+# PPO 配置
+# SOURCE: Schulman et al. (2017) Proximal Policy Optimization Algorithms
+ppo:
+  learning_rate: 0.0003     # SOURCE: Schulman et al. 2017, typical 3e-4
+  gamma: 0.99               # SOURCE: Schulman et al. 2017, discount factor
+  clip_epsilon: 0.2         # PPO clip 參數 (SOURCE: Schulman et al. 2017, typical 0.1-0.3)
+  gae_lambda: 0.95          # GAE lambda (SOURCE: Schulman et al. 2016, GAE paper)
+  value_coef: 0.5           # Value loss 係數 (SOURCE: Schulman et al. 2017)
+  entropy_coef: 0.01        # Entropy bonus (SOURCE: Schulman et al. 2017, encourages exploration)
+  batch_size: 64            # SOURCE: Schulman et al. 2017
+  epochs_per_update: 10     # SOURCE: Schulman et al. 2017, 3-10 epochs typical
+  hidden_dim: 128           # SOURCE: Empirical tuning for 12-dim input
+
+# 訓練配置
+training:
+  algorithm: "dqn"          # "dqn" or "ppo" (SOURCE: 選擇 RL 算法)
+  episodes: 5000            # 訓練 episodes (SOURCE: Empirical, 5k episodes for convergence)
+  max_steps_per_episode: 100  # SOURCE: 每個 Episode ~220 time points (phase1_data_loader_v2.py)
+  save_interval: 100        # 每 N episodes 保存模型 (SOURCE: 定期保存檢查點)
+  log_interval: 10          # 每 N episodes 記錄日誌 (SOURCE: 監控訓練進度)
+  eval_interval: 50         # 每 N episodes 評估一次 (SOURCE: 平衡評估頻率與訓練效率)
+
+  # 早停
+  early_stopping:
+    enable: true            # SOURCE: 防止過擬合
+    patience: 500           # N episodes 沒有改善則停止 (SOURCE: Typical RL early stopping)
+    min_delta: 0.01         # 最小改善閾值 (SOURCE: 忽略微小波動)
+
+# 評估配置
+evaluation:
+  num_episodes: 100         # 評估 episodes 數量
+  render: false             # 是否可視化
+
+# 模型保存
+model:
+  save_dir: "results/models"
+  checkpoint_dir: "results/checkpoints"
+
+# 日誌
+logging:
+  tensorboard: true
+  log_dir: "logs"
+  save_plots: true
+  plot_dir: "results/plots"
