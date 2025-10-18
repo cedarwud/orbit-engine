@@ -48,10 +48,23 @@ class Evaluator:
                 test_episodes = pickle.load(f)
             print(f"   測試 Episodes: {len(test_episodes)}")
 
-            # 轉換為 samples 格式
-            print(f"   轉換 Episodes 為評估格式...")
+            # ✅ 載入時間戳索引（用於真實鄰居查找 - 關鍵修復！）
+            try:
+                with open(data_path / "timestamp_index.pkl", 'rb') as f:
+                    self.timestamp_index = pickle.load(f)
+                print(f"   ✅ 時間戳索引: {len(self.timestamp_index)} 個時間戳")
+            except FileNotFoundError:
+                print("   ❌ 找不到 timestamp_index.pkl - 這將導致獎勵函數失效！")
+                print("   請重新運行: python phase1_data_loader_v2.py")
+                raise
+
+            # 轉換為 samples 格式（用於 Baseline 評估）
+            print(f"   轉換 Episodes 為 Baseline 評估格式...")
             self.test_samples = self._convert_episodes_to_samples(test_episodes)
             print(f"   測試樣本數: {len(self.test_samples)}")
+
+            # ✅ 保存 episodes 用於 DQN 評估
+            self.test_episodes = test_episodes
 
         except FileNotFoundError:
             # 降級：嘗試載入舊格式（向後相容）
@@ -61,13 +74,15 @@ class Evaluator:
                     self.test_samples = json.load(f)
                 print(f"   ✅ 使用舊格式 test_data.json")
                 print(f"   測試樣本數: {len(self.test_samples)}")
+                self.test_episodes = []
+                self.timestamp_index = {}
             except FileNotFoundError:
                 raise FileNotFoundError(
                     "找不到測試數據！請先運行: python phase1_data_loader_v2.py"
                 )
 
-        # 創建測試環境
-        self.test_env = HandoverEnvironment(self.test_samples, config, mode='eval')
+        # ✅ 創建測試環境（傳入 episodes 和 timestamp_index）
+        self.test_env = HandoverEnvironment(self.test_episodes, config, timestamp_index=self.timestamp_index, mode='eval')
 
         # 評估結果
         self.results = {}
@@ -75,6 +90,8 @@ class Evaluator:
     def _convert_episodes_to_samples(self, episodes: List) -> List[Dict]:
         """
         將 Episode 格式轉換為評估所需的 samples 格式
+
+        ✅ 使用真實鄰居數據（無簡化假設）
 
         Args:
             episodes: Episode 對象列表（來自 phase1_data_loader_v2.py）
@@ -85,6 +102,16 @@ class Evaluator:
         SOURCE: 相容性轉換函數，支援 Phase 1 v2 的新數據格式
         """
         samples = []
+
+        # ✅ 載入時間戳索引（用於真實鄰居查找）
+        timestamp_index = None
+        try:
+            data_path = Path("data")
+            with open(data_path / "timestamp_index.pkl", 'rb') as f:
+                timestamp_index = pickle.load(f)
+            print(f"   ✅ 時間戳索引已載入（用於真實鄰居 RSRP）")
+        except FileNotFoundError:
+            print(f"   ⚠️  找不到 timestamp_index.pkl，將使用簡化版本")
 
         for episode in episodes:
             # 處理字典格式的 Episode
@@ -100,15 +127,36 @@ class Evaluator:
 
             # 從時間序列創建樣本（每個時間點一個樣本）
             for time_point in time_series:
+                timestamp = time_point.get('timestamp', '')
+                serving_rsrp = time_point.get('rsrp_dbm', -999)
+
+                # ✅ 從時間戳索引找到真實鄰居
+                best_neighbor_id = 'unknown'
+                best_neighbor_rsrp = -999
+
+                if timestamp_index and timestamp in timestamp_index:
+                    neighbors = timestamp_index[timestamp]
+
+                    # 找到最佳鄰居（RSRP 最高且優於當前衛星）
+                    for neighbor_id, neighbor_data in neighbors.items():
+                        # 排除當前服務衛星自己
+                        if neighbor_id == satellite_id:
+                            continue
+
+                        neighbor_rsrp = neighbor_data.get('rsrp_dbm', -999)
+                        if neighbor_rsrp > best_neighbor_rsrp:
+                            best_neighbor_rsrp = neighbor_rsrp
+                            best_neighbor_id = neighbor_id
+
                 # 提取基本信號品質
                 sample = {
                     'satellite_id': satellite_id,
                     'serving_satellite': satellite_id,
-                    'neighbor_satellite': 'unknown',  # 評估時不需要明確鄰居
-                    'serving_rsrp': time_point.get('rsrp_dbm', -999),
-                    'neighbor_rsrp': -999,  # 簡化：假設無鄰居數據
+                    'neighbor_satellite': best_neighbor_id,  # ✅ 真實鄰居衛星
+                    'serving_rsrp': serving_rsrp,
+                    'neighbor_rsrp': best_neighbor_rsrp,  # ✅ 真實鄰居 RSRP（從時間戳索引獲取）
                     'event_type': 'NONE',
-                    'timestamp': time_point.get('timestamp', ''),
+                    'timestamp': timestamp,
                     # 物理參數
                     'serving_elevation': time_point.get('elevation_deg', None),
                     'serving_distance': time_point.get('distance_km', None),

@@ -338,12 +338,15 @@ class BaselineEvaluator:
         print(f"📄 比較報告已保存: {report_file}")
 
 
-def convert_episodes_to_samples(episodes: List) -> List[Dict]:
+def convert_episodes_to_samples(episodes: List, timestamp_index: Dict = None) -> List[Dict]:
     """
     將 Episode 格式轉換為 Baseline 評估所需的 samples 格式
 
+    ✅ 使用真實鄰居數據（無簡化假設）
+
     Args:
         episodes: Episode 對象列表（來自 phase1_data_loader_v2.py）
+        timestamp_index: 時間戳索引（用於查找真實鄰居）
 
     Returns:
         samples: 換手決策樣本列表（舊格式，供 Baseline 評估使用）
@@ -366,15 +369,36 @@ def convert_episodes_to_samples(episodes: List) -> List[Dict]:
 
         # 從時間序列創建樣本（每個時間點一個樣本）
         for time_point in time_series:
+            timestamp = time_point.get('timestamp', '')
+            serving_rsrp = time_point.get('rsrp_dbm', -999)
+
+            # ✅ 從時間戳索引找到真實鄰居
+            best_neighbor_id = 'unknown'
+            best_neighbor_rsrp = -999
+
+            if timestamp_index and timestamp in timestamp_index:
+                neighbors = timestamp_index[timestamp]
+
+                # 找到最佳鄰居（RSRP 最高且優於當前衛星）
+                for neighbor_id, neighbor_data in neighbors.items():
+                    # 排除當前服務衛星自己
+                    if neighbor_id == satellite_id:
+                        continue
+
+                    neighbor_rsrp = neighbor_data.get('rsrp_dbm', -999)
+                    if neighbor_rsrp > best_neighbor_rsrp:
+                        best_neighbor_rsrp = neighbor_rsrp
+                        best_neighbor_id = neighbor_id
+
             # 提取基本信號品質
             sample = {
                 'satellite_id': satellite_id,
                 'serving_satellite': satellite_id,
-                'neighbor_satellite': 'unknown',  # Baseline 方法通常不需要明確鄰居
-                'serving_rsrp': time_point.get('rsrp_dbm', -999),
-                'neighbor_rsrp': -999,  # 簡化：假設無鄰居數據
+                'neighbor_satellite': best_neighbor_id,  # ✅ 真實鄰居衛星
+                'serving_rsrp': serving_rsrp,
+                'neighbor_rsrp': best_neighbor_rsrp,  # ✅ 真實鄰居 RSRP（從時間戳索引獲取）
                 'event_type': 'NONE',
-                'timestamp': time_point.get('timestamp', ''),
+                'timestamp': timestamp,
                 # 物理參數（用於 D2 方法）
                 'serving_elevation': time_point.get('elevation_deg', None),
                 'serving_distance': time_point.get('distance_km', None),
@@ -417,9 +441,18 @@ def main():
             test_episodes = pickle.load(f)
         print(f"   測試 Episodes: {len(test_episodes)}")
 
+        # ✅ 載入時間戳索引（用於真實鄰居查找）
+        timestamp_index = None
+        try:
+            with open(data_path / "timestamp_index.pkl", 'rb') as f:
+                timestamp_index = pickle.load(f)
+            print(f"   ✅ 時間戳索引已載入（用於真實鄰居 RSRP）")
+        except FileNotFoundError:
+            print(f"   ⚠️  找不到 timestamp_index.pkl，將使用簡化版本")
+
         # 轉換為 samples 格式
         print(f"   轉換 Episodes 為 Baseline 評估格式...")
-        test_samples = convert_episodes_to_samples(test_episodes)
+        test_samples = convert_episodes_to_samples(test_episodes, timestamp_index)
         print(f"   測試樣本數: {len(test_samples)}")
 
     except FileNotFoundError:

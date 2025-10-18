@@ -227,9 +227,20 @@ class Trainer:
         print(f"   訓練集: {len(self.train_episodes)} Episodes")
         print(f"   驗證集: {len(self.val_episodes)} Episodes")
 
-        # 創建環境
-        self.train_env = HandoverEnvironment(self.train_episodes, config, mode='train')
-        self.val_env = HandoverEnvironment(self.val_episodes, config, mode='eval')
+        # ✅ 載入時間戳索引（用於真實鄰居查找 - 關鍵修復！）
+        print("📥 載入時間戳索引...")
+        try:
+            with open(data_path / "timestamp_index.pkl", 'rb') as f:
+                self.timestamp_index = pickle.load(f)
+            print(f"   ✅ 時間戳索引: {len(self.timestamp_index)} 個時間戳")
+        except FileNotFoundError:
+            print("   ❌ 找不到 timestamp_index.pkl - 這將導致獎勵函數失效！")
+            print("   請重新運行: python phase1_data_loader_v2.py")
+            raise
+
+        # 創建環境（✅ 傳入時間戳索引）
+        self.train_env = HandoverEnvironment(self.train_episodes, config, timestamp_index=self.timestamp_index, mode='train')
+        self.val_env = HandoverEnvironment(self.val_episodes, config, timestamp_index=self.timestamp_index, mode='eval')
 
         # 創建智能體
         state_dim = config['environment']['state_dim']

@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """
-Phase 1: 數據載入與處理（學術標準版）
+Phase 1: 數據載入與處理（學術標準版 - 無簡化假設）
 
 ✨ 關鍵改進（相較於舊版）：
 1. 提取 Stage 5 完整 12 維特徵（RSRP/RSRQ/SINR/distance/elevation/doppler/velocity/atmospheric_loss...）
 2. 基於軌道週期創建 Episodes（保持時間連續性）
 3. 充分利用 Stage 5 的時間序列結構（~220 時間點/軌道週期）
+4. ✅ 構建時間戳索引 - 用於真實鄰居衛星查找（消除 Phase 2/3/5 的簡化假設）
 
 功能：
 1. 從 orbit-engine 載入 Stage 5 (信號品質) 和 Stage 6 (3GPP 事件) 完整數據
 2. 提取 12 維狀態特徵
 3. 基於軌道週期創建 Episodes
-4. 分割訓練集/驗證集/測試集
-5. 保存處理後的數據
+4. ✅ 構建時間戳索引（每個時刻 10-15 顆同時可見衛星）
+5. 分割訓練集/驗證集/測試集
+6. 保存處理後的數據
 
 執行：
     python phase1_data_loader_v2.py
@@ -21,6 +23,7 @@ Phase 1: 數據載入與處理（學術標準版）
     data/train_episodes.pkl          - 訓練集 Episodes
     data/val_episodes.pkl            - 驗證集 Episodes
     data/test_episodes.pkl           - 測試集 Episodes
+    data/timestamp_index.pkl         - ✅ 時間戳索引（真實鄰居查找）
     data/data_statistics.json        - 數據統計
 """
 
@@ -362,6 +365,56 @@ class OrbitEngineDataLoader:
 
         return train_episodes, val_episodes, test_episodes
 
+    def build_timestamp_index(self, episodes: List[Episode]) -> Dict:
+        """
+        構建時間戳索引 - 用於真實鄰居衛星查找
+
+        ✅ 消除簡化假設的關鍵功能！
+
+        原理：
+        - 在同一時刻，可能有 10-15 顆衛星同時可見
+        - 通過時間戳索引，可以快速找到真實鄰居衛星及其 RSRP
+        - 完全基於 Stage 5 真實觀測數據，無估算或假設
+
+        SOURCE:
+        - Stage 5 signal_analysis 真實時間序列數據
+        - 時間戳重疊分析顯示每個時刻有 10-15 顆衛星
+
+        Returns:
+            timestamp_index: {
+                "2025-10-16T03:08:30+00:00": {
+                    "55487": {12維特徵},
+                    "55490": {12維特徵},
+                    ...  # 同一時刻所有可見衛星
+                }
+            }
+        """
+        print(f"\n🔍 構建時間戳索引（用於真實鄰居查找）...")
+
+        timestamp_index = defaultdict(dict)
+
+        for episode in episodes:
+            sat_id = episode.satellite_id
+            for time_point in episode.time_series:
+                timestamp = time_point['timestamp']
+                # 將該衛星在該時刻的完整特徵加入索引
+                timestamp_index[timestamp][sat_id] = time_point
+
+        # 統計索引質量
+        unique_timestamps = len(timestamp_index)
+        satellites_per_timestamp = [len(sats) for sats in timestamp_index.values()]
+        avg_neighbors = np.mean(satellites_per_timestamp)
+        min_neighbors = np.min(satellites_per_timestamp)
+        max_neighbors = np.max(satellites_per_timestamp)
+
+        print(f"   唯一時間戳數: {unique_timestamps}")
+        print(f"   平均同時可見衛星數: {avg_neighbors:.1f}")
+        print(f"   最少同時可見: {min_neighbors} 顆")
+        print(f"   最多同時可見: {max_neighbors} 顆")
+        print(f"   ✅ 時間戳索引構建完成（用於真實鄰居 RSRP 比較）")
+
+        return dict(timestamp_index)
+
     def save_episodes(self, train_episodes: List[Episode],
                      val_episodes: List[Episode],
                      test_episodes: List[Episode]):
@@ -385,6 +438,14 @@ class OrbitEngineDataLoader:
         with open(data_dir / "test_episodes.pkl", 'wb') as f:
             pickle.dump([ep.to_dict() for ep in test_episodes], f)
         print(f"   ✅ test_episodes.pkl ({len(test_episodes)} Episodes)")
+
+        # 構建並保存時間戳索引（用於真實鄰居查找）
+        all_episodes = train_episodes + val_episodes + test_episodes
+        timestamp_index = self.build_timestamp_index(all_episodes)
+
+        with open(data_dir / "timestamp_index.pkl", 'wb') as f:
+            pickle.dump(timestamp_index, f)
+        print(f"   ✅ timestamp_index.pkl (用於真實鄰居查找)")
 
         # 保存統計信息
         statistics = self._compute_statistics(train_episodes, val_episodes, test_episodes)

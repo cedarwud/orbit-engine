@@ -2,16 +2,16 @@
 
 # orbit-engine 數據源
 orbit_engine:
-  root: "/home/sat/orbit-engine"
+  root: "/home/sat/satellite/orbit-engine"
 
   # Stage 6 輸出（3GPP 事件）
   stage6:
-    path: "/home/sat/orbit-engine/data/outputs/stage6"
+    path: "/home/sat/satellite/orbit-engine/data/outputs/stage6"
     pattern: "stage6_research_*.json"
 
   # Stage 5 輸出（信號品質）
   stage5:
-    path: "/home/sat/orbit-engine/data/outputs/stage5"
+    path: "/home/sat/satellite/orbit-engine/data/outputs/stage5"
     pattern: "stage5_signal_*.json"
 
 # 訓練數據分割
