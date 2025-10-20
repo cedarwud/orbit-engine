@@ -15,6 +15,31 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 
 
+def get_output_dir(stage_number: int) -> Path:
+    """
+    獲取指定階段的輸出目錄
+
+    支援雙模式架構（前端渲染 + RL 訓練）:
+    - 環境變數 ORBIT_ENGINE_OUTPUT_DIR 設置時: 使用 RL 訓練輸出目錄
+    - 未設置時: 使用原始前端渲染輸出目錄
+
+    Args:
+        stage_number: 階段編號 (1-6)
+
+    Returns:
+        Path: 輸出目錄路徑
+    """
+    output_base = os.getenv('ORBIT_ENGINE_OUTPUT_DIR')
+    if output_base:
+        # RL 訓練模式: 使用自定義輸出目錄
+        output_dir = Path(output_base) / f'stage{stage_number}'
+    else:
+        # 前端渲染模式: 使用標準輸出目錄
+        output_dir = Path(f'data/outputs/stage{stage_number}')
+
+    return output_dir
+
+
 def extract_data_from_result(result):
     """
     從 ProcessingResult 或 dict 中提取數據
@@ -53,8 +78,8 @@ def clean_stage_outputs(stage_number: int):
         stage_number: 階段編號 (1-6)
     """
     try:
-        # 清理輸出目錄
-        output_dir = Path(f'data/outputs/stage{stage_number}')
+        # 清理輸出目錄（使用動態路徑）
+        output_dir = get_output_dir(stage_number)
         if output_dir.exists():
             for file in output_dir.iterdir():
                 if file.is_file():
@@ -81,7 +106,7 @@ def find_latest_stage_output(stage_number: int):
     Returns:
         Path | None: 最新的輸出文件路徑
     """
-    output_dir = Path(f'data/outputs/stage{stage_number}')
+    output_dir = get_output_dir(stage_number)
     if not output_dir.exists():
         return None
 
