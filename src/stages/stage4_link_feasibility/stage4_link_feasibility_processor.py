@@ -866,9 +866,18 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
 
 
     def save_results(self, results: Dict[str, Any]) -> str:
-        """保存 Stage 4 處理結果到文件"""
+        """
+        保存 Stage 4 處理結果到文件
+
+        支援雙模式架構（前端渲染 + RL 訓練）:
+        - 環境變數 ORBIT_ENGINE_OUTPUT_DIR 設置時: 使用 RL 訓練輸出目錄
+        - 未設置時: 使用原始前端渲染輸出目錄
+        """
         try:
-            output_dir = Path("data/outputs/stage4")
+            # 使用 OrbitEngineSystemPaths 支援雙模式架構
+            from src.shared.constants.system_constants import OrbitEngineSystemPaths
+            current_paths = OrbitEngineSystemPaths.get_current_paths()
+            output_dir = Path(current_paths['stage4_output'])
             output_dir.mkdir(parents=True, exist_ok=True)
 
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")

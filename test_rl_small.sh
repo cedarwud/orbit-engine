@@ -8,6 +8,6 @@ export ORBIT_ENGINE_TEST_MODE=1  # 允許在非容器環境執行
 export ORBIT_ENGINE_STAGE2_PERFORMANCE___TESTING_MODE___ENABLED=true
 export ORBIT_ENGINE_STAGE2_PERFORMANCE___TESTING_MODE___SATELLITE_SAMPLE_SIZE=50
 
-# 執行 RL 訓練數據生成（Stage 1-4）
-# Stage 1 需要先執行以生成衛星元數據
-./scripts/generate_rl_training_data.sh --stages 1-4
+# 執行完整 RL 訓練數據生成（Stage 1-6）
+# Stage 6 會生成 A4/D2 換手事件供 handover-rl 使用
+./scripts/generate_rl_training_data.sh --stages 1-6

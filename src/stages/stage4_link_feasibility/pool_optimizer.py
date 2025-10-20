@@ -572,6 +572,7 @@ def optimize_satellite_pool(connectable_satellites: Dict[str, List[Dict[str, Any
                     'coverage_rate': 0.0,
                     'avg_visible': 0.0,
                     'selected_count': 0,
+                    'candidate_count': 0,
                     'selection_ratio': 0.0
                 },
                 'coverage_statistics': {
