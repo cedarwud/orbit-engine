@@ -91,7 +91,10 @@ class Stage1MainProcessor(BaseStageProcessor):
         super().__init__(stage_number=1, stage_name="tle_data_loading", config=config or {})
 
         # 初始化v2.0模組化組件
-        self.tle_loader = TLEDataLoader()
+        # 讀取環境變數 SATELLITE_TLE_DATA_DIR（支援 .env 配置）
+        import os
+        tle_data_dir = os.getenv('SATELLITE_TLE_DATA_DIR')
+        self.tle_loader = TLEDataLoader(tle_data_dir=tle_data_dir)
         self.data_validator = DataValidator()
         self.time_manager = TimeReferenceManager()
 

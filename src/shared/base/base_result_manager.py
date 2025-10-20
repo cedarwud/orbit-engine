@@ -334,6 +334,10 @@ class BaseResultManager(ABC):
         """
         Create and return output directory path
 
+        支援雙模式架構（前端渲染 + RL 訓練）:
+        - 環境變數 ORBIT_ENGINE_OUTPUT_DIR 設置時: 使用 RL 訓練輸出目錄
+        - 未設置時: 使用原始前端渲染輸出目錄
+
         Args:
             stage_number: Stage number (1-6)
 
@@ -341,9 +345,19 @@ class BaseResultManager(ABC):
             Output directory path
 
         Example:
-            stage_number=5 → Path("data/outputs/stage5")
+            前端渲染模式: stage_number=5 → Path("data/outputs/stage5")
+            RL 訓練模式: stage_number=5 → Path("<ORBIT_ENGINE_OUTPUT_DIR>/stage5")
         """
-        output_dir = Path(f"data/outputs/stage{stage_number}")
+        import os
+
+        output_base = os.getenv('ORBIT_ENGINE_OUTPUT_DIR')
+        if output_base:
+            # RL 訓練模式: 使用自定義輸出目錄
+            output_dir = Path(output_base) / f'stage{stage_number}'
+        else:
+            # 前端渲染模式: 使用標準輸出目錄
+            output_dir = Path(f"data/outputs/stage{stage_number}")
+
         output_dir.mkdir(parents=True, exist_ok=True)
         return output_dir
 
