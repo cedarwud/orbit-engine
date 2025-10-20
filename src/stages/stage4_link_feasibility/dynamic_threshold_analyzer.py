@@ -84,10 +84,22 @@ class DynamicThresholdAnalyzer:
         }
 
         self.logger.info("✅ 動態閾值分析完成")
-        self.logger.info(f"   Starlink 建議: T1={starlink_analysis['recommended_thresholds']['d2_threshold1_km']:.0f} km, "
-                        f"T2={starlink_analysis['recommended_thresholds']['d2_threshold2_km']:.0f} km")
-        self.logger.info(f"   OneWeb 建議: T1={oneweb_analysis['recommended_thresholds']['d2_threshold1_km']:.0f} km, "
-                        f"T2={oneweb_analysis['recommended_thresholds']['d2_threshold2_km']:.0f} km")
+
+        # Starlink 閾值輸出
+        starlink_t1 = starlink_analysis['recommended_thresholds']['d2_threshold1_km']
+        starlink_t2 = starlink_analysis['recommended_thresholds']['d2_threshold2_km']
+        if starlink_t1 is not None and starlink_t2 is not None:
+            self.logger.info(f"   Starlink 建議: T1={starlink_t1:.0f} km, T2={starlink_t2:.0f} km")
+        else:
+            self.logger.info("   Starlink 建議: N/A (無距離數據)")
+
+        # OneWeb 閾值輸出
+        oneweb_t1 = oneweb_analysis['recommended_thresholds']['d2_threshold1_km']
+        oneweb_t2 = oneweb_analysis['recommended_thresholds']['d2_threshold2_km']
+        if oneweb_t1 is not None and oneweb_t2 is not None:
+            self.logger.info(f"   OneWeb 建議: T1={oneweb_t1:.0f} km, T2={oneweb_t2:.0f} km")
+        else:
+            self.logger.info("   OneWeb 建議: N/A (無距離數據)")
 
         return result
 

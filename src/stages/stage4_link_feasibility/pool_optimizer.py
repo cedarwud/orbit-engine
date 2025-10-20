@@ -450,13 +450,13 @@ class OptimizationValidator:
         if 'coverage_rate' not in selection_metrics:
             raise ValueError(
                 f"優化結果缺少 'coverage_rate' 指標\n"
-                f"星座: {constellation}\n"
+                f"星座: {constellation_name}\n"
                 f"可用指標: {list(selection_metrics.keys())}"
             )
         if 'avg_visible' not in selection_metrics:
             raise ValueError(
                 f"優化結果缺少 'avg_visible' 指標\n"
-                f"星座: {constellation}\n"
+                f"星座: {constellation_name}\n"
                 f"可用指標: {list(selection_metrics.keys())}"
             )
 
@@ -483,7 +483,7 @@ class OptimizationValidator:
         if 'coverage_analysis' not in optimization_result:
             raise ValueError(
                 f"優化結果缺少 'coverage_analysis'\n"
-                f"星座: {constellation}\n"
+                f"星座: {constellation_name}\n"
                 f"可用字段: {list(optimization_result.keys())}"
             )
         coverage_gaps = optimization_result['coverage_analysis'].get('coverage_gaps', [])
@@ -508,7 +508,7 @@ class OptimizationValidator:
         if 'selection_ratio' not in selection_metrics:
             raise ValueError(
                 f"優化指標缺少 'selection_ratio'\n"
-                f"星座: {constellation}\n"
+                f"星座: {constellation_name}\n"
                 f"可用指標: {list(selection_metrics.keys())}"
             )
         selection_ratio = selection_metrics['selection_ratio']
@@ -561,6 +561,28 @@ def optimize_satellite_pool(connectable_satellites: Dict[str, List[Dict[str, Any
         if constellation == 'other':
             # 其他星座不進行優化 (直接使用全部)
             optimized_pools[constellation] = satellites
+            continue
+
+        # 檢查是否有可連線衛星
+        if not satellites or len(satellites) == 0:
+            logger.warning(f"⚠️ {constellation}: 無可連線衛星，跳過優化")
+            optimized_pools[constellation] = []
+            optimization_metrics[constellation] = {
+                'selection_metrics': {
+                    'coverage_rate': 0.0,
+                    'avg_visible': 0.0,
+                    'selected_count': 0,
+                    'selection_ratio': 0.0
+                },
+                'coverage_statistics': {
+                    'target_achievement_rate': 0.0
+                }
+            }
+            validation_results[constellation] = {
+                'validation_passed': False,
+                'validation_checks': {},
+                'overall_status': 'SKIPPED'
+            }
             continue
 
         # ✅ Grade A+ 學術標準: 禁止系統參數使用預設值
