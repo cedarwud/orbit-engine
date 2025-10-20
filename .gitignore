@@ -117,3 +117,4 @@ data/cache/
 # Backup files
 *.bak
 *.bak[0-9]
+.env

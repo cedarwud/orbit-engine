@@ -1,3 +1,0 @@
-[submodule "data/tle_data"]
-	path = data/tle_data
-	url = https://github.com/cedarwud/tle_data.git
