@@ -1,0 +1,175 @@
+# Stage 2: 軌道狀態傳播層配置 - v3.1 架構（統一時間窗口）
+# Grade A 學術級標準 - Skyfield NASA JPL 精度
+# 符合 docs/stages/stage2-orbital-computing.md 規格
+
+# 🆕 時間序列配置 (v3.1 統一時間窗口 + v3.0 軌道狀態傳播)
+time_series:
+  # ========== 🆕 v3.1 時間序列生成模式 ==========
+  mode: 'unified_window'  # 'unified_window' | 'independent_epoch'
+                          # unified_window: 所有衛星共用參考時刻（新模式，解決時間同步問題）
+                          # independent_epoch: 各自使用 epoch 時間（舊模式，向後兼容）
+
+  # ========== 🆕 v3.1 統一時間窗口配置 ==========
+  unified_window:
+    reference_time_source: 'stage1_analysis'  # 'stage1_analysis' | 'manual'
+                                              # stage1_analysis: 從 Stage 1 Epoch 分析讀取推薦時刻
+                                              # manual: 手動指定參考時刻
+
+    # 手動覆寫（當 reference_time_source='manual' 時使用）
+    # reference_time_override: '2025-10-02T02:30:00Z'
+
+    # 驗證參數
+    max_epoch_deviation_hours: 12  # 參考時刻與衛星 epoch 的最大偏差（小時）
+                                   # 建議至少 80% 衛星在此範圍內
+
+  # ========== 🆕 v3.1 星座軌道週期配置 ==========
+  constellation_orbital_periods:
+    starlink_minutes: 95   # Starlink 軌道週期（分鐘）→ 190 個時間點
+    oneweb_minutes: 110    # OneWeb 軌道週期（分鐘）→ 220 個時間點
+                           # 🚨 修正 (2025-10-05): 從 112 改為 110（基於開普勒第三定律）
+                           # SOURCE: T = 2π√(a³/μ), a=7571km → T≈110min
+    default_minutes: 100   # 其他 LEO 衛星默認週期（分鐘）
+
+  # ========== RL 訓練配置（調整時間範圍） ==========
+  interval_seconds: 30                   # 30秒時間解析度 (符合文檔規格)
+  use_orbital_period: true               # 僅在 mode='independent_epoch' 時生效
+  dynamic_calculation: true              # 啟用基於實際TLE數據的動態計算
+  min_positions: 30                      # 最小位置點數（30分鐘數據）
+  coverage_cycles: 106.1                 # RL 訓練: 7天覆蓋（前端渲染: 1.0）
+                                         # SOURCE: handover-rl 需求 - 7天訓練數據
+                                         # 計算: 7天 = 10,080分鐘 / 95分鐘軌道週期 = 106.1 週期
+                                         # Starlink: 95min × 106.1 = 10,080min (7天) → 20,160 時間點
+                                         # OneWeb: 110min × 106.1 = 11,671min → 23,342 時間點
+                                         # 適用於 unified_window 和 independent_epoch 模式
+
+# SGP4 軌道傳播配置
+sgp4_propagation:
+  method: "SGP4"                         # 使用標準SGP4算法
+  output_coordinate_system: "TEME"       # TEME座標系統
+
+# 軌道計算配置
+orbital_calculation:
+  algorithm: "SGP4"                      # 使用標準SGP4算法 (Skyfield)
+
+  # ✅ 動態計算：基於實際TLE軌道參數
+  dynamic_time_points: true              # 啟用動態時間點計算
+  time_interval_seconds: 30              # 30秒時間解析度 (符合文檔規格)
+  coverage_cycles: 1.0                   # 完整軌道週期
+
+  # v3.0 架構：動態軌道週期計算
+  # Starlink: 90-95分鐘軌道週期
+  # OneWeb: 109-115分鐘軌道週期
+
+  use_orbital_period: true               # 使用實際軌道週期替代固定預測窗口
+
+  coordinate_system: "TEME"              # TEME 座標系統輸出
+  precision_grade: "A"                   # 學術級精度要求 (NASA JPL 標準)
+
+# 性能配置 (v3.0 軌道狀態傳播 + 並行優化)
+performance:
+  # 🚀 並行處理配置（新增）
+  max_workers: null                     # null = 動態計算，或指定數字（如 8, 16）
+  force_single_thread: false            # 強制單線程（除錯用）
+
+  # 動態 CPU 工作器策略（提高預設使用率）
+  dynamic_worker_strategy:
+    cpu_usage_threshold_high: 30        # CPU < 30%: 使用 95% 核心（積極並行）
+    cpu_usage_threshold_medium: 50      # CPU 30-50%: 使用 75% 核心
+    # CPU > 50%: 使用 50% 核心（保守策略）
+
+  timeout_thresholds:
+    orbital_propagation: 600.0          # 軌道狀態傳播超時 (秒) - 9,040顆衛星處理
+    # 實測效能（單線程）: 152.9秒, 59.1顆衛星/秒
+    # 預期效能（16核並行）: 10-20秒, 450-900顆衛星/秒
+
+  memory_limits:
+    max_satellites_batch: 10000         # 批次處理最大衛星數
+    max_positions_cache: 1000000        # 軌道狀態點緩存上限 (TEME 座標)
+
+  # 🚀 測試模式 (用於開發驗證)
+  testing_mode:
+    enabled: false                      # 禁用測試模式，使用全量處理
+    satellite_sample_size: 100          # 測試用取樣數量
+    sample_method: "random"             # 隨機取樣
+    preserve_constellation_ratio: true   # 保持星座比例
+
+# 驗證配置 (v3.0 學術標準)
+validation:
+  academic_standards:
+    grade: "A"                          # Grade A 學術級等級 (NASA JPL 標準)
+    position_accuracy_km: 1.0           # SGP4 位置精度 <1km
+    velocity_accuracy_km_s: 0.001       # 速度精度 <0.001 km/s
+    time_accuracy_seconds: 1.0          # 時間精度 <1s
+
+  quality_checks:
+    min_satellites_processed: 9000      # 最少處理衛星數 (9,040顆目標)
+    min_success_rate: 0.99              # 最低成功率 99% (v3.0 實測: 100%)
+    max_calculation_time: 600           # 最大計算時間 10分鐘 (實測: 84秒)
+
+  prohibited_items:
+    - "tle_reparsing"                   # 🚨 禁止 TLE 重新解析
+    - "coordinate_transformation"       # 🚨 禁止座標轉換 (移至 Stage 3)
+    - "visibility_analysis"             # 🚨 禁止可見性分析 (移至 Stage 4)
+    - "simplified_algorithms"           # 禁止簡化算法
+    - "mock_data"                      # 禁止模擬數據
+
+# 輸出配置 (v3.0 標準)
+output:
+  format: "standard"                    # 標準 ProcessingResult 格式
+  coordinate_system: "TEME"             # TEME 座標系統輸出
+  include_metadata: true                # 包含軌道傳播元數據
+  include_statistics: true              # 包含處理統計
+  include_validation: true              # 包含 5 項專用驗證結果
+  compress_results: false               # 不壓縮 (保持可讀性)
+
+# 日誌配置
+logging:
+  level: "INFO"                         # 日誌級別
+  include_performance: true             # 包含效能指標 (107.6 顆/秒)
+  include_validation: true              # 包含驗證信息
+  academic_compliance_tracking: true    # 學術合規追蹤
+
+# 版本與元數據
+metadata:
+  version: "3.0.0"                      # v3.0 架構版本
+  architecture: "orbital_state_propagation"  # 軌道狀態傳播層
+  academic_grade: "A"                   # Grade A 標準
+  compliance_standard: "SGP4_Skyfield_NASA_JPL"  # Skyfield NASA JPL 標準
+  author: "Orbit Engine Team"
+  description: "v3.0 Orbital State Propagation Layer - Skyfield Direct Implementation"
+  performance: "107.6 satellites/sec, 183% improvement"
+
+# ==================== 環境變數覆寫支援 ====================
+# 支援的環境變數 (由 BaseConfigManager 自動處理):
+#
+# 頂層鍵 (Top-level keys):
+# - ORBIT_ENGINE_STAGE2_LOGGING___LEVEL: 覆寫 logging.level
+#
+# 嵌套鍵 (Nested keys) - 使用三重下劃線 (___) 分隔層級:
+# - ORBIT_ENGINE_STAGE2_TIME_SERIES___MODE: 覆寫 time_series.mode
+# - ORBIT_ENGINE_STAGE2_TIME_SERIES___INTERVAL_SECONDS: 覆寫 time_series.interval_seconds
+# - ORBIT_ENGINE_STAGE2_TIME_SERIES___DYNAMIC_CALCULATION: 覆寫 time_series.dynamic_calculation
+# - ORBIT_ENGINE_STAGE2_TIME_SERIES___COVERAGE_CYCLES: 覆寫 time_series.coverage_cycles
+# - ORBIT_ENGINE_STAGE2_TIME_SERIES___UNIFIED_WINDOW___MAX_EPOCH_DEVIATION_HOURS: 覆寫 time_series.unified_window.max_epoch_deviation_hours
+# - ORBIT_ENGINE_STAGE2_TIME_SERIES___CONSTELLATION_ORBITAL_PERIODS___STARLINK_MINUTES: 覆寫 time_series.constellation_orbital_periods.starlink_minutes
+# - ORBIT_ENGINE_STAGE2_PERFORMANCE___MAX_WORKERS: 覆寫 performance.max_workers
+# - ORBIT_ENGINE_STAGE2_PERFORMANCE___FORCE_SINGLE_THREAD: 覆寫 performance.force_single_thread
+# - ORBIT_ENGINE_STAGE2_PERFORMANCE___TESTING_MODE___ENABLED: 覆寫 performance.testing_mode.enabled
+# - ORBIT_ENGINE_STAGE2_PERFORMANCE___TESTING_MODE___SATELLITE_SAMPLE_SIZE: 覆寫 performance.testing_mode.satellite_sample_size
+#
+# 範例:
+#   # 單個覆寫 - 測試模式
+#   export ORBIT_ENGINE_STAGE2_PERFORMANCE___TESTING_MODE___ENABLED=true
+#   export ORBIT_ENGINE_STAGE2_PERFORMANCE___TESTING_MODE___SATELLITE_SAMPLE_SIZE=50
+#   ./run.sh --stage 2
+#
+#   # 多個覆寫 - 性能調優
+#   export ORBIT_ENGINE_STAGE2_PERFORMANCE___MAX_WORKERS=16
+#   export ORBIT_ENGINE_STAGE2_TIME_SERIES___INTERVAL_SECONDS=60
+#   export ORBIT_ENGINE_STAGE2_TIME_SERIES___COVERAGE_CYCLES=0.5
+#   ./run.sh --stage 2
+#
+#   # 調試模式
+#   export ORBIT_ENGINE_STAGE2_LOGGING___LEVEL="DEBUG"
+#   export ORBIT_ENGINE_STAGE2_PERFORMANCE___FORCE_SINGLE_THREAD=true
+#   ./run.sh --stage 2
