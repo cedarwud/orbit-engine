@@ -273,7 +273,8 @@ class Stage3DataExtractor:
         Returns:
             取樣後的 TEME 座標數據（真實數據子集）
         """
-        if len(teme_coordinates) > self.sample_size:
+        # 🔧 FIX: 只有在 sample_mode=True 時才採樣
+        if self.sample_mode and len(teme_coordinates) > self.sample_size:
             # NOTE: random.sample() 用於無偏隨機抽樣
             sampled_sat_ids = random.sample(list(teme_coordinates.keys()), self.sample_size)
             sampled_coordinates = {

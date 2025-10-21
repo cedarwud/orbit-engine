@@ -8,9 +8,9 @@ sampling:
   # 取樣模式開關
   # - auto: 根據 ORBIT_ENGINE_TEST_MODE 環境變數自動判斷
   # - enabled: 強制啟用取樣模式
-  # - disabled: 強制禁用取樣模式 (處理全部衛星)
+  # - disabled: 強制禁用取樣模式 (處理全部衛星)  ← 改為 disabled 以生成完整規模 RL 數據
   # SOURCE: 測試環境配置，支援快速驗證
-  mode: auto
+  mode: disabled
 
   # 取樣數量 (僅在取樣模式啟用時生效)
   # SOURCE: 測試環境預設值，足夠覆蓋 Starlink + OneWeb 樣本

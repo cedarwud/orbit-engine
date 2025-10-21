@@ -1,6 +1,6 @@
 # 🤖 Stage 6: 3GPP NTN 事件檢測與研究數據生成 - 完整規格文檔
 
-**最後更新**: 2025-10-10 (新增 A5 NTN 適用性分析)
+**最後更新**: 2025-10-21 (更新數據驅動閾值配置)
 **核心職責**: 3GPP NTN 事件檢測 (A3/A4/A5/D2)
 **學術合規**: Grade A 標準，符合 3GPP TS 38.331 v18.5.1
 **接口標準**: 100% BaseStageProcessor 合規
@@ -49,6 +49,41 @@ Stage 6 核心功能:
 **學術依據**:
 > *"Non-Terrestrial Networks require standardized measurement reporting events (A3/A4/A5/D2) to enable UE mobility management in LEO satellite scenarios."*
 > — 3GPP TS 38.331 v18.5.1 Section 5.5.4 Measurement reporting events
+
+### 📊 數據驅動閾值設計（2025-10-21 更新）
+
+**背景**: 地面網絡標準閾值不適用於 LEO NTN 場景
+
+**問題分析**:
+- **地面網絡** (3GPP 預設值):
+  - A4 threshold: -100.0 dBm
+  - A5 threshold1: -110.0 dBm (服務門檻)
+  - A5 threshold2: -95.0 dBm (鄰近門檻)
+  - RSRP 範圍: -120 ~ -60 dBm (60 dB 動態範圍)
+
+- **LEO NTN 實測數據** (基於 48,222 RSRP 樣本):
+  - RSRP 範圍: -44.84 ~ -19.30 dBm (25.5 dB 動態範圍)
+  - 距離範圍: 1,400 ~ 2,500 km (vs 地面 1-10 km)
+  - **結論**: 使用地面標準值會導致 100% 觸發率（數據洩漏）
+
+**數據驅動解決方案** (基於 `analyze_actual_handover_events.py`):
+
+| 事件 | 新閾值 | 數據依據 | 觸發率目標 |
+|------|--------|----------|------------|
+| **A4** | -34.5 dBm | RSRP 30th percentile | ~70% 觸發 |
+| **A5 Th1** | -36.0 dBm | RSRP 10th percentile (服務衛星劣化) | ~10% 觸發 |
+| **A5 Th2** | -33.0 dBm | RSRP 40th percentile (鄰居良好) | ~60% 滿足 |
+
+**學術合規性**:
+- ✅ SOURCE: 基於 48,002 個 A4 事件 + 48,222 個 RSRP 樣本實測統計
+- ✅ METHODOLOGY: Percentile-based threshold selection（避免數據洩漏）
+- ✅ VALIDATION: Trigger margin 範圍 -10 ~ +10 dB（合理變化）
+- ✅ REFERENCE: 3GPP TR 38.821 v18.0.0 Section 6.4.3 建議 NTN 場景調整閾值
+
+**ML 訓練考量**:
+- 避免 100% 觸發率造成特徵無變化
+- 確保 20-30% 非觸發樣本（負樣本）
+- Trigger margin 有足夠變異性供模型學習
 
 ## 🏗️ 架構設計
 
@@ -440,7 +475,7 @@ def detect_a4_event_3gpp_standard(self, serving_satellite, neighbor_satellites):
     """3GPP TS 38.331 A4 事件檢測: 鄰近衛星變得優於門檻值"""
 
     # 3GPP 標準參數
-    threshold_a4 = self.config['a4_threshold_dbm']  # -100 dBm
+    threshold_a4 = self.config['a4_threshold_dbm']  # -34.5 dBm (數據驅動：30th percentile)
     hysteresis = self.config['hysteresis_db']       # 2 dB
     offset_freq = self.config['offset_frequency']   # 0 dB (同頻)
     offset_cell = self.config['offset_cell']        # 0 dB
@@ -484,8 +519,8 @@ def detect_a5_event_3gpp_standard(self, serving_satellite, neighbor_satellites):
     """3GPP TS 38.331 A5 事件檢測: 服務衛星劣化且鄰近衛星良好"""
 
     # 3GPP 標準 A5 參數
-    threshold1_a5 = self.config['a5_threshold1_dbm']  # -110 dBm (服務門檻)
-    threshold2_a5 = self.config['a5_threshold2_dbm']  # -95 dBm (鄰近門檻)
+    threshold1_a5 = self.config['a5_threshold1_dbm']  # -36.0 dBm (服務門檻，10th percentile)
+    threshold2_a5 = self.config['a5_threshold2_dbm']  # -33.0 dBm (鄰近門檻，40th percentile)
     hysteresis = self.config['hysteresis_db']
 
     serving_rsrp = serving_satellite['signal_quality']['rsrp_dbm']
@@ -672,7 +707,7 @@ signal_analysis = stage5_result.data['signal_analysis']
 # ✅ 正確做法: 遍歷每顆衛星的 time_series，逐時間點檢測
 
 # 3GPP NTN A4 事件檢測 - 完整時間序列遍歷版本
-a4_threshold = config['a4_threshold_dbm']  # -100.0 dBm
+a4_threshold = config['a4_threshold_dbm']  # -34.5 dBm (數據驅動配置)
 hysteresis = config['hysteresis_db']       # 2.0 dB
 
 a4_events = []
@@ -1053,9 +1088,9 @@ ProcessingResult(
             # 3GPP 配置
             'gpp_event_config': {
                 'standard_version': 'TS_38.331_v18.5.1',
-                'a4_threshold_dbm': -100.0,
-                'a5_threshold1_dbm': -110.0,
-                'a5_threshold2_dbm': -95.0,
+                'a4_threshold_dbm': -34.5,  # 數據驅動（30th percentile，基於 48,002 樣本）
+                'a5_threshold1_dbm': -36.0,  # 服務門檻（10th percentile，基於 48,222 樣本）
+                'a5_threshold2_dbm': -33.0,  # 鄰近門檻（40th percentile）
                 'd2_distance_threshold_km': 1500,
                 'hysteresis_db': 2.0,
                 'time_to_trigger_ms': 640
@@ -1315,9 +1350,9 @@ real_time_decisions = result.data['real_time_decision_support']
 config = {
     'gpp_event_config': {
         'standard_version': 'TS_38.331_v18.5.1',
-        'a4_threshold_dbm': -100.0,
-        'a5_threshold1_dbm': -110.0,
-        'a5_threshold2_dbm': -95.0,
+        'a4_threshold_dbm': -34.5,  # 數據驅動配置
+        'a5_threshold1_dbm': -36.0,  # 基於實測數據統計
+        'a5_threshold2_dbm': -33.0,
         'd2_distance_threshold_km': 1500,
         'hysteresis_db': 2.0,
         'time_to_trigger_ms': 640

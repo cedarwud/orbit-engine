@@ -47,6 +47,21 @@
 - **[代碼審查清單](development/CODE_REVIEW_CHECKLIST.md)** - Code Review 標準
 - **[元數據一致性指南](development/METADATA_CONSISTENCY_GUIDE.md)** - 元數據規範
 
+### 🏗️ 架構與數據組織
+- **[TLE 數據架構](TLE_DATA_ARCHITECTURE.md)** - TLE 數據組織與遷移 (7.8KB)
+  - Space-Track.org 數據源管理
+  - Starlink/OneWeb 目錄結構
+  - 與 orbit-engine 的集成方式
+
+### 📊 RL 訓練支援
+- **[RL 訓練配置說明](../config/rl_training/README.md)** - 雙模式架構設計
+- **[數據生成腳本](../scripts/generate_rl_training_data.sh)** - 使用方式與配置
+
+### 🐛 問題修復記錄（歸檔）
+- **[RSRP 截斷問題審查](archive/fixes/CODE_REVIEW_RSRP_CLIPPING_BUGS.md)** - 信號計算修復記錄
+- **[RSRP 修復摘要](archive/fixes/FIX_SUMMARY_RSRP_CLIPPING.md)** - 問題分析與解決方案
+- **[TLE 數據遷移完成](archive/migrations/MIGRATION_COMPLETE.md)** - 2025-10-20 遷移記錄
+
 ## 🎯 v3.0核心特點
 
 ### 概念修正 (vs v2.0)
@@ -92,10 +107,18 @@
 ---
 
 **文檔版本**: v3.0
-**最後更新**: 2025-10-10 (文檔重組完成)
+**最後更新**: 2025-10-21 (更新 RL 訓練支援與閾值配置)
 **維護狀態**: ✅ 當前版本，積極維護
 
 ## 📋 最近更新
+
+### 2025-10-21 - 數據驅動閾值與 RL 訓練支援
+- ✅ 更新 Stage 6 文檔閾值（A4/A5 基於 48,000+ 樣本統計）
+- ✅ 新增「數據驅動閾值設計」章節
+- ✅ 新增 TLE 數據架構文檔索引
+- ✅ 新增 RL 訓練配置文檔索引
+- ✅ 歸檔 RSRP 修復記錄至 `archive/fixes/`
+- ✅ 歸檔 TLE 遷移記錄至 `archive/migrations/`
 
 ### 2025-10-16 - 文檔清理與優化
 - ✅ 刪除過時重構文檔 (`docs/refactoring/` 整個目錄，660KB)

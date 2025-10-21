@@ -214,9 +214,28 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
         return input_data['stage'] in ['stage4_link_feasibility', 'stage4_optimization']
 
     def _extract_satellite_data(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """提取衛星數據 - 使用 InputExtractor 模組"""
-        # ✅ 委託給 InputExtractor
-        result = InputExtractor.extract(input_data)
+        """提取衛星數據 - 使用 InputExtractor 模組
+
+        支援 RL 訓練模式：
+        - 如果環境變數 ORBIT_ENGINE_STAGE5_USE_CANDIDATE_POOL=true
+        - 則使用候選池 (connectable_satellites_candidate) 而非優化池
+        """
+        import os
+
+        # 檢查是否使用候選池（RL 訓練模式）
+        use_candidate_pool = os.getenv('ORBIT_ENGINE_STAGE5_USE_CANDIDATE_POOL', 'false').lower() == 'true'
+
+        if use_candidate_pool and 'connectable_satellites_candidate' in input_data:
+            self.logger.info("🎯 RL 訓練模式：使用候選池 (connectable_satellites_candidate)")
+            # 創建修改後的 input_data，將候選池替換為主池
+            input_data_modified = input_data.copy()
+            input_data_modified['connectable_satellites'] = input_data['connectable_satellites_candidate']
+            result = InputExtractor.extract(input_data_modified)
+        else:
+            # 正常模式：使用優化池
+            if use_candidate_pool:
+                self.logger.warning("⚠️ 環境變數要求使用候選池，但 input_data 中不存在 connectable_satellites_candidate")
+            result = InputExtractor.extract(input_data)
 
         # 詳細統計日誌 (每個星座的時間序列資訊)
         connectable_satellites = result['connectable_satellites']

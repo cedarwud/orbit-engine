@@ -204,7 +204,13 @@ class Stage5ResultManager(BaseResultManager):
         else:
             connectable_satellites = input_data['connectable_satellites']
 
-        return {
+        # 🔑 Grade A+ 數據流完整性：保留候選池（RL 訓練模式）
+        # Stage 5 必須透傳 Stage 4 的候選池數據給 Stage 6
+        # SOURCE: CLAUDE.md - "ALWAYS preserve complete metadata through the pipeline"
+        connectable_satellites_candidate = input_data.get('connectable_satellites_candidate')
+
+        # 構建基礎輸出結構
+        output = {
             'stage': 5,
             'stage_name': 'signal_quality_analysis',
             'signal_analysis': analyzed_satellites,
@@ -225,6 +231,17 @@ class Stage5ResultManager(BaseResultManager):
             },
             'metadata': metadata
         }
+
+        # 🔑 如果存在候選池，添加到輸出中（RL 訓練模式）
+        if connectable_satellites_candidate is not None:
+            output['connectable_satellites_candidate'] = connectable_satellites_candidate
+            self.logger.info(
+                f"✅ 已保留候選池數據給下游階段 "
+                f"(Starlink: {len(connectable_satellites_candidate.get('starlink', []))} 顆, "
+                f"OneWeb: {len(connectable_satellites_candidate.get('oneweb', []))} 顆)"
+            )
+
+        return output
 
     def build_snapshot_data(
         self,

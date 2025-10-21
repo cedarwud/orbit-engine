@@ -1,6 +1,6 @@
 #!/bin/bash
 # RL 訓練數據生成專用腳本
-# 使用獨立配置，輸出到獨立目錄，與前端渲染模式互不干擾
+# 使用環境變數覆寫配置，與前端渲染模式互不干擾
 
 # 顏色定義
 GREEN='\033[0;32m'
@@ -14,26 +14,16 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# 設置路徑
-CONFIG_DIR="$PROJECT_ROOT/config/rl_training"
+# 設置輸出路徑
 OUTPUT_DIR="$PROJECT_ROOT/data/outputs/rl_training"
 
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${MAGENTA}   🎯 RL 訓練數據生成模式${NC}"
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "${CYAN}   模式: RL 訓練數據生成${NC}"
-echo -e "${CYAN}   配置目錄: $CONFIG_DIR${NC}"
+echo -e "${CYAN}   模式: RL 訓練數據生成（環境變數模式）${NC}"
 echo -e "${CYAN}   輸出目錄: $OUTPUT_DIR${NC}"
 echo ""
-
-# 驗證配置目錄存在
-if [ ! -d "$CONFIG_DIR" ]; then
-    echo -e "${YELLOW}❌ 錯誤: RL 訓練配置目錄不存在${NC}"
-    echo -e "${YELLOW}   路徑: $CONFIG_DIR${NC}"
-    echo -e "${YELLOW}   請先執行 Phase 1（創建 RL 配置文件）${NC}"
-    exit 1
-fi
 
 # 創建輸出目錄
 echo -e "${BLUE}📁 創建輸出目錄...${NC}"
@@ -54,23 +44,46 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 echo -e "${BLUE}   📊 RL 訓練模式 vs 前端渲染模式${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "${CYAN}   參數                      前端渲染        RL 訓練${NC}"
-echo -e "${CYAN}   ────────────────────      ──────────      ─────────${NC}"
-echo -e "${CYAN}   時間範圍                  94 分鐘         7 天${NC}"
-echo -e "${CYAN}   coverage_cycles           1.0             106.1${NC}"
-echo -e "${CYAN}   時間點數/衛星             220             20,160${NC}"
-echo -e "${CYAN}   目標可見衛星              10-15 顆        4-6 顆${NC}"
-echo -e "${CYAN}   衛星池大小                10-15           800-1000${NC}"
-echo -e "${CYAN}   預期輸出大小              ~75 MB          ~6 GB${NC}"
+echo -e "${CYAN}   參數                      前端渲染        RL 訓練（1天測試）${NC}"
+echo -e "${CYAN}   ────────────────────      ──────────      ─────────────${NC}"
+echo -e "${CYAN}   時間範圍                  94 分鐘         1 天${NC}"
+echo -e "${CYAN}   coverage_cycles           1.0             15.2${NC}"
+echo -e "${CYAN}   時間間隔                  30 秒           60 秒${NC}"
+echo -e "${CYAN}   時間點數/衛星             220             1,440${NC}"
+echo -e "${CYAN}   處理池                    優化池          候選池${NC}"
+echo -e "${CYAN}   衛星取樣                  auto            disabled${NC}"
+echo -e "${CYAN}   預期輸出大小              ~75 MB          ~500 MB${NC}"
+echo -e "${CYAN}   預估時間                  30-40 分鐘      1-1.5 小時${NC}"
 echo ""
 
-# 設置環境變數（RL 訓練模式）
-export ORBIT_ENGINE_CONFIG_DIR="$CONFIG_DIR"
+# 設置環境變數（RL 訓練模式 - 1天測試）
 export ORBIT_ENGINE_OUTPUT_DIR="$OUTPUT_DIR"
 
+# 測試模式（允許在非容器環境運行）
+export ORBIT_ENGINE_TEST_MODE=1
+
+# 🔧 CRITICAL: 明確禁用取樣模式（處理全部 9087 顆衛星）
+# 預設情況下 TEST_MODE=1 會啟用取樣（只處理 50 顆）
+# 必須明確設置 SAMPLING_MODE=0 來處理全部衛星
+export ORBIT_ENGINE_SAMPLING_MODE=0
+
+# Stage 1: 不取樣，處理全部衛星
+export ORBIT_ENGINE_STAGE1_SAMPLING___MODE=disabled
+
+# Stage 2: 1天數據 + 1分鐘間隔
+export ORBIT_ENGINE_STAGE2_TIME_SERIES___COVERAGE_CYCLES=15.2
+export ORBIT_ENGINE_STAGE2_TIME_SERIES___INTERVAL_SECONDS=60
+
+# Stage 5: 使用候選池（RL 訓練模式）
+export ORBIT_ENGINE_STAGE5_USE_CANDIDATE_POOL=true
+
 echo -e "${BLUE}🔧 環境變數設置:${NC}"
-echo -e "${CYAN}   ORBIT_ENGINE_CONFIG_DIR=$ORBIT_ENGINE_CONFIG_DIR${NC}"
 echo -e "${CYAN}   ORBIT_ENGINE_OUTPUT_DIR=$ORBIT_ENGINE_OUTPUT_DIR${NC}"
+echo -e "${CYAN}   ORBIT_ENGINE_SAMPLING_MODE=$ORBIT_ENGINE_SAMPLING_MODE (0=禁用, 處理全部衛星)${NC}"
+echo -e "${CYAN}   ORBIT_ENGINE_STAGE1_SAMPLING___MODE=$ORBIT_ENGINE_STAGE1_SAMPLING___MODE${NC}"
+echo -e "${CYAN}   ORBIT_ENGINE_STAGE2_TIME_SERIES___COVERAGE_CYCLES=$ORBIT_ENGINE_STAGE2_TIME_SERIES___COVERAGE_CYCLES${NC}"
+echo -e "${CYAN}   ORBIT_ENGINE_STAGE2_TIME_SERIES___INTERVAL_SECONDS=$ORBIT_ENGINE_STAGE2_TIME_SERIES___INTERVAL_SECONDS${NC}"
+echo -e "${CYAN}   ORBIT_ENGINE_STAGE5_USE_CANDIDATE_POOL=$ORBIT_ENGINE_STAGE5_USE_CANDIDATE_POOL${NC}"
 echo ""
 
 # 切換到專案目錄
@@ -102,7 +115,7 @@ if [ -f ".env" ]; then
         [[ -z "$key" ]] && continue
 
         # 跳過已設置的 RL 訓練變數
-        if [ "$key" != "ORBIT_ENGINE_CONFIG_DIR" ] && [ "$key" != "ORBIT_ENGINE_OUTPUT_DIR" ]; then
+        if [[ ! "$key" =~ ^ORBIT_ENGINE_(OUTPUT_DIR|STAGE1_SAMPLING_MODE|STAGE2_TIME_SERIES|STAGE5_USE_CANDIDATE_POOL)$ ]]; then
             export "$key=$value"
         fi
     done < .env
@@ -112,12 +125,12 @@ fi
 
 echo ""
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}   🚀 開始 RL 訓練數據生成...${NC}"
+echo -e "${BLUE}   🚀 開始 RL 訓練數據生成（1天測試）...${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "${YELLOW}⚠️  預計處理時間: 2-4 小時（800 衛星 × 7 天）${NC}"
-echo -e "${YELLOW}⚠️  預計輸出大小: ~6 GB${NC}"
-echo -e "${YELLOW}⚠️  建議保留至少 10 GB 磁碟空間${NC}"
+echo -e "${YELLOW}⚠️  預計處理時間: 1-1.5 小時${NC}"
+echo -e "${YELLOW}⚠️  預計輸出大小: ~500 MB${NC}"
+echo -e "${CYAN}💡  測試目標: 驗證候選池數量和換手事件品質${NC}"
 echo ""
 
 # 執行主程式（傳遞所有參數）
@@ -129,29 +142,48 @@ EXIT_CODE=$?
 echo ""
 if [ $EXIT_CODE -eq 0 ]; then
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${GREEN}   ✅ RL 訓練數據生成完成！${NC}"
+    echo -e "${GREEN}   ✅ RL 訓練數據生成完成（1天測試）！${NC}"
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     echo -e "${CYAN}   輸出位置:${NC}"
-    echo -e "${CYAN}   - Stage 1: $OUTPUT_DIR/stage1/${NC}"
-    echo -e "${CYAN}   - Stage 2: $OUTPUT_DIR/stage2/${NC}"
-    echo -e "${CYAN}   - Stage 3: $OUTPUT_DIR/stage3/${NC}"
-    echo -e "${CYAN}   - Stage 4: $OUTPUT_DIR/stage4/${NC}"
-    echo -e "${CYAN}   - Stage 5: $OUTPUT_DIR/stage5/${NC}"
     echo -e "${CYAN}   - Stage 6: $OUTPUT_DIR/stage6/ ← RL 訓練數據（A4/D2 事件）${NC}"
     echo ""
 
-    # 顯示輸出文件大小
+    # 顯示 Stage 6 輸出統計
     if [ -d "$OUTPUT_DIR/stage6" ]; then
-        echo -e "${BLUE}   📊 Stage 6 輸出:${NC}"
-        ls -lh "$OUTPUT_DIR/stage6/" | tail -n +2 | sed 's/^/   /'
+        latest_stage6=$(ls -t "$OUTPUT_DIR/stage6"/stage6_research_optimization_*.json 2>/dev/null | head -1)
+        if [ -n "$latest_stage6" ]; then
+            echo -e "${BLUE}   📊 Stage 6 輸出統計:${NC}"
+            echo -e "${CYAN}      文件: $(basename "$latest_stage6")${NC}"
+
+            # 提取關鍵統計
+            if command -v jq &> /dev/null; then
+                candidate_count=$(jq -r '.connectable_satellites_candidate.starlink | length' "$latest_stage6" 2>/dev/null || echo "N/A")
+                optimized_count=$(jq -r '.connectable_satellites.starlink | length' "$latest_stage6" 2>/dev/null || echo "N/A")
+                a4_count=$(jq -r '.gpp_events.a4_events | length' "$latest_stage6" 2>/dev/null || echo "N/A")
+                d2_count=$(jq -r '.gpp_events.d2_events | length' "$latest_stage6" 2>/dev/null || echo "N/A")
+
+                echo -e "${CYAN}      候選池衛星數: $candidate_count${NC}"
+                echo -e "${CYAN}      優化池衛星數: $optimized_count${NC}"
+                echo -e "${CYAN}      A4 換手事件: $a4_count${NC}"
+                echo -e "${CYAN}      D2 換手事件: $d2_count${NC}"
+            fi
+
+            file_size=$(ls -lh "$latest_stage6" | awk '{print $5}')
+            echo -e "${CYAN}      文件大小: $file_size${NC}"
+        fi
         echo ""
     fi
 
-    echo -e "${CYAN}   下一步:${NC}"
-    echo -e "${CYAN}   - 在 handover-rl 中讀取 Stage 6 輸出${NC}"
-    echo -e "${CYAN}   - 提取 A4/D2 事件數據${NC}"
-    echo -e "${CYAN}   - 開始 RL agent 訓練${NC}"
+    echo -e "${CYAN}   📈 數據品質檢查:${NC}"
+    echo -e "${CYAN}      - 候選池是否 > 500 顆？${NC}"
+    echo -e "${CYAN}      - 換手事件是否 > 100 個？${NC}"
+    echo -e "${CYAN}      - 平均可見衛星數是多少？${NC}"
+    echo ""
+    echo -e "${CYAN}   下一步（如果數據 OK）:${NC}"
+    echo -e "${CYAN}      1. 設置 7天完整數據生成:${NC}"
+    echo -e "${CYAN}         export ORBIT_ENGINE_STAGE2_TIME_SERIES___COVERAGE_CYCLES=106.1${NC}"
+    echo -e "${CYAN}      2. 預估時間: 8-10 小時${NC}"
     echo ""
 else
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -159,7 +191,6 @@ else
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     echo -e "${YELLOW}   請檢查錯誤訊息，必要時查看:${NC}"
-    echo -e "${YELLOW}   - 配置文件: $CONFIG_DIR/${NC}"
     echo -e "${YELLOW}   - 輸出目錄: $OUTPUT_DIR/${NC}"
     echo -e "${YELLOW}   - 日誌文件（如有）${NC}"
     echo ""

@@ -122,7 +122,9 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
 
         # 初始化核心組件 (所有模块必须成功初始化)
         try:
-            self.gpp_detector = GPPEventDetector(config)
+            # Extract and flatten gpp_events config for GPPEventDetector
+            gpp_config = self._flatten_gpp_config(config)
+            self.gpp_detector = GPPEventDetector(gpp_config)
             self.logger.info("✅ GPP Event Detector 初始化成功")
         except Exception as e:
             raise RuntimeError(f"GPP Event Detector 初始化失败: {e}")
@@ -163,6 +165,67 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
         self.logger.info("   職責: 3GPP事件檢測、動態池驗證、ML數據生成、實時決策支援")
         self.logger.info("   🔒 所有4個核心模塊已強制加載 (CRITICAL 必要功能)")
         self.logger.info("   📋 驗證與管理模組已加載 (輸入輸出驗證、驗證框架、合規檢查、快照管理)")
+
+    def _flatten_gpp_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Flatten gpp_events config structure for GPPEventDetector
+
+        Transforms:
+            config['gpp_events']['a4']['rsrp_threshold_dbm'] -> gpp_config['a4_threshold_dbm']
+            config['gpp_events']['a3']['offset_db'] -> gpp_config['a3_offset_db']
+
+        Args:
+            config: Full Stage 6 config with nested structure
+
+        Returns:
+            Flattened config for GPPEventDetector
+        """
+        if 'gpp_events' not in config:
+            return {}
+
+        gpp_events = config['gpp_events']
+        flat_config = {}
+
+        # A3 event config
+        if 'a3' in gpp_events:
+            a3 = gpp_events['a3']
+            if 'offset_db' in a3:
+                flat_config['a3_offset_db'] = a3['offset_db']
+            if 'hysteresis_db' in a3:
+                flat_config['hysteresis_db'] = a3['hysteresis_db']
+            if 'time_to_trigger_ms' in a3:
+                flat_config['time_to_trigger_ms'] = a3['time_to_trigger_ms']
+
+        # A4 event config
+        if 'a4' in gpp_events:
+            a4 = gpp_events['a4']
+            if 'rsrp_threshold_dbm' in a4:
+                flat_config['a4_threshold_dbm'] = a4['rsrp_threshold_dbm']
+            # Hysteresis and TTT already set from A3, use A4 if different
+            if 'hysteresis_db' in a4:
+                flat_config['hysteresis_db'] = a4['hysteresis_db']
+
+        # A5 event config
+        if 'a5' in gpp_events:
+            a5 = gpp_events['a5']
+            if 'rsrp_threshold1_dbm' in a5:
+                flat_config['a5_threshold1_dbm'] = a5['rsrp_threshold1_dbm']
+            if 'rsrp_threshold2_dbm' in a5:
+                flat_config['a5_threshold2_dbm'] = a5['rsrp_threshold2_dbm']
+
+        # D2 event config
+        if 'd2' in gpp_events:
+            d2 = gpp_events['d2']
+            if 'starlink' in d2:
+                if 'd2_threshold1_km' in d2['starlink']:
+                    flat_config['d2_threshold1_km'] = d2['starlink']['d2_threshold1_km']
+                if 'd2_threshold2_km' in d2['starlink']:
+                    flat_config['d2_threshold2_km'] = d2['starlink']['d2_threshold2_km']
+
+        # Common config
+        flat_config['offset_frequency'] = 0.0
+        flat_config['offset_cell'] = 0.0
+
+        return flat_config
 
     def process(self, input_data: Any) -> ProcessingResult:
         """處理接口 (符合 ProcessingResult 標準) - ✅ 已移除 execute() 覆蓋"""
@@ -779,6 +842,9 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
             stage6_metadata['constellation_configs'] = constellation_configs
             self.logger.info("✅ constellation_configs 已傳遞到 Stage 6 metadata")
 
+        # 🔑 Grade A+ 數據流完整性：保留衛星池數據（RL 訓練模式）
+        # Stage 6 必須保留 Stage 5 的衛星池數據給下游使用
+        # SOURCE: CLAUDE.md - "ALWAYS preserve complete metadata through the pipeline"
         stage6_output = {
             'stage': 'stage6_research_optimization',
             'gpp_events': gpp_events,
@@ -787,6 +853,29 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
             'decision_support': decision_support,
             'metadata': stage6_metadata
         }
+
+        # 🔑 保留 Stage 5 的衛星池數據（優化池 + 候選池）
+        if 'connectable_satellites' in original_data:
+            stage6_output['connectable_satellites'] = original_data['connectable_satellites']
+
+        # 🔑 RL 訓練模式：保留候選池數據 + 生成候選池換手事件
+        if 'connectable_satellites_candidate' in original_data:
+            stage6_output['connectable_satellites_candidate'] = original_data['connectable_satellites_candidate']
+            # 在 RL 訓練模式下，gpp_events 已經是基於候選池的事件
+            # 同時輸出為 gpp_events_candidate 以便下游識別
+            stage6_output['gpp_events_candidate'] = gpp_events
+            self.logger.info(
+                f"✅ RL 訓練模式：已保留候選池數據 "
+                f"(Starlink: {len(original_data['connectable_satellites_candidate'].get('starlink', []))} 顆, "
+                f"OneWeb: {len(original_data['connectable_satellites_candidate'].get('oneweb', []))} 顆)"
+            )
+            self.logger.info(
+                f"✅ RL 訓練模式：已生成候選池換手事件 "
+                f"(A3: {len(gpp_events.get('a3_events', []))}, "
+                f"A4: {len(gpp_events.get('a4_events', []))}, "
+                f"A5: {len(gpp_events.get('a5_events', []))}, "
+                f"D2: {len(gpp_events.get('d2_events', []))})"
+            )
 
         # 記錄處理結果
         self.logger.info(f"📊 Stage 6 處理統計:")
