@@ -39,11 +39,11 @@ python tools/academic_compliance_checker.py src/stages/stage4_link_feasibility/
 - **星座感知計算** - Starlink vs OneWeb 軌道週期差異分析
 - **學術標準合規** - NASA JPL(<10m)、IAU(<0.5m)、3GPP精度要求
 
-## 🎓 雙模式架構：研究 vs RL 訓練
+## 🎯 輸出模式
 
-Orbit Engine 支援兩種輸出模式，滿足不同研究需求：
+Orbit Engine 提供完整的六階段學術研究數據生成：
 
-### 模式 1: 研究數據生成（預設）
+### 研究數據生成
 
 **用途**: 完整的六階段學術研究數據
 
@@ -65,58 +65,14 @@ make run
 - ✅ 詳細 metadata（constellation configs, epoch analysis）
 - 📊 **輸出位置**: `data/outputs/stage{1..6}/`
 
-### 模式 2: RL 訓練數據生成
+### RL 訓練數據使用
 
-**用途**: 精簡的 episode-based 訓練數據
-
-```bash
-# 生成 RL 訓練數據
-./scripts/generate_rl_training_data.sh
-
-# 或使用環境變數控制
-export ORBIT_ENGINE_RL_OUTPUT_DIR=/custom/path
-./scripts/generate_rl_training_data.sh
-```
-
-**輸出特性**:
-- ✅ 精簡狀態-動作對（state-action pairs）
-- ✅ Episode 數據結構（適合 RL 算法）
-- ✅ 候選衛星池（candidate pools）
-- ✅ 換手事件觸發標記（handover triggers）
-- 📊 **輸出位置**: `data/outputs/rl_training/stage{1..6}/`
-- ⚙️ **配置位置**: `config/rl_training/stage*.yaml`
-
-### 模式差異對比
-
-| 項目 | 研究模式 | RL 訓練模式 |
-|------|----------|-------------|
-| **輸出目錄** | `data/outputs/` | `data/outputs/rl_training/` |
-| **配置文件** | `config/stage*.yaml` | `config/rl_training/stage*.yaml` |
-| **執行腳本** | `./run.sh` | `./scripts/generate_rl_training_data.sh` |
-| **數據結構** | 完整分析報告 | Episode-based |
-| **驗證快照** | ✅ 完整驗證 | ✅ RL 專用驗證 |
-| **處理時間** | ~30-40分鐘（9,000+衛星） | ~30-40分鐘（可配置取樣） |
-| **適用場景** | 學術論文、詳細分析 | DQN/PPO/SAC 訓練 |
-
-### 配置切換
-
-兩種模式使用獨立配置文件，互不干擾：
+如需用於 RL 訓練，請參考 [handover-rl](../handover-rl/) 項目，它會讀取 orbit-engine 的 Stage 4-6 輸出：
 
 ```bash
-# 研究模式配置
-config/
-├── stage1_orbital_initialization_config.yaml
-├── stage2_orbital_computing_config.yaml
-└── ...
-
-# RL 訓練模式配置
-config/rl_training/
-├── stage1_rl_config.yaml
-├── stage2_rl_config.yaml
-└── ...
+cd ../handover-rl
+./quick_train.sh 3  # 使用 orbit-engine 生成的優化池數據
 ```
-
-詳見：[RL 訓練配置說明](config/rl_training/README.md)
 
 ## 🚀 快速開始
 

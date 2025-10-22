@@ -54,8 +54,8 @@
   - 與 orbit-engine 的集成方式
 
 ### 📊 RL 訓練支援
-- **[RL 訓練配置說明](../config/rl_training/README.md)** - 雙模式架構設計
-- **[數據生成腳本](../scripts/generate_rl_training_data.sh)** - 使用方式與配置
+- **[handover-rl 項目](../../handover-rl/)** - RL 訓練框架（讀取 orbit-engine Stage 4-6 輸出）
+- **訓練數據**: orbit-engine 產生的優化池（~100 顆衛星）用於 RL 環境
 
 ### 🐛 問題修復記錄（歸檔）
 - **[RSRP 截斷問題審查](archive/fixes/CODE_REVIEW_RSRP_CLIPPING_BUGS.md)** - 信號計算修復記錄
