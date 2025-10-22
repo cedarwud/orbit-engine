@@ -196,6 +196,81 @@ observer:
 # - ICAO Standard Atmosphere (1993)
 
 # ==============================================================================
+# 動態傳播條件模擬配置 (NEW: Proposal 002)
+# ==============================================================================
+# 啟用/停用動態傳播條件模擬
+enable_propagation_simulation: false
+# SOURCE: Proposal 002 - Training Data Diversity Enhancement
+# DISABLE BY DEFAULT: 保持向後兼容性，需要時手動啟用
+# 設為 true 將啟用三態 Markov 模型 + Loo 通道模型
+
+propagation_simulation:
+  # ===========================================================================
+  # 三態 Markov 模型配置
+  # ===========================================================================
+  markov_model:
+    # 狀態轉換機率矩陣 (Suburban environment baseline)
+    # SOURCE: 3GPP TR 38.901 v17.0.0 (2020) Table 7.6.3-1
+    #         "State transition probabilities for land mobile satellite channel"
+
+    # From LOS state
+    P_LL: 0.95  # LOS → LOS (high persistence)
+    P_LS: 0.04  # LOS → Shadowed
+    P_LB: 0.01  # LOS → Blocked (rare direct transition)
+
+    # From Shadowed state
+    P_SL: 0.10  # Shadowed → LOS (recovery)
+    P_SS: 0.80  # Shadowed → Shadowed (moderate persistence)
+    P_SB: 0.10  # Shadowed → Blocked (degradation)
+
+    # From Blocked state
+    P_BL: 0.05  # Blocked → LOS (slow recovery)
+    P_BS: 0.15  # Blocked → Shadowed (gradual recovery)
+    P_BB: 0.80  # Blocked → Blocked (high persistence)
+
+    # 仰角調整功能
+    elevation_adjustment_enabled: true
+    # SOURCE: Lutz, E., et al. (1991). "The land mobile satellite communication channel."
+    #         IEEE Transactions on Vehicular Technology, 40(2), 375-386.
+    # 理由: 高仰角 → 更穩定的 LOS 條件 (較短大氣路徑，較少地面障礙物)
+
+    # 隨機種子 (可重現性)
+    random_seed: 42
+
+  # ===========================================================================
+  # Loo 通道模型配置
+  # ===========================================================================
+  loo_channel:
+    # 環境類型: "open" | "suburban" | "urban"
+    # SOURCE: Loo, C. (1985). "A statistical model for a land mobile satellite link."
+    #         IEEE Transactions on Vehicular Technology, 34(3), 122-127.
+    #         Table II - Channel parameters for different environments
+    environment: "suburban"
+
+    # 環境參數會自動應用 (Loo 1985 Table II):
+    #   Open:     mp_mean_db=-20.0, sigma_db=2.0  (開闊地帶)
+    #   Suburban: mp_mean_db=-15.0, sigma_db=3.5  (市郊，樹木)
+    #   Urban:    mp_mean_db=-10.0, sigma_db=6.0  (市區，高樓)
+
+    # 可選：自定義參數 (覆寫環境預設值)
+    # mp_mean_db: -15.0      # 多徑分量平均功率 (dB，相對於 LOS)
+    # sigma_db: 3.5          # 陰影衰減標準差 (dB，對數常態分佈)
+
+    # 載波頻率
+    carrier_frequency_ghz: 12.0
+    # SOURCE: Starlink 下行頻率範圍 10.7-12.7 GHz (Ku-band)
+    # REFERENCE: 3GPP TR 38.821 v17.0.0 (2022)
+    #            Section 6.4 - Frequency assumptions for NTN
+
+    # 隨機種子 (與 Markov 模型一致)
+    random_seed: 42
+
+  # 初始狀態假設
+  initial_state: "LOS"
+  # SOURCE: 合理假設 - 首次觀測時假設 LOS 狀態
+  # 理由: 衛星從地平線升起時通常處於直射狀態
+
+# ==============================================================================
 # 環境變數覆寫支援
 # ==============================================================================
 # 支援的環境變數 (由 BaseConfigManager 自動處理):

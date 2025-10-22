@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 class SignalAnalysisWorkerManager:
     """並行處理工作器管理器"""
 
-    def __init__(self, max_workers: int, config: Dict[str, Any], signal_thresholds: Dict[str, float]):
+    def __init__(self, max_workers: int, config: Dict[str, Any], signal_thresholds: Dict[str, float],
+                 propagation_simulator=None):
         """
         初始化工作器管理器
 
@@ -23,10 +24,12 @@ class SignalAnalysisWorkerManager:
             max_workers: 最大工作器數量
             config: 配置字典
             signal_thresholds: 信號門檻配置
+            propagation_simulator: 動態傳播條件模擬器 (可選, Proposal 002)
         """
         self.max_workers = max_workers
         self.config = config
         self.signal_thresholds = signal_thresholds
+        self.propagation_simulator = propagation_simulator
         self.enable_parallel = max_workers > 1
         self.logger = logging.getLogger(__name__)
 
@@ -151,6 +154,10 @@ class SignalAnalysisWorkerManager:
         # 創建進程池並提交任務
         with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
             # ✅ Fail-Fast: 提交所有衛星處理任務（明確檢查 time_series）
+            # 🆕 NEW: 傳遞 propagation_simulator 配置（而非實例，因為不能序列化）
+            enable_prop_sim = self.propagation_simulator is not None
+            prop_sim_config = self.config.get('propagation_simulation', {}) if enable_prop_sim else None
+
             future_to_satellite = {
                 executor.submit(
                     _process_single_satellite_worker,
@@ -158,7 +165,9 @@ class SignalAnalysisWorkerManager:
                     constellation,
                     system_config,
                     self.signal_thresholds,
-                    self.config
+                    self.config,
+                    enable_prop_sim,  # 🆕 傳遞啟用標誌
+                    prop_sim_config   # 🆕 傳遞配置（而非實例）
                 ): satellite for satellite in satellites
                 if 'time_series' in satellite and satellite['time_series']
             }
@@ -225,17 +234,42 @@ def _process_single_satellite_worker(
     constellation: str,
     system_config: Dict[str, Any],
     signal_thresholds: Dict[str, float],
-    config: Dict[str, Any]
+    config: Dict[str, Any],
+    enable_propagation_sim: bool = False,
+    propagation_sim_config: Optional[Dict[str, Any]] = None
 ) -> Optional[Dict[str, Any]]:
     """
     Worker 函數：處理單顆衛星（用於並行處理）
 
     注意：這個函數必須在類外部定義，以便 ProcessPoolExecutor 可以序列化它
+
+    Args:
+        enable_propagation_sim: 是否啟用傳播模擬 (Proposal 002)
+        propagation_sim_config: 傳播模擬配置 (如果啟用)
     """
     try:
-        # 在 worker 進程中重新創建分析器
+        # 在 worker 進程中重新創建 propagation_simulator（如果啟用）
+        propagation_simulator = None
+        if enable_propagation_sim and propagation_sim_config:
+            try:
+                from ..propagation_simulator import PropagationConditionSimulator
+                import logging
+                worker_logger = logging.getLogger(__name__)
+                propagation_simulator = PropagationConditionSimulator(
+                    propagation_sim_config,
+                    worker_logger
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Worker 進程創建 propagation_simulator 失敗: {e}")
+                propagation_simulator = None
+
+        # 在 worker 進程中重新創建分析器（傳入 propagation_simulator）
         from ..time_series_analyzer import create_time_series_analyzer
-        time_series_analyzer = create_time_series_analyzer(config, signal_thresholds)
+        time_series_analyzer = create_time_series_analyzer(
+            config,
+            signal_thresholds,
+            propagation_simulator  # 🆕 傳遞 propagation_simulator
+        )
 
         # ✅ Fail-Fast: 明確檢查 satellite_id
         if 'satellite_id' not in satellite:

@@ -485,6 +485,57 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
         self.logger.info(f"✅ 配置合併完成: {len(merged_configs)} 個星座")
         return merged_configs
 
+    def _build_tle_map(self) -> Dict[str, Dict]:
+        """
+        從 Stage 1 輸出讀取 TLE 數據並構建映射
+
+        Returns:
+            {satellite_id: {'line1': ..., 'line2': ...}}
+        """
+        from pathlib import Path
+        import json
+        import glob
+
+        # 查找最新的 Stage 1 輸出文件
+        output_dir = Path("data/outputs/stage1")
+        if not output_dir.exists():
+            self.logger.warning("⚠️ Stage 1 輸出目錄不存在，無法讀取 TLE 數據")
+            return {}
+
+        stage1_files = sorted(output_dir.glob("stage1_output_*.json"), reverse=True)
+        if not stage1_files:
+            self.logger.warning("⚠️ 未找到 Stage 1 輸出文件，無法讀取 TLE 數據")
+            return {}
+
+        stage1_file = stage1_files[0]
+        self.logger.info(f"📖 讀取 Stage 1 數據: {stage1_file.name}")
+
+        try:
+            with open(stage1_file, 'r') as f:
+                stage1_data = json.load(f)
+
+            # 構建 TLE 映射
+            tle_map = {}
+            satellites = stage1_data.get('satellites', [])
+
+            for sat in satellites:
+                sat_id = sat.get('satellite_id')
+                line1 = sat.get('tle_line1')
+                line2 = sat.get('tle_line2')
+
+                if sat_id and line1 and line2:
+                    tle_map[sat_id] = {
+                        'line1': line1,
+                        'line2': line2
+                    }
+
+            self.logger.info(f"✅ TLE 映射構建完成: {len(tle_map)} 顆衛星")
+            return tle_map
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ 讀取 Stage 1 數據失敗: {e}")
+            return {}
+
     def _optimize_satellite_pools(self, connectable_satellites: Dict[str, List[Dict[str, Any]]]) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Any]]:
         """
         階段 4.2: 時空錯置池規劃優化
@@ -499,10 +550,14 @@ class Stage4LinkFeasibilityProcessor(BaseStageProcessor):
         # ✅ 使用統一配置合併方法 (簡化邏輯)
         constellation_configs = self._merge_constellation_configs()
 
+        # 構建 TLE 映射（用於軌道面多樣性約束）
+        tle_map = self._build_tle_map()
+
         # 調用池優化器
         optimization_results = optimize_satellite_pool(
             connectable_satellites,
-            constellation_configs
+            constellation_configs,
+            tle_map
         )
 
         optimized_pools = optimization_results['optimized_pools']

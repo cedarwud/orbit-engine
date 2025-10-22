@@ -40,7 +40,8 @@ class TimeSeriesAnalyzer:
     - 信號品質分類與統計
     """
 
-    def __init__(self, config: Dict[str, Any], signal_thresholds: Dict[str, float]):
+    def __init__(self, config: Dict[str, Any], signal_thresholds: Dict[str, float],
+                 propagation_simulator=None):
         """
         初始化時間序列分析引擎
 
@@ -55,6 +56,7 @@ class TimeSeriesAnalyzer:
                 - rsrp_excellent, rsrp_good, rsrp_fair, rsrp_poor
                 - rsrq_excellent, rsrq_good, rsrq_fair
                 - sinr_excellent, sinr_good
+            propagation_simulator: 動態傳播條件模擬器（可選，Proposal 002）
 
         Raises:
             ValueError: 配置為空或缺少必要字段
@@ -94,6 +96,7 @@ class TimeSeriesAnalyzer:
 
         self.config = config
         self.signal_thresholds = signal_thresholds
+        self.propagation_simulator = propagation_simulator
         self.logger = logging.getLogger(__name__)
 
     def analyze_time_series(
@@ -202,6 +205,22 @@ class TimeSeriesAnalyzer:
                     time_point=time_point  # ← 傳遞完整時間點數據以提取速度
                 )
 
+                # 🆕 NEW: 動態傳播條件模擬 (Proposal 002)
+                # SOURCE: Proposal 002 - Training Data Diversity Enhancement
+                propagation_condition = None
+                if self.propagation_simulator is not None:
+                    try:
+                        prop_result = self.propagation_simulator.simulate(
+                            satellite_id=satellite_id,
+                            timestamp=timestamp,
+                            elevation_deg=elevation_deg,
+                            distance_km=distance_km
+                        )
+                        propagation_condition = prop_result.to_dict()
+                    except Exception as e:
+                        self.logger.debug(f"⚠️ 傳播條件模擬失敗 (時間點 {timestamp}): {e}")
+                        # 失敗不影響主流程，繼續處理
+
                 # 構建時間點結果
                 # ✅ Fail-Fast: 如果信號計算失敗，offset 字段會缺失，直接跳過此時間點
                 if 'offset_mo_db' not in signal_quality or 'cell_offset_db' not in signal_quality:
@@ -221,6 +240,10 @@ class TimeSeriesAnalyzer:
                     'is_connectable': is_connectable,
                     'physical_parameters': physics_params
                 }
+
+                # 🆕 添加傳播條件數據（如果啟用）
+                if propagation_condition is not None:
+                    time_point_result['propagation_condition'] = propagation_condition
 
                 time_series_results.append(time_point_result)
 
@@ -696,7 +719,8 @@ class TimeSeriesAnalyzer:
 
 def create_time_series_analyzer(
     config: Optional[Dict[str, Any]] = None,
-    signal_thresholds: Optional[Dict[str, float]] = None
+    signal_thresholds: Optional[Dict[str, float]] = None,
+    propagation_simulator=None
 ) -> TimeSeriesAnalyzer:
     """
     創建時間序列分析引擎實例
@@ -704,8 +728,9 @@ def create_time_series_analyzer(
     Args:
         config: 配置字典 (可選)
         signal_thresholds: 信號門檻配置 (可選)
+        propagation_simulator: 動態傳播條件模擬器 (可選, Proposal 002)
 
     Returns:
         TimeSeriesAnalyzer: 分析引擎實例
     """
-    return TimeSeriesAnalyzer(config, signal_thresholds)
+    return TimeSeriesAnalyzer(config, signal_thresholds, propagation_simulator)

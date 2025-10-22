@@ -98,6 +98,20 @@ pool_optimization_targets:
     target_coverage_rate: 0.95
     # SOURCE: ITU-T E.800 (2008) - 研究原型系統可接受門檻
     # NOTE: 商用系統通常要求 >99% (3GPP TS 22.261 availability requirements)
+
+    # 軌道面多樣性約束 (NEW - Stage 4 Pool Optimization Enhancement)
+    # PURPOSE: 確保訓練池涵蓋多個軌道面，提供多樣化換手場景
+    # NOTE: 文獻研究顯示軌道面多樣性對 RL 訓練並無明確證據支持
+    # 保留此配置僅作為觀察指標，不強制約束
+    orbital_diversity:
+      enabled: false                   # ❌ 禁用約束（文獻無證據支持）
+      target_orbital_planes: 24        # 目標軌道面數量
+      # SOURCE: Starlink Gen2 constellation design (24 orbital planes per shell)
+      max_satellites_per_plane: 10     # 每個軌道面最多選擇衛星數
+      # NOTE: 僅在 enabled: true 時生效
+      raan_bin_size_deg: 15.0          # RAAN bin 大小 (度)
+      # CALCULATION: 360° / 24 planes = 15° per bin
+
   oneweb:
     expected_visible_satellites: [3, 6]    # 預期可見衛星數範圍 [min, max]
     min_pool_size: 3               # 最小池大小（與 expected_visible_satellites[0] 一致）
@@ -105,6 +119,17 @@ pool_optimization_targets:
     target_coverage_rate: 0.95
     # SOURCE: ITU-T E.800 (2008) - 研究原型系統可接受門檻
     # NOTE: 商用系統通常要求 >99% (3GPP TS 22.261 availability requirements)
+
+    # 軌道面多樣性約束
+    # NOTE: 文獻研究顯示軌道面多樣性對 RL 訓練並無明確證據支持
+    # 保留此配置僅作為觀察指標，不強制約束
+    orbital_diversity:
+      enabled: false                   # ❌ 禁用約束（文獻無證據支持）
+      target_orbital_planes: 18        # OneWeb 有 18 個軌道面
+      # SOURCE: OneWeb Phase 1 constellation (18 orbital planes, 49 satellites each)
+      max_satellites_per_plane: 2      # 每個軌道面最多選擇衛星數
+      # NOTE: 僅在 enabled: true 時生效
+      raan_bin_size_deg: 20.0          # 360° / 18 planes = 20° per bin
 
 # 學術合規聲明
 academic_compliance:

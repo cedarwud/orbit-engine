@@ -70,6 +70,9 @@ from .parallel_processing import CPUOptimizer, SignalAnalysisWorkerManager
 from .data_processing import ConfigManager, InputExtractor
 from .output_management import ResultBuilder, SnapshotManager
 
+# NEW: 動態傳播條件模擬 (Proposal 002)
+from .propagation_simulator import PropagationConditionSimulator
+
 logger = logging.getLogger(__name__)
 
 
@@ -91,10 +94,39 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
         self.config_manager = ConfigManager(self.config)
         self.signal_thresholds = self.config_manager.get_thresholds()
 
-        # 初始化核心組件
+        # NEW: 動態傳播條件模擬器 (Proposal 002)
+        # SOURCE: Proposal 002 - Training Data Diversity Enhancement
+        # ⚠️ 必須在初始化 time_series_analyzer 之前初始化
+        self.enable_propagation_sim = self.config.get('enable_propagation_simulation', False)
+        self.propagation_simulator = None
+
+        if self.enable_propagation_sim:
+            # 初始化傳播模擬器
+            prop_sim_config = self.config.get('propagation_simulation', {})
+            try:
+                self.propagation_simulator = PropagationConditionSimulator(
+                    prop_sim_config,
+                    self.logger
+                )
+                self.logger.info("✅ 動態傳播條件模擬器已啟用")
+                self.logger.info(
+                    f"   環境: {self.propagation_simulator.loo_model.config.environment.value}"
+                )
+            except Exception as e:
+                self.logger.error(f"❌ 傳播模擬器初始化失敗: {e}")
+                self.propagation_simulator = None
+                self.enable_propagation_sim = False
+        else:
+            self.logger.info("ℹ️  動態傳播條件模擬：停用 (向後兼容模式)")
+
+        # 初始化核心組件（傳入 propagation_simulator）
         self.physics_calculator = create_itur_physics_calculator(self.config)
         self.validator = create_stage5_validator()
-        self.time_series_analyzer = create_time_series_analyzer(self.config, self.signal_thresholds)
+        self.time_series_analyzer = create_time_series_analyzer(
+            self.config,
+            self.signal_thresholds,
+            self.propagation_simulator  # 🆕 傳遞 propagation_simulator
+        )
 
         # 處理統計
         self.processing_stats = {
@@ -105,11 +137,12 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
             'poor_signals': 0
         }
 
-        # ✅ 使用模組化並行處理
+        # ✅ 使用模組化並行處理（也需要傳入 propagation_simulator）
         self.max_workers = CPUOptimizer.get_optimal_workers(self.config)
         self.enable_parallel = self.max_workers > 1
         self.worker_manager = SignalAnalysisWorkerManager(
-            self.max_workers, self.config, self.signal_thresholds
+            self.max_workers, self.config, self.signal_thresholds,
+            self.propagation_simulator  # 🆕 傳遞給 worker_manager
         )
 
         # ✅ 使用模組化輸出管理
