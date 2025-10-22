@@ -249,43 +249,26 @@ class BaseConfigManager(ABC):
         """
         Get default YAML config file path for current stage
 
-        支援雙模式架構（前端渲染 + RL 訓練）:
-        - 環境變數 ORBIT_ENGINE_CONFIG_DIR 設置時: 使用 RL 訓練配置
-        - 未設置時: 使用原始前端渲染配置
-
         Returns:
             Path to config file (e.g., config/stage5_signal_analysis_config.yaml)
         """
-        import os
         stage_num = self.get_stage_number()
 
-        # 檢查是否使用 RL 訓練配置
-        config_dir_env = os.getenv('ORBIT_ENGINE_CONFIG_DIR')
+        # Map stage number to config file name
+        stage_config_names = {
+            1: 'stage1_orbital_initialization_config.yaml',
+            2: 'stage2_orbital_computing_config.yaml',
+            3: 'stage3_coordinate_transformation_config.yaml',
+            4: 'stage4_link_feasibility_config.yaml',
+            5: 'stage5_signal_analysis_config.yaml',
+            6: 'stage6_research_optimization_config.yaml',
+        }
 
-        if config_dir_env:
-            # RL 訓練模式: 使用自定義配置目錄
-            config_dir = Path(config_dir_env)
-            config_filename = f'stage{stage_num}_rl_config.yaml'
-            self.logger.info(f"🎯 RL 訓練模式: 使用配置 {config_dir / config_filename}")
-        else:
-            # 前端渲染模式: 使用標準配置目錄
-            config_dir = Path('config')
+        config_filename = stage_config_names.get(stage_num)
+        if not config_filename:
+            raise ValueError(f"❌ 未知的階段編號: {stage_num}")
 
-            # Map stage number to config file name
-            stage_config_names = {
-                1: 'stage1_orbital_initialization_config.yaml',
-                2: 'stage2_orbital_computing_config.yaml',
-                3: 'stage3_coordinate_transformation_config.yaml',
-                4: 'stage4_link_feasibility_config.yaml',
-                5: 'stage5_signal_analysis_config.yaml',
-                6: 'stage6_research_optimization_config.yaml',
-            }
-
-            config_filename = stage_config_names.get(stage_num)
-            if not config_filename:
-                raise ValueError(f"❌ 未知的階段編號: {stage_num}")
-
-        return config_dir / config_filename
+        return Path('config') / config_filename
 
     def _load_yaml(self, config_path: Path) -> Dict[str, Any]:
         """
