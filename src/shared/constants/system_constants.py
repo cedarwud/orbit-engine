@@ -80,16 +80,9 @@ class OrbitEngineSystemPaths:
     def get_current_paths(cls) -> Dict[str, str]:
         """
         根據執行環境獲取當前路徑
-
-        支援雙模式架構（前端渲染 + RL 訓練）:
-        - 環境變數 ORBIT_ENGINE_OUTPUT_DIR 設置時: 使用 RL 訓練輸出目錄
-        - 未設置時: 使用原始前端渲染輸出目錄
         """
         import os
         env = cls.detect_execution_environment()
-
-        # 檢查是否為 RL 訓練模式（環境變數優先）
-        custom_output_dir = os.getenv('ORBIT_ENGINE_OUTPUT_DIR')
 
         if env == "container":
             base_paths = {
@@ -131,11 +124,6 @@ class OrbitEngineSystemPaths:
                 "logs": cls.HOST_LOGS,
                 "environment": "host"
             }
-
-        # RL 訓練模式：覆蓋 stage 輸出路徑
-        if custom_output_dir:
-            for stage_num in range(1, 7):
-                base_paths[f"stage{stage_num}_output"] = f"{custom_output_dir}/stage{stage_num}"
 
         return base_paths
 

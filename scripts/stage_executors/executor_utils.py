@@ -19,25 +19,13 @@ def get_output_dir(stage_number: int) -> Path:
     """
     獲取指定階段的輸出目錄
 
-    支援雙模式架構（前端渲染 + RL 訓練）:
-    - 環境變數 ORBIT_ENGINE_OUTPUT_DIR 設置時: 使用 RL 訓練輸出目錄
-    - 未設置時: 使用原始前端渲染輸出目錄
-
     Args:
         stage_number: 階段編號 (1-6)
 
     Returns:
         Path: 輸出目錄路徑
     """
-    output_base = os.getenv('ORBIT_ENGINE_OUTPUT_DIR')
-    if output_base:
-        # RL 訓練模式: 使用自定義輸出目錄
-        output_dir = Path(output_base) / f'stage{stage_number}'
-    else:
-        # 前端渲染模式: 使用標準輸出目錄
-        output_dir = Path(f'data/outputs/stage{stage_number}')
-
-    return output_dir
+    return Path(f'data/outputs/stage{stage_number}')
 
 
 def extract_data_from_result(result):
