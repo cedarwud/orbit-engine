@@ -120,3 +120,17 @@ stable-baselines3>=2.0.0
 # 用途: 創建自定義衛星換手環境，整合歷史數據進行驗證
 # 說明: Gym 已停止維護，Gymnasium 是官方推薦的替代品
 gymnasium>=0.29.0
+
+# PyTorch - 深度學習框架 (DQN 訓練必需)
+# SOURCE: Paszke et al. (2019). "PyTorch: An Imperative Style, High-Performance Deep Learning Library"
+#         NeurIPS 2019
+# 用途: Proposal 003 DQN 實現的核心框架
+torch>=2.0.0
+
+# TensorBoard - 訓練監控和視覺化
+# 用途: 記錄訓練指標 (Train/Reward, Train/Loss, Train/Epsilon, Val/Reward)
+tensorboard>=2.10.0
+
+# Tabulate - Markdown 表格生成 (評估報告需要)
+# 用途: 生成格式化的比較表格
+tabulate>=0.9.0

@@ -504,10 +504,16 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
         return self.validator.run_validation_checks(results)
 
     def save_results(self, results: Dict[str, Any]) -> str:
-        """保存處理結果到文件"""
+        """保存處理結果到文件（支持 elite_pool / candidate_pool 區分）"""
         try:
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-            output_file = self.output_dir / f"stage5_signal_analysis_{timestamp}.json"
+
+            # 根據環境變數決定檔名後綴
+            # SOURCE: Proposal 003 - RL Training Data vs Frontend Demo Data separation
+            use_candidate_pool = os.getenv('ORBIT_ENGINE_STAGE5_USE_CANDIDATE_POOL', 'false').lower() == 'true'
+            pool_suffix = "_candidate_pool" if use_candidate_pool else "_elite_pool"
+
+            output_file = self.output_dir / f"stage5_signal_analysis{pool_suffix}_{timestamp}.json"
             
             # 確保輸出目錄存在
             self.output_dir.mkdir(parents=True, exist_ok=True)

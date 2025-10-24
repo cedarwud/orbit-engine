@@ -41,12 +41,13 @@ gpp_events:
     # PURPOSE: Neighbour RSRP must exceed this threshold
     # SOURCE: 3GPP TS 38.215 v18.1.0 - RSRP measurement range
     # RANGE: -156 to -31 dBm
-    # ⚠️ LEO NTN 優化配置 (2025-10-21 更新 - 修正數據洩漏)
-    # 原值 -100.0 dBm 導致所有事件 trigger margin 55-80 dB (100% 觸發)
-    # 實測數據: RSRP 範圍 -44.84 到 -19.30 dBm (30th percentile = -34.5 dBm)
-    # ML 訓練考量: 設定 -34.5 dBm 使約 30% 樣本不觸發，避免數據洩漏
-    # 學術依據: 平衡配置，trigger margin 範圍 -10 到 +10 dB (合理變化)
-    rsrp_threshold_dbm: -34.5
+    # ⚠️ LEO NTN 優化配置 (2025-10-24 更新 - 提升 handover diversity)
+    # 原值 -34.5 dBm 導致 31.7% 衛星無 A4 events (只有 5.1% handover rate)
+    # 實測數據: 有 A4 衛星平均 -31.19 dBm，無 A4 衛星平均 -35.86 dBm
+    # ML 訓練考量: 降低至 -38.0 dBm 讓更多衛星產生 A4 events
+    # 目標: 提升 handover rate 至 10-20%，改善訓練數據多樣性
+    # 學術依據: Badini et al. 2024 - A4 for NTN (threshold tuning for data diversity)
+    rsrp_threshold_dbm: -38.0
 
     # Hysteresis (dB)
     hysteresis_db: 2.0
@@ -148,6 +149,69 @@ pool_verification:
 
     # 驗證容差
     tolerance_ratio: 0.1
+
+# ==================== 場景多樣性生成配置 (Proposal 002) ====================
+# SOURCE: Proposal 002 - Training Data Diversity Enhancement
+# PURPOSE: 為 RL 訓練生成多樣化場景（流量類型 × 負載模式）
+scenario_diversity:
+  # 是否啟用場景多樣性生成
+  # NOTE: 預設停用，避免影響現有流程
+  # 啟用後會為每個訓練樣本生成 12 種場景變體 (4 traffic × 3 load)
+  enabled: false
+
+  # 流量類型配置
+  # SOURCE: 3GPP TS 22.261 v19.1.0 (2023) Annex A - Service categories
+  # SOURCE: Badini et al. (2024) IEEE TAES - Multiple Traffic Profiles
+  traffic_profiles:
+    # 啟用的流量類型
+    # OPTIONS: voip, video, iot, best_effort
+    enabled_types:
+      - voip           # 即時語音 (VoIP)
+      - video          # 高清視訊串流
+      - iot            # 物聯網感測器
+      - best_effort    # 盡力而為數據
+
+    # 自定義 QoS 參數（可選，覆蓋 3GPP 預設值）
+    # 用於特定實驗場景，通常保持空白使用標準值
+    custom_parameters: {}
+
+  # 衛星負載模擬配置
+  # SOURCE: 3GPP TR 38.821 v17.0.0 Section 6.1.1 - NTN capacity assumptions
+  # SOURCE: He et al. (2021) IEEE ICC - Load-Aware Handover
+  satellite_load_simulation:
+    # 每顆衛星容量（最大同時用戶數）
+    # SOURCE: 3GPP TR 38.821 Section 6.1.1 - Starlink Ku-band typical capacity
+    # REFERENCE: ~200 concurrent users, ~20 Gbps per satellite, ~1280 spot beams
+    capacity_per_satellite: 200
+
+    # 啟用的負載模式
+    # OPTIONS: uniform, concentrated, dynamic
+    enabled_patterns:
+      - uniform          # 均勻負載 (40-60% 利用率)
+      - concentrated     # 集中負載 (80-20 規則: 20% 高負載 80-90%, 80% 低負載 10-30%)
+      - dynamic          # 動態負載 (正弦變化, 50±30% 利用率)
+
+    # 負載模式分布（隨機選擇時的機率）
+    # 總和應為 1.0
+    pattern_distribution:
+      uniform: 0.3        # 30% 機率選擇均勻負載
+      concentrated: 0.4   # 40% 機率選擇集中負載（最具挑戰性）
+      dynamic: 0.3        # 30% 機率選擇動態負載
+
+    # 隨機種子（用於可重現性）
+    random_seed: 42
+
+  # 場景變體生成配置
+  scenario_generation:
+    # 變體 ID 格式
+    # 可用變數: {base_id}, {index}, {traffic}, {load}
+    # 範例: starlink_t000_v001_voip_uniform
+    variant_id_format: "{base_id}_v{index:03d}_{traffic}_{load}"
+
+    # 是否生成所有組合（笛卡爾積）
+    # true: 生成所有 traffic × load 組合 (4×3=12 變體)
+    # false: 隨機選擇組合（實驗性）
+    generate_all_combinations: true
 
 # ==================== ML 訓練數據生成配置 ====================
 ml_training:

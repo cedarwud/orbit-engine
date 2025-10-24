@@ -1,0 +1,116 @@
+# ML Training Data Generator Configuration
+# SOURCE: Proposal 003, Phase 1 - ML Data Generator
+
+# Input/Output Paths
+paths:
+  stage6_input_dir: "data/outputs/stage6"  # FIXED: Using Stage 6 output (has gpp_events)
+  stage6_pattern: "stage6_research*.json"
+  output_dir: "data/ml_training"
+  output_filename: "rl_training_dataset.h5"
+
+# State Extraction Configuration
+state_extraction:
+  max_candidates: 5  # Maximum number of candidate satellites
+  # SOURCE: Badini et al. (2024) IEEE TAES - typically 3-5 candidates
+
+# Action Selection Configuration
+# SOURCE: D2 Integration Phase 1 - Weighted Combination Strategy
+# NORMALIZATION: Min-Max Normalization (Academic Standard)
+# REFERENCE: MDPI Electronics 2022 "Two-Step Handover Strategy for GEO/LEO Networks"
+# REFERENCE: IEEE Multi-Attribute Decision Making (MADM) for LEO Satellite Handover
+action_selection:
+  strategy: "weighted_combination"  # Options: "weighted_combination", "sequential_priority"
+
+  # Weighted Combination Parameters
+  # NORMALIZATION METHOD: Min-Max normalization to [0, 1] before weighting
+  #   Formula: normalized = (value - min) / (max - min)
+  #   Applied separately to RSRP and Distance for each decision instance
+  weights:
+    rsrp: 0.4       # A4 event weight (signal quality)
+    distance: 0.6   # D2 event weight (geometric proximity)
+    # MODIFIED: Adjusted from Badini et al. (2024) to enable D2 independent decisions
+    # ORIGINAL: rsrp:0.6, distance:0.4 (from IEEE TAES paper)
+    # RATIONALE FOR ADJUSTMENT:
+    #   - 0.4 RSRP: Maintain QoS baseline while reducing A4 dominance
+    #   - 0.6 Distance: Enable D2-only candidates to win against A4 candidates
+    #   - LEO networks: Distance is strong predictor of future signal quality
+    #   - 3GPP TR 38.821 Section 6.4.2: High-speed mobility (7.5 km/s) favors predictive handover
+    # ACADEMIC JUSTIFICATION:
+    #   - Weights applied AFTER Min-Max normalization (both metrics in [0,1])
+    #   - Follows Multi-Attribute Decision Making (MADM) standard practice
+    #   - Allows D2-only candidates (no A4 event) to achieve competitive scores
+    #   - Maximum D2-only score: 0×0.4 + 1.0×0.6 = 0.6 (can beat average A4)
+
+  thresholds:
+    min_score: 0.3  # Minimum combined score for handover (after normalization)
+    # ADJUSTED: Lowered from 0.5 to allow more handovers with adjusted weights
+    # RATIONALE: Score in [0, 1] after Min-Max normalization
+    #   - 0.3 = moderate threshold (30th percentile)
+    #   - With 0.4/0.6 weights, allows candidates with good distance scores to trigger handover
+    #   - Prevents unnecessary handovers when marginal benefit < 30%
+
+# Reward Function Configuration
+reward_function:
+  # Reward weights (must sum to 1.0)
+  # SOURCE: Badini et al. (2024) IEEE TAES, Section III.C, Equation (5)
+  weight_qos: 0.5           # QoS satisfaction weight
+  weight_signal: 0.3        # Signal quality weight
+  weight_handover: 0.2      # Handover cost weight
+
+  # QoS Thresholds (RSRP, dBm)
+  # SOURCE: 3GPP TS 38.133 Section 10.1.16
+  qos_rsrp_thresholds:
+    voip: -95.0         # VoIP requires high signal quality
+    video: -100.0       # Video requires medium signal quality
+    iot: -110.0         # IoT tolerates lower signal quality
+    best_effort: -105.0 # Best effort medium threshold
+
+  # QoS Thresholds (SNR, dB)
+  # SOURCE: 3GPP TS 38.101-1 v18.0.0 Table 8.1.2.1-1
+  qos_snr_thresholds:
+    voip: 0.0           # SNR > 0 dB
+    video: 3.0          # SNR > 3 dB
+    iot: -3.0           # SNR > -3 dB
+    best_effort: 0.0    # SNR > 0 dB
+
+  # Signal Quality Normalization Ranges
+  # SOURCE: 3GPP TS 38.215 v18.1.0 - RSRP measurement range
+  rsrp_range:
+    min: -140.0         # Minimum RSRP (dBm)
+    max: -40.0          # Maximum RSRP (dBm)
+
+  # SOURCE: 3GPP TS 38.101-1 v18.0.0 - typical SNR range
+  snr_range:
+    min: -10.0          # Minimum SNR (dB)
+    max: 30.0           # Maximum SNR (dB)
+
+  # Handover Parameters
+  # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.4
+  handover_base_cost: 0.2       # Base handover cost
+  unnecessary_penalty: 0.3      # Additional penalty for unnecessary handovers
+  hysteresis_db: 3.0            # Hysteresis to prevent ping-pong (dB)
+
+# Dataset Split Configuration
+dataset_split:
+  train_ratio: 0.7      # 70% for training
+  val_ratio: 0.15       # 15% for validation
+  test_ratio: 0.15      # 15% for testing
+  random_seed: 42       # For reproducibility
+
+# HDF5 Compression
+hdf5:
+  compression: "gzip"
+  compression_opts: 4   # Compression level (1-9, higher = more compression)
+
+# Logging
+logging:
+  level: "INFO"         # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  save_to_file: true
+  log_dir: "logs/ml_data_generator"
+
+# Quality Checks
+quality_checks:
+  min_transitions_per_file: 10          # Minimum transitions to generate per file
+  max_missing_candidates_ratio: 0.5     # Max ratio of states with < max_candidates
+  min_reward_diversity: 0.1             # Min reward standard deviation

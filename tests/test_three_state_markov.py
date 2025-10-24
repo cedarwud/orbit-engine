@@ -100,12 +100,12 @@ class TestThreeStateMarkovModel(unittest.TestCase):
 
     def test_transition_matrix_shape(self):
         """測試轉換矩陣形狀"""
-        P = self.model.get_transition_matrix(elevation_deg=45.0)
+        P = self.model.adjust_for_elevation(elevation_deg=45.0)
         self.assertEqual(P.shape, (3, 3))
 
     def test_transition_matrix_rows_sum_to_one(self):
         """測試轉換矩陣每行總和為 1"""
-        P = self.model.get_transition_matrix(elevation_deg=45.0)
+        P = self.model.adjust_for_elevation(elevation_deg=45.0)
         for i in range(3):
             row_sum = sum(P[i, :])
             self.assertAlmostEqual(row_sum, 1.0, places=10,
@@ -114,8 +114,8 @@ class TestThreeStateMarkovModel(unittest.TestCase):
     def test_elevation_adjustment(self):
         """測試仰角調整效果"""
         # 高仰角應該有更高的 LOS 機率
-        P_low = self.model.get_transition_matrix(elevation_deg=10.0)
-        P_high = self.model.get_transition_matrix(elevation_deg=80.0)
+        P_low = self.model.adjust_for_elevation(elevation_deg=10.0)
+        P_high = self.model.adjust_for_elevation(elevation_deg=80.0)
 
         # 從 LOS 狀態：高仰角應該有更高的 P_LL
         # （因為高仰角路徑更短，障礙物更少）
@@ -189,19 +189,27 @@ class TestThreeStateMarkovModel(unittest.TestCase):
 
     def test_expected_dwell_time(self):
         """測試預期停留時間計算"""
-        dwell_times = self.model.get_expected_dwell_time(elevation_deg=45.0)
+        # 計算每個狀態的預期停留時間
+        dwell_time_los = self.model.get_expected_state_duration(
+            PropagationState.LOS, elevation_deg=45.0
+        )
+        dwell_time_shadowed = self.model.get_expected_state_duration(
+            PropagationState.SHADOWED, elevation_deg=45.0
+        )
+        dwell_time_blocked = self.model.get_expected_state_duration(
+            PropagationState.BLOCKED, elevation_deg=45.0
+        )
 
-        # 檢查形狀
-        self.assertEqual(len(dwell_times), 3)
-
-        # 所有停留時間應該 >= 1（至少停留一個時間步）
-        for time in dwell_times:
-            self.assertGreaterEqual(time, 1.0,
-                                   msg="Dwell time should be at least 1")
+        # 所有停留時間應該 > 0
+        self.assertGreater(dwell_time_los, 0.0, "LOS dwell time should be positive")
+        self.assertGreater(dwell_time_shadowed, 0.0, "Shadowed dwell time should be positive")
+        self.assertGreater(dwell_time_blocked, 0.0, "Blocked dwell time should be positive")
 
         # LOS 狀態應該有最長的停留時間（因為 P_LL = 0.95）
-        self.assertEqual(dwell_times[0], max(dwell_times),
-                        msg="LOS should have longest expected dwell time")
+        self.assertGreater(dwell_time_los, dwell_time_shadowed,
+                          msg="LOS should have longer dwell time than Shadowed")
+        self.assertGreater(dwell_time_los, dwell_time_blocked,
+                          msg="LOS should have longer dwell time than Blocked")
 
     def test_elevation_adjustment_disabled(self):
         """測試停用仰角調整"""
@@ -209,8 +217,8 @@ class TestThreeStateMarkovModel(unittest.TestCase):
         model_no_adj = ThreeStateMarkovModel(config_no_adj, self.logger)
 
         # 不同仰角應該產生相同的轉換矩陣
-        P_low = model_no_adj.get_transition_matrix(elevation_deg=10.0)
-        P_high = model_no_adj.get_transition_matrix(elevation_deg=80.0)
+        P_low = model_no_adj.adjust_for_elevation(elevation_deg=10.0)
+        P_high = model_no_adj.adjust_for_elevation(elevation_deg=80.0)
 
         import numpy as np
         np.testing.assert_array_almost_equal(P_low, P_high,
@@ -230,7 +238,7 @@ class TestMarkovModelEdgeCases(unittest.TestCase):
         model = ThreeStateMarkovModel(config, self.logger)
 
         # 應該不會崩潰
-        P = model.get_transition_matrix(elevation_deg=0.1)
+        P = model.adjust_for_elevation(elevation_deg=0.1)
         self.assertEqual(P.shape, (3, 3))
 
     def test_extreme_high_elevation(self):
@@ -239,7 +247,7 @@ class TestMarkovModelEdgeCases(unittest.TestCase):
         model = ThreeStateMarkovModel(config, self.logger)
 
         # 應該不會崩潰
-        P = model.get_transition_matrix(elevation_deg=89.9)
+        P = model.adjust_for_elevation(elevation_deg=89.9)
         self.assertEqual(P.shape, (3, 3))
 
     def test_negative_elevation(self):
@@ -248,7 +256,7 @@ class TestMarkovModelEdgeCases(unittest.TestCase):
         model = ThreeStateMarkovModel(config, self.logger)
 
         # 應該不會崩潰
-        P = model.get_transition_matrix(elevation_deg=-10.0)
+        P = model.adjust_for_elevation(elevation_deg=-10.0)
         self.assertEqual(P.shape, (3, 3))
 
 

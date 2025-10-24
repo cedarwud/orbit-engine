@@ -57,7 +57,44 @@
 - **[handover-rl 項目](../../handover-rl/)** - RL 訓練框架（讀取 orbit-engine Stage 4-6 輸出）
 - **訓練數據**: orbit-engine 產生的優化池（~100 顆衛星）用於 RL 環境
 
-### 🐛 問題修復記錄（歸檔）
+### 📦 歷史文檔歸檔
+
+#### 架構分析歸檔（2025-10-24）
+- **[Architecture Analysis Archive](archive/architecture_analysis_2025/)** - 代碼庫結構詳細分析（8 個文件，150KB，5,377 行）
+  - 記錄 103 個 Python 文件的使用狀態分析（97.1% 使用率）
+  - 包含執行流程、階段詳細、驗證系統、支援模組等詳細分析
+  - 歷史快照價值，日常開發請參考 `architecture/README.md` + `architecture/00_OVERVIEW.md`
+
+#### 已完成提案歸檔（2025-10-24）
+- **[Completed Proposals Archive](archive/proposals_completed/)** - 已完成並實施的提案文檔（3 個提案，37 個文件，628KB）
+  - **[Proposal 001: Stage 4 軌道面多樣性](archive/proposals_completed/001-stage4-orbital-diversity/)** (7 個文件，96KB)
+    - ✅ 已實現但未啟用（文獻研究不支持）
+    - Stage 4: 軌道面多樣性篩選邏輯
+  - **[Proposal 002: 訓練數據多樣性增強](archive/proposals_completed/002-training-data-diversity-enhancement/)** (15 個文件，280KB)
+    - ✅ 已完成 (2025-10-22)，功能預設禁用 (`scenario_diversity.enabled = false`)
+    - Stage 5: 動態傳播條件（三態 Markov + Loo 通道）
+    - Stage 6: 流量類型多樣性 + 衛星負載多樣性
+  - **[Proposal 003: RL Training Pipeline](archive/proposals_completed/003-rl-training-pipeline-evaluation/)** (15 個文件，252KB)
+    - ✅ 已完成 (2025-10-23)，4 階段全部完成
+    - ML Data Generator + DQN Baseline + Training Pipeline + Evaluation Framework
+
+#### 文檔清理報告歸檔（2025-10-24）
+- **[Cleanup Reports](archive/cleanup_reports/2025-10-24/)** - 兩輪文檔整理報告（4 個文件，17.6KB）
+  - DOCUMENTATION_CLEANUP_RECOMMENDATIONS.md - 第一輪分析
+  - DOCUMENTATION_DEEP_CLEANUP_ROUND2.md - 第二輪深度分析
+  - 清理效益: 86 → 35 個活躍文檔 (-59.3%)
+
+#### 廢棄文檔歸檔（2025-10-24）
+- **[Deprecated Archive](archive/deprecated/)** - 已廢棄但保留的文檔
+  - proposal_003_v1_deprecated.md (30KB) - Proposal 003 舊版（已被結構化文檔取代）
+
+#### D2 事件調查歸檔（2025-10-24）
+- **[D2 Investigation Archive](archive/investigations/D2/)** - D2 事件整合的早期調查文件
+  - D2_INVESTIGATION_COMPLETE_SUMMARY.md - 完整調查總結
+  - D2_TEMPORAL_ANALYSIS_FINDINGS.md - 時間序列分析結果
+  - 當前主文檔：[D2 Integration](development_plans/d2_integration/README.md)
+
+#### 問題修復記錄歸檔
 - **[RSRP 截斷問題審查](archive/fixes/CODE_REVIEW_RSRP_CLIPPING_BUGS.md)** - 信號計算修復記錄
 - **[RSRP 修復摘要](archive/fixes/FIX_SUMMARY_RSRP_CLIPPING.md)** - 問題分析與解決方案
 - **[TLE 數據遷移完成](archive/migrations/MIGRATION_COMPLETE.md)** - 2025-10-20 遷移記錄
@@ -107,10 +144,31 @@
 ---
 
 **文檔版本**: v3.0
-**最後更新**: 2025-10-21 (更新 RL 訓練支援與閾值配置)
+**最後更新**: 2025-10-24 (文檔深度清理 - 第二輪優化)
 **維護狀態**: ✅ 當前版本，積極維護
 
 ## 📋 最近更新
+
+### 2025-10-24 - 文檔深度清理（兩輪優化完成）
+**第一輪（保守歸檔）**:
+- ✅ 修正 Proposal 002 狀態標記（規劃中 → 已完成但禁用）
+- ✅ 歸檔架構分析文檔（8 個文件，150KB）至 `archive/architecture_analysis_2025/`
+- ✅ 歸檔已完成 Proposal 002（15 個文件，280KB）至 `archive/proposals_completed/`
+- ✅ 結果：86 → 58 個活躍文檔 (-27.5%)
+
+**第二輪（深度清理）**:
+- ✅ 修正 Proposal 003 狀態矛盾（README 說規劃中，實際全部完成）
+- ✅ 歸檔 Proposal 001（7 個文件，96KB）- 已實現但未啟用
+- ✅ 歸檔 Proposal 003（15 個文件，252KB）- 4 階段全部完成
+- ✅ 歸檔臨時清理報告（4 個文件，17.6KB）至 `archive/cleanup_reports/`
+- ✅ 歸檔廢棄文檔（1 個文件，30KB）至 `archive/deprecated/`
+- ✅ 結果：58 → 35 個活躍文檔 (-39.7%)
+
+**總效益**:
+- **活躍文檔**: 86 → 35 個 **(-59.3%)**
+- **歸檔文檔**: 6 → 56 個 (+833%)
+- **Proposals 主目錄**: 3 個 → 0 個（全部已完成歸檔）
+- **清理報告**: 已歸檔至 `archive/cleanup_reports/2025-10-24/`
 
 ### 2025-10-21 - 數據驅動閾值與 RL 訓練支援
 - ✅ 更新 Stage 6 文檔閾值（A4/A5 基於 48,000+ 樣本統計）

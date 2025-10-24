@@ -27,6 +27,7 @@ Created: 2025-09-30
 import logging
 import json
 import time
+import os
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
@@ -66,6 +67,16 @@ from .stage6_input_output_validator import Stage6InputOutputValidator
 from .stage6_validation_framework import Stage6ValidationFramework
 from .stage6_academic_compliance import Stage6AcademicComplianceChecker
 from .stage6_snapshot_manager import Stage6SnapshotManager
+
+# 導入場景多樣性模組 (Proposal 002 Phase 2)
+try:
+    from .traffic_profile_generator import create_default_traffic_generator
+    from .satellite_load_simulator import create_default_load_simulator
+    from .scenario_variant_generator import ScenarioVariantGenerator
+    SCENARIO_DIVERSITY_AVAILABLE = True
+except ImportError:
+    SCENARIO_DIVERSITY_AVAILABLE = False
+    logging.warning("場景多樣性模組未找到（Proposal 002 Phase 2）")
 
 logger = logging.getLogger(__name__)
 
@@ -150,13 +161,48 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
         self.academic_compliance_checker = Stage6AcademicComplianceChecker(logger=self.logger)
         self.snapshot_manager = Stage6SnapshotManager(logger=self.logger)
 
+        # 初始化場景多樣性模組（Proposal 002 Phase 2）
+        # 這是一個可選功能，默認禁用以保持向後兼容性
+        self.scenario_diversity_enabled = False
+        self.variant_generator = None
+
+        if SCENARIO_DIVERSITY_AVAILABLE and config:
+            scenario_diversity_config = config.get('scenario_diversity', {})
+            self.scenario_diversity_enabled = scenario_diversity_config.get('enabled', False)
+
+            if self.scenario_diversity_enabled:
+                try:
+                    # 創建流量生成器
+                    traffic_gen = create_default_traffic_generator(self.logger)
+
+                    # 創建負載模擬器
+                    load_sim = create_default_load_simulator(self.logger)
+
+                    # 創建場景變體生成器
+                    variant_config = scenario_diversity_config.get('scenario_generation', {})
+                    self.variant_generator = ScenarioVariantGenerator(
+                        traffic_gen, load_sim, variant_config, self.logger
+                    )
+
+                    self.logger.info("✅ 場景多樣性模組初始化成功（Proposal 002 Phase 2）")
+                    self.logger.info(f"   預期變體數: {self.variant_generator.expected_variants_per_sample} 個/樣本")
+                except Exception as e:
+                    self.logger.error(f"❌ 場景多樣性模組初始化失敗: {e}")
+                    self.scenario_diversity_enabled = False
+            else:
+                self.logger.info("ℹ️  場景多樣性功能已禁用（scenario_diversity.enabled=false）")
+        else:
+            if not SCENARIO_DIVERSITY_AVAILABLE:
+                self.logger.info("ℹ️  場景多樣性模組不可用（Proposal 002 Phase 2 未實現）")
+
         # 處理統計
         self.processing_stats = {
             'total_events_detected': 0,
             'handover_decisions': 0,
             'ml_training_samples': 0,
             'pool_verification_passed': False,
-            'decision_support_calls': 0
+            'decision_support_calls': 0,
+            'scenario_variants_generated': 0  # 新增場景變體統計
         }
 
         self.logger.info("🤖 Stage 6 研究數據生成與優化處理器初始化完成")
@@ -236,6 +282,9 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
         # Step 3: ML 訓練數據生成
         ml_training_data = self._generate_ml_training_data(input_data, gpp_events)
 
+        # Step 3.5: 場景變體生成（Proposal 002 Phase 2 - 可選功能）
+        scenario_variants = self._generate_scenario_variants(input_data)
+
         # Step 4: 實時決策支援
         decision_support_result = self._provide_decision_support(input_data, gpp_events)
 
@@ -245,7 +294,8 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
             gpp_events,
             pool_verification,
             ml_training_data,
-            decision_support_result
+            decision_support_result,
+            scenario_variants  # 傳遞場景變體結果
         )
 
         # Step 6: 執行驗證框架 (使用新模組)
@@ -480,6 +530,135 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
             'dataset_summary': {'total_samples': 0}
         }
 
+    def _generate_scenario_variants(self, input_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """生成場景變體以增強訓練數據多樣性
+
+        這是 Proposal 002 Phase 2 的核心功能，為每個訓練樣本生成多個場景變體：
+        - 不同流量類型（VoIP, Video, IoT, BestEffort）
+        - 不同負載模式（Uniform, Concentrated, Dynamic）
+        - Cartesian product 策略確保覆蓋所有組合
+
+        學術依據:
+        - Badini et al. (2024) IEEE TAES - 多流量類型訓練策略
+        - He et al. (2021) IEEE ICC - 負載感知換手優化
+
+        Args:
+            input_data: Stage 5 輸出數據，包含 signal_analysis 和 connectable_satellites
+
+        Returns:
+            場景變體生成結果，如果功能禁用則返回 None
+        """
+        # 檢查功能是否啟用
+        if not self.scenario_diversity_enabled or self.variant_generator is None:
+            self.logger.debug("場景多樣性功能未啟用，跳過變體生成")
+            return None
+
+        self.logger.info("🎲 開始生成場景變體（Proposal 002 Phase 2）...")
+
+        try:
+            # 提取基礎樣本ID（從 metadata 或使用時間戳）
+            metadata = input_data.get('metadata', {})
+            timestamp = metadata.get('processing_timestamp', datetime.now(timezone.utc).isoformat())
+            # 從 ISO 時間戳提取簡短ID
+            base_sample_id = timestamp.replace(':', '').replace('-', '').replace('.', '')[:15]
+
+            # 從 connectable_satellites 提取可見衛星列表
+            connectable_satellites = input_data.get('connectable_satellites', {})
+
+            if not connectable_satellites:
+                self.logger.warning("⚠️ connectable_satellites 為空，無法生成場景變體")
+                return {
+                    'enabled': True,
+                    'generated': False,
+                    'error': 'No connectable satellites available',
+                    'variants': []
+                }
+
+            # 收集所有星座的可見衛星
+            all_satellite_ids = []
+
+            # Starlink 衛星
+            starlink_data = connectable_satellites.get('starlink', {})
+            if isinstance(starlink_data, dict):
+                # 可能有 time_series 結構
+                time_series = starlink_data.get('time_series', [])
+                if time_series:
+                    # 使用最新時間點的衛星
+                    latest_point = time_series[-1]
+                    starlink_satellites = latest_point.get('satellites', [])
+                    all_satellite_ids.extend(starlink_satellites)
+                else:
+                    # 直接是衛星列表
+                    starlink_satellites = starlink_data.get('satellites', [])
+                    if isinstance(starlink_satellites, list):
+                        all_satellite_ids.extend(starlink_satellites)
+
+            # OneWeb 衛星
+            oneweb_data = connectable_satellites.get('oneweb', {})
+            if isinstance(oneweb_data, dict):
+                time_series = oneweb_data.get('time_series', [])
+                if time_series:
+                    latest_point = time_series[-1]
+                    oneweb_satellites = latest_point.get('satellites', [])
+                    all_satellite_ids.extend(oneweb_satellites)
+                else:
+                    oneweb_satellites = oneweb_data.get('satellites', [])
+                    if isinstance(oneweb_satellites, list):
+                        all_satellite_ids.extend(oneweb_satellites)
+
+            if not all_satellite_ids:
+                self.logger.warning("⚠️ 無法提取可見衛星ID列表")
+                return {
+                    'enabled': True,
+                    'generated': False,
+                    'error': 'No satellite IDs extracted from connectable_satellites',
+                    'variants': []
+                }
+
+            # 生成場景變體
+            variants = self.variant_generator.generate_variants(
+                base_sample_id=base_sample_id,
+                satellite_ids=all_satellite_ids,
+                timestamp_index=0  # 使用第一個時間點索引
+            )
+
+            # 驗證覆蓋率
+            is_valid = self.variant_generator.validate_variant_coverage(variants)
+
+            # 獲取統計信息
+            stats = self.variant_generator.get_variant_statistics(variants)
+
+            # 更新處理統計
+            self.processing_stats['scenario_variants_generated'] = len(variants)
+
+            self.logger.info(
+                f"✅ 場景變體生成完成: {len(variants)} 個變體 "
+                f"(流量類型: {len(stats['traffic_type_counts'])}, "
+                f"負載模式: {len(stats['load_pattern_counts'])})"
+            )
+
+            if not is_valid:
+                self.logger.warning("⚠️ 場景變體覆蓋率驗證失敗")
+
+            return {
+                'enabled': True,
+                'generated': True,
+                'base_sample_id': base_sample_id,
+                'total_variants': len(variants),
+                'coverage_valid': is_valid,
+                'statistics': stats,
+                'variants': [v.to_dict() for v in variants]
+            }
+
+        except Exception as e:
+            self.logger.error(f"❌ 場景變體生成失敗: {e}", exc_info=True)
+            return {
+                'enabled': True,
+                'generated': False,
+                'error': str(e),
+                'variants': []
+            }
+
     def _extract_latest_snapshot(self, satellite_id: str, sat_data: Dict[str, Any]) -> Dict[str, Any]:
         """從 time_series 提取最新時間點的詳細數據快照
 
@@ -709,11 +888,15 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
                            gpp_events: Dict[str, Any],
                            pool_verification: Dict[str, Any],
                            ml_training_data: Dict[str, Any],
-                           decision_support: Dict[str, Any]) -> Dict[str, Any]:
+                           decision_support: Dict[str, Any],
+                           scenario_variants: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """構建 Stage 6 標準化輸出
 
         依据: stage6-research-optimization.md Lines 256-265, 707-711
         必须传递 constellation_configs 和学术标准合规标记
+
+        Args:
+            scenario_variants: 場景變體生成結果（Proposal 002 Phase 2）
         """
 
         # 🚨 P1: 确保 constellation_configs 正确传递
@@ -781,6 +964,7 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
 
         stage6_output = {
             'stage': 'stage6_research_optimization',
+            'signal_analysis': original_data.get('signal_analysis', {}),  # FIXED: Preserve for ML Data Generator (Proposal 003)
             'gpp_events': gpp_events,
             'pool_verification': pool_verification,
             'ml_training_data': ml_training_data,
@@ -788,12 +972,21 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
             'metadata': stage6_metadata
         }
 
+        # 添加場景變體（如果已生成）
+        if scenario_variants is not None:
+            stage6_output['scenario_variants'] = scenario_variants
+            # 更新 metadata 包含場景變體統計
+            stage6_metadata['scenario_variants_generated'] = self.processing_stats['scenario_variants_generated']
+            stage6_metadata['scenario_diversity_enabled'] = self.scenario_diversity_enabled
+
         # 記錄處理結果
         self.logger.info(f"📊 Stage 6 處理統計:")
         self.logger.info(f"   3GPP 事件: {self.processing_stats['total_events_detected']} 個")
         self.logger.info(f"   ML 樣本: {self.processing_stats['ml_training_samples']} 個")
         self.logger.info(f"   池驗證: {'通過' if self.processing_stats['pool_verification_passed'] else '失敗'}")
         self.logger.info(f"   決策支援調用: {self.processing_stats['decision_support_calls']} 次")
+        if scenario_variants:
+            self.logger.info(f"   場景變體: {self.processing_stats['scenario_variants_generated']} 個")
         self.logger.info(f"   學術標準: Grade_A (3GPP✓, ML✓, Real-time✓)")
 
         return stage6_output
@@ -826,7 +1019,7 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
         return self.snapshot_manager.save_validation_snapshot(processing_results, validation_results)
 
     def save_results(self, results: Dict[str, Any]) -> str:
-        """保存處理結果到文件
+        """保存處理結果到文件（支持 elite_pool / candidate_pool 區分）
 
         Args:
             results: Stage 6 處理結果
@@ -839,7 +1032,13 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
         """
         try:
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-            output_file = self.output_dir / f"stage6_research_optimization_{timestamp}.json"
+
+            # 根據環境變數決定檔名後綴
+            # SOURCE: Proposal 003 - RL Training Data vs Frontend Demo Data separation
+            use_candidate_pool = os.getenv('ORBIT_ENGINE_STAGE5_USE_CANDIDATE_POOL', 'false').lower() == 'true'
+            pool_suffix = "_candidate_pool" if use_candidate_pool else "_elite_pool"
+
+            output_file = self.output_dir / f"stage6_research_optimization{pool_suffix}_{timestamp}.json"
 
             # 確保輸出目錄存在
             self.output_dir.mkdir(parents=True, exist_ok=True)

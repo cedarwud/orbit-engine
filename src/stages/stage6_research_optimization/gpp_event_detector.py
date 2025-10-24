@@ -142,15 +142,15 @@ class GPPEventDetector:
             if len(neighbors) == 0:
                 continue
 
-            # 檢測該時間點的所有事件類型
-            a3_events_at_t = self.detect_a3_events(serving_sat, neighbors)
-            a4_events_at_t = self.detect_a4_events(serving_sat, neighbors)
+            # 檢測該時間點的所有事件類型（傳遞TLE epoch timestamp）
+            a3_events_at_t = self.detect_a3_events(serving_sat, neighbors, timestamp)
+            a4_events_at_t = self.detect_a4_events(serving_sat, neighbors, timestamp)
 
             # ⚠️ A5 特殊處理 (2025-10-10)
             # 問題: 中位數服務衛星 (RSRP ≈ -36 dBm) 不會滿足 A5 條件1 (RSRP < -43 dBm)
             # 解決: 額外檢測信號較差的衛星作為服務衛星的 A5 事件
             # 學術依據: A5 設計用於檢測「服務衛星劣化」場景，應允許檢測所有可能的劣化衛星
-            a5_events_at_t = self.detect_a5_events(serving_sat, neighbors)
+            a5_events_at_t = self.detect_a5_events(serving_sat, neighbors, timestamp)
 
             # 額外 A5 檢測: 嘗試信號較差的衛星作為服務衛星
             # 策略: 選擇 RSRP < 25th percentile 的衛星作為備選服務衛星
@@ -167,10 +167,10 @@ class GPPEventDetector:
                     poor_neighbors = [s for s in visible_satellites
                                     if s['satellite_id'] != poor_sat['satellite_id']]
                     if len(poor_neighbors) > 0:
-                        additional_a5 = self.detect_a5_events(poor_sat, poor_neighbors)
+                        additional_a5 = self.detect_a5_events(poor_sat, poor_neighbors, timestamp)
                         a5_events_at_t.extend(additional_a5)
 
-            d2_events_at_t = self.detect_d2_events(serving_sat, neighbors)
+            d2_events_at_t = self.detect_d2_events(serving_sat, neighbors, timestamp)
 
             # 累加事件
             all_a3_events.extend(a3_events_at_t)
@@ -233,7 +233,8 @@ class GPPEventDetector:
     def detect_a3_events(
         self,
         serving_satellite: Dict[str, Any],
-        neighbor_satellites: List[Dict[str, Any]]
+        neighbor_satellites: List[Dict[str, Any]],
+        actual_timestamp: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """檢測 A3 事件: 鄰近衛星變得優於服務衛星加偏移
 
@@ -313,7 +314,7 @@ class GPPEventDetector:
                 a3_event = {
                     'event_type': 'A3',
                     'event_id': f"A3_{neighbor['satellite_id']}_{int(time.time() * 1000)}",
-                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                    'timestamp': actual_timestamp or datetime.now(timezone.utc).isoformat(),  # FIXED: Use TLE epoch time
                     'serving_satellite': serving_satellite['satellite_id'],
                     'neighbor_satellite': neighbor['satellite_id'],
                     'measurements': {
@@ -346,7 +347,8 @@ class GPPEventDetector:
     def detect_a4_events(
         self,
         serving_satellite: Dict[str, Any],
-        neighbor_satellites: List[Dict[str, Any]]
+        neighbor_satellites: List[Dict[str, Any]],
+        actual_timestamp: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """檢測 A4 事件: 鄰近衛星變得優於門檻值
 
@@ -385,7 +387,7 @@ class GPPEventDetector:
                 a4_event = {
                     'event_type': 'A4',
                     'event_id': f"A4_{neighbor['satellite_id']}_{int(time.time() * 1000)}",
-                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                    'timestamp': actual_timestamp or datetime.now(timezone.utc).isoformat(),  # FIXED: Use TLE epoch time
                     'serving_satellite': serving_satellite['satellite_id'],
                     'neighbor_satellite': neighbor['satellite_id'],
                     'measurements': {
@@ -409,7 +411,8 @@ class GPPEventDetector:
     def detect_a5_events(
         self,
         serving_satellite: Dict[str, Any],
-        neighbor_satellites: List[Dict[str, Any]]
+        neighbor_satellites: List[Dict[str, Any]],
+        actual_timestamp: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """檢測 A5 事件: 服務衛星劣化且鄰近衛星良好
 
@@ -461,7 +464,7 @@ class GPPEventDetector:
                 a5_event = {
                     'event_type': 'A5',
                     'event_id': f"A5_{neighbor['satellite_id']}_{int(time.time() * 1000)}",
-                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                    'timestamp': actual_timestamp or datetime.now(timezone.utc).isoformat(),  # FIXED: Use TLE epoch time
                     'serving_satellite': serving_satellite['satellite_id'],
                     'neighbor_satellite': neighbor['satellite_id'],
                     'measurements': {
@@ -493,7 +496,8 @@ class GPPEventDetector:
     def detect_d2_events(
         self,
         serving_satellite: Dict[str, Any],
-        neighbor_satellites: List[Dict[str, Any]]
+        neighbor_satellites: List[Dict[str, Any]],
+        actual_timestamp: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """檢測 D2 事件: 基於 2D 地面距離的換手觸發
 
@@ -628,7 +632,7 @@ class GPPEventDetector:
                 d2_event = {
                     'event_type': 'D2',
                     'event_id': f"D2_{neighbor['satellite_id']}_{int(time.time() * 1000)}",
-                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                    'timestamp': actual_timestamp or datetime.now(timezone.utc).isoformat(),  # FIXED: Use TLE epoch time
                     'serving_satellite': serving_satellite['satellite_id'],
                     'neighbor_satellite': neighbor['satellite_id'],
                     'measurements': {
@@ -1171,7 +1175,46 @@ class GPPEventDetector:
         }
 
         if config:
-            default_config.update(config)
+            # Handle nested config structure from YAML (gpp_events.a4.rsrp_threshold_dbm)
+            if 'gpp_events' in config:
+                gpp_config = config['gpp_events']
+
+                # Extract A3 config
+                if 'a3' in gpp_config:
+                    a3_config = gpp_config['a3']
+                    if 'offset_db' in a3_config:
+                        default_config['a3_offset_db'] = a3_config['offset_db']
+                    if 'time_to_trigger_ms' in a3_config:
+                        default_config['time_to_trigger_ms'] = a3_config['time_to_trigger_ms']
+
+                # Extract A4 config (CRITICAL FIX)
+                if 'a4' in gpp_config:
+                    a4_config = gpp_config['a4']
+                    if 'rsrp_threshold_dbm' in a4_config:
+                        default_config['a4_threshold_dbm'] = a4_config['rsrp_threshold_dbm']
+                    if 'hysteresis_db' in a4_config:
+                        default_config['hysteresis_db'] = a4_config['hysteresis_db']
+                    if 'time_to_trigger_ms' in a4_config:
+                        default_config['time_to_trigger_ms'] = a4_config['time_to_trigger_ms']
+
+                # Extract A5 config
+                if 'a5' in gpp_config:
+                    a5_config = gpp_config['a5']
+                    if 'rsrp_threshold1_dbm' in a5_config:
+                        default_config['a5_threshold1_dbm'] = a5_config['rsrp_threshold1_dbm']
+                    if 'rsrp_threshold2_dbm' in a5_config:
+                        default_config['a5_threshold2_dbm'] = a5_config['rsrp_threshold2_dbm']
+
+                # Extract D2 config
+                if 'd2' in gpp_config:
+                    d2_config = gpp_config['d2']
+                    if 'distance_threshold1_km' in d2_config:
+                        default_config['d2_threshold1_km'] = d2_config['distance_threshold1_km']
+                    if 'distance_threshold2_km' in d2_config:
+                        default_config['d2_threshold2_km'] = d2_config['distance_threshold2_km']
+            else:
+                # Flat config structure (backward compatibility)
+                default_config.update(config)
 
         return default_config
 

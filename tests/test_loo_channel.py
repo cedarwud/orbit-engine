@@ -233,16 +233,13 @@ class TestLooChannelModel(unittest.TestCase):
         )
         model = LooChannelModel(config, self.logger)
 
-        atten_low = model.compute_total_attenuation_db(
-            PropagationState.LOS, 10.0, 800.0
-        )
-        atten_high = model.compute_total_attenuation_db(
-            PropagationState.LOS, 80.0, 800.0
-        )
+        # 測試大氣衰減（確定性成分）而非總衰減（包含隨機成分）
+        atm_low = model.compute_atmospheric_attenuation_db(10.0)
+        atm_high = model.compute_atmospheric_attenuation_db(80.0)
 
-        # 低仰角應該有更高的衰減（大氣路徑更長）
-        self.assertGreater(atten_low, atten_high,
-                          "Lower elevation should have higher attenuation")
+        # 低仰角應該有更高的大氣衰減（大氣路徑更長）
+        self.assertGreater(atm_low, atm_high,
+                          "Lower elevation should have higher atmospheric attenuation")
 
     def test_state_effect_on_attenuation(self):
         """測試傳播狀態對衰減的影響"""

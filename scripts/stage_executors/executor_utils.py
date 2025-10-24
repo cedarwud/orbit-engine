@@ -60,19 +60,42 @@ def is_sampling_mode():
 
 def clean_stage_outputs(stage_number: int):
     """
-    清理指定階段的輸出檔案和驗證快照
+    清理指定階段的輸出檔案和驗證快照（選擇性清理，保留不同 pool 類型）
 
     Args:
         stage_number: 階段編號 (1-6)
+
+    NOTE: Stage 5/6 支援 elite_pool 和 candidate_pool 區分
+          只刪除與當前環境變數匹配的檔案，保留其他類型
     """
     try:
+        import os
+
         # 清理輸出目錄（使用動態路徑）
         output_dir = get_output_dir(stage_number)
         if output_dir.exists():
-            for file in output_dir.iterdir():
-                if file.is_file():
-                    file.unlink()
-            print(f"🗑️ 清理 Stage {stage_number} 輸出檔案")
+            # Stage 5/6: 選擇性清理（根據 pool 類型）
+            if stage_number in [5, 6]:
+                use_candidate_pool = os.getenv('ORBIT_ENGINE_STAGE5_USE_CANDIDATE_POOL', 'false').lower() == 'true'
+                pool_suffix = "_candidate_pool" if use_candidate_pool else "_elite_pool"
+
+                deleted_count = 0
+                for file in output_dir.iterdir():
+                    if file.is_file() and pool_suffix in file.name:
+                        file.unlink()
+                        deleted_count += 1
+
+                if deleted_count > 0:
+                    pool_type = "候選池" if use_candidate_pool else "精英池"
+                    print(f"🗑️ 清理 Stage {stage_number} {pool_type}輸出檔案 ({deleted_count} 個)")
+                else:
+                    print(f"ℹ️  Stage {stage_number} 無需清理（無匹配檔案）")
+            else:
+                # Stage 1-4: 清理所有檔案（不區分類型）
+                for file in output_dir.iterdir():
+                    if file.is_file():
+                        file.unlink()
+                print(f"🗑️ 清理 Stage {stage_number} 輸出檔案")
 
         # 清理驗證快照
         snapshot_path = Path(f'data/validation_snapshots/stage{stage_number}_validation.json')
