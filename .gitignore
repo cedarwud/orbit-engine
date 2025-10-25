@@ -60,6 +60,14 @@ data/logs/*.log
 *.bsp                            # Skyfield 星歷數據 (17MB+, 自動下載)
 data/ephemeris/*.bsp             # 明確忽略星歷數據檔案
 
+# 🧠 ML 訓練數據（由 orbit-engine 生成，handover-rl 使用）
+data/ml_training/*.h5            # HDF5 訓練數據集（可重新生成）
+data/ml_training/*.bak           # 備份檔案
+
+# 🤖 RL 訓練產物（不應存在於 orbit-engine，若誤生成則忽略）
+data/models/                     # 模型檔案（屬於 handover-rl）
+data/evaluation_reports/         # 評估報告（屬於 handover-rl）
+
 # 🐳 Docker
 .dockerignore
 

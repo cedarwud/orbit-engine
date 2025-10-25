@@ -1,5 +1,6 @@
 # 六階段處理系統核心依賴
-# 基於 netstack/requirements.txt 精簡版本
+# orbit-engine 專用（數據生成引擎）
+# 更新日期: 2025-10-25
 
 # 🚀 核心計算庫
 numpy>=1.24.0
@@ -7,25 +8,19 @@ scipy>=1.10.0
 pandas>=2.0.0
 
 # 🛰️ 天體力學與軌道計算
-# 核心套件組合 (2025-10-03 優化)
 skyfield>=1.45          # 官方 SGP4 Python 實現 (替代已棄用的 PyEphem)
 sgp4>=2.20              # Vallado SGP4/SDP4 標準實現
 astropy>=7.0.0          # 天文計算標準庫 (CODATA 2018/2022 物理常數 + 座標轉換)
-# poliastro>=0.17.0  # 學術級天體動力學庫 (MIT License, NASA 認可, 用於交叉驗證)
-                     # ⚠️ 兼容性限制: poliastro 最高支持 Python 3.10
-                     # 當前環境: Python 3.12 → 交叉驗證功能已設計為可選（優雅降級）
-                     # 如需啟用: 使用 Python 3.8-3.10 環境並取消此行註解
-
-# ❌ 已移除過時依賴 (2025-10-03):
-# pyephem>=4.1.0 - 已於 2019 年停止更新，Skyfield 是官方替代品 (同一作者開發)
+# poliastro>=0.17.0     # 學術級天體動力學庫 (MIT License, NASA 認可, 用於交叉驗證)
+                        # ⚠️ 兼容性限制: poliastro 最高支持 Python 3.10
+                        # 當前環境: Python 3.12 → 交叉驗證功能已設計為可選（優雅降級）
+                        # 如需啟用: 使用 Python 3.8-3.10 環境並取消此行註解
 
 # 📦 HDF5 科學數據格式（階段二/三高效數據儲存）
 h5py>=3.9.0
 
 # 📡 ITU-R 無線電傳播模型 (官方實現)
 # 用途: Stage 5 大氣衰減計算 (ITU-R P.676-13)
-# 更新日期: 2025-10-03
-# 說明: 替換自實現版本，採用 ITU-R 官方認可的參考實現
 # 來源: https://github.com/inigodelportillo/ITU-Rpy
 itur>=0.4.0
 
@@ -58,10 +53,11 @@ pytest-asyncio>=0.21.0
 pytest-mock>=3.11.0
 pytest-cov>=4.1.0                    # 測試覆蓋率
 pytest-benchmark>=4.0.0              # 性能基準測試
-pytest-bdd>=7.0.0                    # BDD 場景測試 (Phase 2)
+pytest-bdd>=7.0.0                    # BDD 場景測試
 pytest-html>=4.0.0                   # HTML 測試報告
 pytest-json-report>=1.5.0            # JSON 測試報告
-allure-pytest>=2.13.0                # 詳細測試報告 (Phase 2)
+pytest-xdist>=3.1.0                  # 並行測試執行
+allure-pytest>=2.13.0                # 詳細測試報告
 
 # 📈 日誌與監控
 structlog>=23.1.0
@@ -77,15 +73,11 @@ aiohttp>=3.8.0
 matplotlib>=3.7.0
 seaborn>=0.12.0
 
-# 🚀 階段二性能優化套件 (GPU加速 + CPU並行)
-# 注意：這些套件在無GPU環境下會自動降級到CPU實現，不會造成問題
+# 🚀 階段二性能優化套件 (JIT 編譯 + CPU 並行)
+# 注意：僅使用 CPU 加速，不使用 GPU
 
-# GPU計算庫 (可選，無GPU時自動使用CPU)
-cupy-cuda12x>=12.0.0; platform_machine=="x86_64"     # CUDA 12.x (主要)
-cupy-cuda11x>=11.0.0; platform_machine=="x86_64"     # CUDA 11.x (備選)
-
-# JIT編譯器 (CPU/GPU通用)
-numba>=0.58.0                       # 支援CPU和GPU加速
+# JIT 編譯器 (CPU 加速)
+numba>=0.58.0                       # 支援 CPU JIT 編譯加速
 
 # 並行處理增強
 multiprocessing-logging>=0.3.4      # 多進程日誌管理
@@ -95,42 +87,34 @@ memory-profiler>=0.60.0             # 記憶體使用分析
 line-profiler>=4.0.0                # 代碼性能分析
 py-spy>=0.3.14                      # 低開銷性能分析器
 
-# 測試增強 (新增)
-pytest-xdist>=3.1.0                 # 並行測試執行
+# 🎯 Stage 6: 多目標優化
+# 更新日期: 2025-10-25
+# 說明: 採用學術界標準套件，提升研究可信度
 
-# 🎯 Stage 6: 多目標優化與強化學習套件
-# 更新日期: 2025-10-03
-# 說明: 採用學術界標準套件替換自實現算法，提升研究可信度
-
-# 多目標優化框架 (替換自實現 NSGA-II)
+# 多目標優化框架
 # SOURCE: Blank & Deb (2020). "pymoo: Multi-Objective Optimization in Python"
 #         IEEE Access, vol. 8, pp. 89497-89509
 # 用途: Stage 6 衛星換手決策的帕累托最優解搜索
-# 學術價值: IEEE 認可標準實現，3000+ 引用，已用於 LEO 衛星星座優化研究
 pymoo>=0.6.1
 
-# 強化學習標準實現 (用於 ML 訓練數據驗證)
-# SOURCE: Raffin et al. (2021). "Stable-Baselines3: Reliable RL Implementations"
-#         Journal of Machine Learning Research, 22(268), 1-8
-# 用途: 驗證 Stage 6 生成的 DQN/PPO/SAC 訓練數據質量
-# 學術價值: 用業界標準庫驗證數據可訓練性，增強論文可信度
-stable-baselines3>=2.0.0
-
-# Gymnasium - OpenAI Gym 的官方後續版本
-# 用途: 創建自定義衛星換手環境，整合歷史數據進行驗證
-# 說明: Gym 已停止維護，Gymnasium 是官方推薦的替代品
-gymnasium>=0.29.0
-
-# PyTorch - 深度學習框架 (DQN 訓練必需)
-# SOURCE: Paszke et al. (2019). "PyTorch: An Imperative Style, High-Performance Deep Learning Library"
-#         NeurIPS 2019
-# 用途: Proposal 003 DQN 實現的核心框架
-torch>=2.0.0
-
-# TensorBoard - 訓練監控和視覺化
-# 用途: 記錄訓練指標 (Train/Reward, Train/Loss, Train/Epsilon, Val/Reward)
-tensorboard>=2.10.0
-
-# Tabulate - Markdown 表格生成 (評估報告需要)
-# 用途: 生成格式化的比較表格
-tabulate>=0.9.0
+# =============================================================================
+# 注意事項:
+# 1. ❌ 已移除 RL 訓練相關套件（屬於 handover-rl，不屬於 orbit-engine）
+#    - stable-baselines3（RL 訓練）
+#    - gymnasium（RL 環境）
+#    - torch（深度學習）
+#    - tensorboard（訓練監控）
+#    - tabulate（評估報告）
+#
+# 2. ❌ 已移除 GPU 加速套件（orbit-engine 不使用 GPU）
+#    - cupy-cuda11x
+#    - cupy-cuda12x
+#
+# 3. ✅ orbit-engine 職責：數據生成（六階段處理）
+#    - Stage 1-6: TLE → 軌道計算 → 信號分析 → 換手事件
+#    - 生成 HDF5 訓練數據供 handover-rl 使用
+#
+# 4. ✅ handover-rl 職責：RL 訓練
+#    - 使用 orbit-engine 生成的數據
+#    - 包含 torch, gymnasium, stable-baselines3 等
+# =============================================================================
