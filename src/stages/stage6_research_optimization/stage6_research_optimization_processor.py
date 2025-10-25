@@ -1034,7 +1034,9 @@ class Stage6ResearchOptimizationProcessor(BaseStageProcessor):
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
             # 根據環境變數決定檔名後綴
-            # SOURCE: Proposal 003 - RL Training Data vs Frontend Demo Data separation
+            # DEPRECATION NOTICE: 此檔名後綴功能將在未來版本移除
+            # - Elite Pool (129 顆) 適用於前端渲染和 RL 訓練
+            # - Candidate Pool (3,100 顆) 僅用於實驗對比
             use_candidate_pool = os.getenv('ORBIT_ENGINE_STAGE5_USE_CANDIDATE_POOL', 'false').lower() == 'true'
             pool_suffix = "_candidate_pool" if use_candidate_pool else "_elite_pool"
 

@@ -249,23 +249,28 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
     def _extract_satellite_data(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """提取衛星數據 - 使用 InputExtractor 模組
 
-        支援 RL 訓練模式：
+        支援實驗對比模式（已廢棄）：
         - 如果環境變數 ORBIT_ENGINE_STAGE5_USE_CANDIDATE_POOL=true
-        - 則使用候選池 (connectable_satellites_candidate) 而非優化池
+        - 則使用未優化的候選池 (connectable_satellites_candidate, 3,100 顆)
+        - 預設使用優化後的精英池 (connectable_satellites, 129 顆)
+
+        DEPRECATION NOTICE: 此功能將在未來版本移除
+        - 前端渲染和 RL 訓練都應使用 Elite Pool (129 顆)
+        - Candidate Pool 僅為 Stage 4 的中間產物
         """
         import os
 
-        # 檢查是否使用候選池（RL 訓練模式）
+        # 檢查是否使用候選池（實驗對比模式）
         use_candidate_pool = os.getenv('ORBIT_ENGINE_STAGE5_USE_CANDIDATE_POOL', 'false').lower() == 'true'
 
         if use_candidate_pool and 'connectable_satellites_candidate' in input_data:
-            self.logger.info("🎯 RL 訓練模式：使用候選池 (connectable_satellites_candidate)")
+            self.logger.info("🧪 實驗對比模式：使用未優化的候選池 (connectable_satellites_candidate, 3,100 顆)")
             # 創建修改後的 input_data，將候選池替換為主池
             input_data_modified = input_data.copy()
             input_data_modified['connectable_satellites'] = input_data['connectable_satellites_candidate']
             result = InputExtractor.extract(input_data_modified)
         else:
-            # 正常模式：使用優化池
+            # 正常模式：使用優化池 (Elite Pool, 129 顆)
             if use_candidate_pool:
                 self.logger.warning("⚠️ 環境變數要求使用候選池，但 input_data 中不存在 connectable_satellites_candidate")
             result = InputExtractor.extract(input_data)
@@ -509,7 +514,9 @@ class Stage5SignalAnalysisProcessor(BaseStageProcessor):
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
             # 根據環境變數決定檔名後綴
-            # SOURCE: Proposal 003 - RL Training Data vs Frontend Demo Data separation
+            # DEPRECATION NOTICE: 此檔名後綴功能將在未來版本移除
+            # - Elite Pool (129 顆) 適用於前端渲染和 RL 訓練
+            # - Candidate Pool (3,100 顆) 僅用於實驗對比
             use_candidate_pool = os.getenv('ORBIT_ENGINE_STAGE5_USE_CANDIDATE_POOL', 'false').lower() == 'true'
             pool_suffix = "_candidate_pool" if use_candidate_pool else "_elite_pool"
 
