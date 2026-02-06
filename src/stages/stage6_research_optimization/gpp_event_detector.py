@@ -14,7 +14,6 @@
 🎓 學術合規性檢查提醒:
 - 修改此文件前，請先閱讀: docs/stages/STAGE6_COMPLIANCE_CHECKLIST.md
 - 重點檢查: 所有3GPP門檻值必須有完整的TS編號和Section引用
-- 已修正: P0-2 移除"假設"關鍵字、P1-1 添加完整3GPP SOURCE標記
 - 禁用詞: 假設、估計、簡化、模擬
 """
 
@@ -23,15 +22,12 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
-# D2 事件地面距离计算模块
-# 使用共用的坐标转换和地面距离计算模块（移除重复实现）
-# SOURCE: Bowring (1985) "The accuracy of geodetic latitude and height equations"
-# SOURCE: Sinnott, R. W. (1984). "Virtues of the Haversine", Sky and Telescope, 68(2), 159
 from src.shared.utils.coordinate_converter import ecef_to_geodetic
 from src.shared.utils import haversine_distance
+from .gpp_event_helpers import GPPEventHelpers
 
 
-class GPPEventDetector:
+class GPPEventDetector(GPPEventHelpers):
     """3GPP NTN 事件檢測器"""
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -45,7 +41,7 @@ class GPPEventDetector:
 
         # 事件統計
         self.event_stats = {
-            'a3_events': 0,  # 新增 A3 事件
+            'a3_events': 0,
             'a4_events': 0,
             'a5_events': 0,
             'd2_events': 0,
@@ -66,33 +62,12 @@ class GPPEventDetector:
     ) -> Dict[str, Any]:
         """檢測所有類型的 3GPP 事件 - 遍歷時間序列
 
-        🚨 重要修正 (2025-10-05):
-        - 舊實現: 只處理單次快照 → 僅 114 個事件 (4 顆衛星)
-        - 新實現: 遍歷 224 個時間點 → 預期 ~2000 個事件 (112 顆衛星)
-
         Args:
             signal_analysis: Stage 5 的信號分析數據
-                格式: {
-                    'sat_id': {
-                        'time_series': [
-                            {'timestamp': ..., 'rsrp_dbm': ..., 'is_connectable': ...},
-                            ...
-                        ],
-                        'summary': {...}
-                    }
-                }
-            serving_satellite_id: 當前服務衛星 ID (可選，建議為 None 讓系統自動選擇)
+            serving_satellite_id: 當前服務衛星 ID (可選)
 
         Returns:
-            {
-                'a3_events': List[Dict],
-                'a4_events': List[Dict],
-                'a5_events': List[Dict],
-                'd2_events': List[Dict],
-                'total_events': int,
-                'event_summary': Dict,
-                'time_series_coverage': Dict  # 新增: 時間覆蓋率資訊
-            }
+            包含 a3/a4/a5/d2 事件列表和統計摘要的字典
         """
         self.logger.info("🔍 開始 3GPP 事件檢測...")
         self.logger.info("   模式: 遍歷完整時間序列 (修正版)")
@@ -101,9 +76,6 @@ class GPPEventDetector:
         all_timestamps = self._collect_all_timestamps(signal_analysis)
         self.logger.info(f"   收集到 {len(all_timestamps)} 個唯一時間點")
 
-        # ✅ Fail-Fast (P3-2): signal_analysis 中沒有時間點數據是致命錯誤
-        # 移除原有的回退邏輯 (返回空結果)，改為立即拋出異常
-        # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
         if len(all_timestamps) == 0:
             raise ValueError(
                 "❌ signal_analysis 中沒有可用的時間點數據\n"
@@ -123,47 +95,36 @@ class GPPEventDetector:
 
         # Step 3: 遍歷每個時間點
         for timestamp in all_timestamps:
-            # 獲取該時間點可見的衛星
             visible_satellites = self._get_visible_satellites_at(
-                signal_analysis,
-                timestamp
+                signal_analysis, timestamp
             )
 
             if len(visible_satellites) < 2:
-                # 至少需要 2 顆衛星才能檢測事件
                 continue
 
             time_points_processed += 1
 
-            # 選擇服務衛星 (使用中位數 RSRP 策略)
             serving_sat = self._select_serving_satellite(visible_satellites)
             neighbors = [s for s in visible_satellites if s['satellite_id'] != serving_sat['satellite_id']]
 
             if len(neighbors) == 0:
                 continue
 
-            # 檢測該時間點的所有事件類型（傳遞TLE epoch timestamp）
+            # 檢測該時間點的所有事件類型
             a3_events_at_t = self.detect_a3_events(serving_sat, neighbors, timestamp)
             a4_events_at_t = self.detect_a4_events(serving_sat, neighbors, timestamp)
-
-            # ⚠️ A5 特殊處理 (2025-10-10)
-            # 問題: 中位數服務衛星 (RSRP ≈ -36 dBm) 不會滿足 A5 條件1 (RSRP < -43 dBm)
-            # 解決: 額外檢測信號較差的衛星作為服務衛星的 A5 事件
-            # 學術依據: A5 設計用於檢測「服務衛星劣化」場景，應允許檢測所有可能的劣化衛星
             a5_events_at_t = self.detect_a5_events(serving_sat, neighbors, timestamp)
 
             # 額外 A5 檢測: 嘗試信號較差的衛星作為服務衛星
-            # 策略: 選擇 RSRP < 25th percentile 的衛星作為備選服務衛星
             threshold_a5_1 = self.config['a5_threshold1_dbm']
             hysteresis = self.config['hysteresis_db']
-            required_rsrp = threshold_a5_1 - hysteresis  # -43.0 dBm
+            required_rsrp = threshold_a5_1 - hysteresis
 
             poor_signal_satellites = [s for s in visible_satellites
                                      if s.get('signal_quality', {}).get('rsrp_dbm', 0) < required_rsrp]
 
             if len(poor_signal_satellites) > 0:
-                # 從信號較差的衛星中選一個作為服務衛星
-                for poor_sat in poor_signal_satellites[:5]:  # 最多檢查5顆最差的衛星
+                for poor_sat in poor_signal_satellites[:5]:
                     poor_neighbors = [s for s in visible_satellites
                                     if s['satellite_id'] != poor_sat['satellite_id']]
                     if len(poor_neighbors) > 0:
@@ -178,12 +139,10 @@ class GPPEventDetector:
             all_a5_events.extend(a5_events_at_t)
             all_d2_events.extend(d2_events_at_t)
 
-            # 統計
             events_at_t = len(a3_events_at_t) + len(a4_events_at_t) + len(a5_events_at_t) + len(d2_events_at_t)
             if events_at_t > 0:
                 time_points_with_events += 1
 
-            # 記錄參與的衛星
             for sat in visible_satellites:
                 satellites_participating.add(sat['satellite_id'])
 
@@ -202,7 +161,6 @@ class GPPEventDetector:
         self.logger.info(f"   總事件: {total_events} 個")
         self.logger.info(f"   A3: {len(all_a3_events)}, A4: {len(all_a4_events)}, A5: {len(all_a5_events)}, D2: {len(all_d2_events)}")
 
-        # 計算覆蓋率
         time_coverage_rate = time_points_processed / len(all_timestamps) if len(all_timestamps) > 0 else 0.0
 
         return {
@@ -240,81 +198,33 @@ class GPPEventDetector:
 
         3GPP TS 38.331 Section 5.5.4.4
         觸發條件: Mn + Ofn + Ocn - Hys > Mp + Ofp + Ocp + Off
-
-        其中:
-        - Mn: 鄰近衛星測量結果 (RSRP)
-        - Mp: 服務衛星測量結果 (RSRP)
-        - Ofn: 鄰近衛星測量物件偏移 (offsetMO)
-        - Ofp: 服務衛星測量物件偏移 (offsetMO)
-        - Ocn: 鄰近衛星小區偏移 (cellIndividualOffset)
-        - Ocp: 服務衛星小區偏移 (cellIndividualOffset)
-        - Hys: 遲滯參數 (hysteresis)
-        - Off: A3 特定偏移 (a3-Offset)
-
-        Args:
-            serving_satellite: 服務衛星數據
-            neighbor_satellites: 鄰近衛星列表
-
-        Returns:
-            A3 事件列表
         """
         a3_events = []
 
-        # 3GPP 標準參數
-        # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.4
         hysteresis = self.config['hysteresis_db']
-        # ✅ Fail-Fast: 直接訪問（_load_config 已保證存在）
         a3_offset = self.config['a3_offset_db']
 
-        # 提取服務衛星 RSRP 和偏移參數
-        # ✅ Fail-Fast: 移除 try-except 靜默錯誤處理
         serving_rsrp = serving_satellite['signal_quality']['rsrp_dbm']
 
-        # ✅ Fail-Fast: offset 參數檢查（3GPP 標準預設為 0.0）
-        # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4
-        # offsetMO 和 cellIndividualOffset 的 3GPP 標準預設值為 0.0 dB
-        # 如果 Stage 5 未提供，使用標準預設值（非靜默回退，而是符合標準）
-        if 'offset_mo_db' not in serving_satellite['signal_quality']:
-            serving_offset_mo = 0.0  # 3GPP 標準預設值
-            self.logger.debug(f"服務衛星 {serving_satellite['satellite_id']} 使用 offsetMO 標準預設值 0.0 dB")
-        else:
-            serving_offset_mo = serving_satellite['signal_quality']['offset_mo_db']
-
-        if 'cell_offset_db' not in serving_satellite['signal_quality']:
-            serving_cell_offset = 0.0  # 3GPP 標準預設值
-            self.logger.debug(f"服務衛星 {serving_satellite['satellite_id']} 使用 cellOffset 標準預設值 0.0 dB")
-        else:
-            serving_cell_offset = serving_satellite['signal_quality']['cell_offset_db']
+        # 3GPP 標準預設值: offsetMO = 0.0, cellIndividualOffset = 0.0
+        serving_offset_mo = serving_satellite['signal_quality'].get('offset_mo_db', 0.0)
+        serving_cell_offset = serving_satellite['signal_quality'].get('cell_offset_db', 0.0)
 
         for neighbor in neighbor_satellites:
-            # 提取鄰近衛星 RSRP 和偏移參數
             neighbor_rsrp = neighbor['signal_quality']['rsrp_dbm']
+            neighbor_offset_mo = neighbor['signal_quality'].get('offset_mo_db', 0.0)
+            neighbor_cell_offset = neighbor['signal_quality'].get('cell_offset_db', 0.0)
 
-            # ✅ Fail-Fast: offset 參數檢查（同上）
-            if 'offset_mo_db' not in neighbor['signal_quality']:
-                neighbor_offset_mo = 0.0  # 3GPP 標準預設值
-            else:
-                neighbor_offset_mo = neighbor['signal_quality']['offset_mo_db']
-
-            if 'cell_offset_db' not in neighbor['signal_quality']:
-                neighbor_cell_offset = 0.0  # 3GPP 標準預設值
-            else:
-                neighbor_cell_offset = neighbor['signal_quality']['cell_offset_db']
-
-            # 3GPP TS 38.331 標準 A3 觸發條件
-            # Mn + Ofn + Ocn - Hys > Mp + Ofp + Ocp + Off
             left_side = neighbor_rsrp + neighbor_offset_mo + neighbor_cell_offset - hysteresis
             right_side = serving_rsrp + serving_offset_mo + serving_cell_offset + a3_offset
             trigger_condition = left_side > right_side
 
             if trigger_condition:
-                # 計算觸發餘量 (margin)
                 trigger_margin = left_side - right_side
-
                 a3_event = {
                     'event_type': 'A3',
                     'event_id': f"A3_{neighbor['satellite_id']}_{int(time.time() * 1000)}",
-                    'timestamp': actual_timestamp or datetime.now(timezone.utc).isoformat(),  # FIXED: Use TLE epoch time
+                    'timestamp': actual_timestamp or datetime.now(timezone.utc).isoformat(),
                     'serving_satellite': serving_satellite['satellite_id'],
                     'neighbor_satellite': neighbor['satellite_id'],
                     'measurements': {
@@ -354,32 +264,17 @@ class GPPEventDetector:
 
         3GPP TS 38.331 Section 5.5.4.5
         觸發條件: Mn + Ofn + Ocn - Hys > Thresh
-
-        Args:
-            serving_satellite: 服務衛星數據
-            neighbor_satellites: 鄰近衛星列表
-
-        Returns:
-            A4 事件列表
         """
         a4_events = []
 
-        # 3GPP 標準參數
         threshold_a4 = self.config['a4_threshold_dbm']
         hysteresis = self.config['hysteresis_db']
         offset_freq = self.config['offset_frequency']
         offset_cell = self.config['offset_cell']
 
         for neighbor in neighbor_satellites:
-            # ✅ Fail-Fast: 移除 try-except 靜默錯誤處理
-            # 數據結構錯誤應該拋出，而非靜默跳過
-            # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
-
-            # 提取鄰近衛星 RSRP
             neighbor_rsrp = neighbor['signal_quality']['rsrp_dbm']
 
-            # 3GPP TS 38.331 標準 A4 觸發條件
-            # Mn + Ofn + Ocn - Hys > Thresh
             trigger_value = neighbor_rsrp + offset_freq + offset_cell - hysteresis
             trigger_condition = trigger_value > threshold_a4
 
@@ -387,7 +282,7 @@ class GPPEventDetector:
                 a4_event = {
                     'event_type': 'A4',
                     'event_id': f"A4_{neighbor['satellite_id']}_{int(time.time() * 1000)}",
-                    'timestamp': actual_timestamp or datetime.now(timezone.utc).isoformat(),  # FIXED: Use TLE epoch time
+                    'timestamp': actual_timestamp or datetime.now(timezone.utc).isoformat(),
                     'serving_satellite': serving_satellite['satellite_id'],
                     'neighbor_satellite': neighbor['satellite_id'],
                     'measurements': {
@@ -419,44 +314,25 @@ class GPPEventDetector:
         3GPP TS 38.331 Section 5.5.4.6
         條件1: Mp + Hys < Thresh1 (服務衛星劣化)
         條件2: Mn + Ofn + Ocn - Hys > Thresh2 (鄰近衛星良好)
-
-        Args:
-            serving_satellite: 服務衛星數據
-            neighbor_satellites: 鄰近衛星列表
-
-        Returns:
-            A5 事件列表
         """
         a5_events = []
 
-        # 3GPP 標準 A5 參數
-        threshold1_a5 = self.config['a5_threshold1_dbm']  # 服務門檻
-        threshold2_a5 = self.config['a5_threshold2_dbm']  # 鄰近門檻
+        threshold1_a5 = self.config['a5_threshold1_dbm']
+        threshold2_a5 = self.config['a5_threshold2_dbm']
         hysteresis = self.config['hysteresis_db']
         offset_freq = self.config['offset_frequency']
         offset_cell = self.config['offset_cell']
 
-        # ✅ Fail-Fast: 移除 try-except 靜默錯誤處理
-        # 服務衛星數據錯誤是致命問題，應該拋出而非返回空列表
-        # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
-
         serving_rsrp = serving_satellite['signal_quality']['rsrp_dbm']
 
-        # 條件1: 服務衛星劣於門檻1
-        # Mp + Hys < Thresh1
         serving_condition = (serving_rsrp + hysteresis) < threshold1_a5
 
         if not serving_condition:
-            # 服務衛星尚可，無需檢查 A5 事件
             return a5_events
 
-        # 服務衛星已劣化，檢查鄰近衛星
         for neighbor in neighbor_satellites:
-            # ✅ Fail-Fast: 移除內層 try-except
             neighbor_rsrp = neighbor['signal_quality']['rsrp_dbm']
 
-            # 條件2: 鄰近衛星優於門檻2
-            # Mn + Ofn + Ocn - Hys > Thresh2
             neighbor_trigger_value = neighbor_rsrp + offset_freq + offset_cell - hysteresis
             neighbor_condition = neighbor_trigger_value > threshold2_a5
 
@@ -464,7 +340,7 @@ class GPPEventDetector:
                 a5_event = {
                     'event_type': 'A5',
                     'event_id': f"A5_{neighbor['satellite_id']}_{int(time.time() * 1000)}",
-                    'timestamp': actual_timestamp or datetime.now(timezone.utc).isoformat(),  # FIXED: Use TLE epoch time
+                    'timestamp': actual_timestamp or datetime.now(timezone.utc).isoformat(),
                     'serving_satellite': serving_satellite['satellite_id'],
                     'neighbor_satellite': neighbor['satellite_id'],
                     'measurements': {
@@ -501,93 +377,48 @@ class GPPEventDetector:
     ) -> List[Dict[str, Any]]:
         """檢測 D2 事件: 基於 2D 地面距離的換手觸發
 
-        🔧 修正 (2025-10-10):
-        - 舊實現: 使用 3D 斜距 (distance_km) - 錯誤 ❌
-        - 新實現: 使用 2D 地面距離 (UE → 衛星地面投影點) - 正確 ✅
-
-        學術依據:
-        - 3GPP TS 38.331 v18.5.1 Section 5.5.4.15a
-          "Moving reference location" = 衛星地面投影點 (sub-satellite point)
-        - 距離測量: UE 到衛星地面投影點的大圓距離
-        - Haversine 公式: Sinnott (1984) "Virtues of the Haversine"
-
+        3GPP TS 38.331 v18.5.1 Section 5.5.4.15a
         條件1: Ml1 - Hys > Thresh1 (服務衛星地面距離劣於門檻1)
         條件2: Ml2 + Hys < Thresh2 (鄰居衛星地面距離優於門檻2)
-
-        Args:
-            serving_satellite: 服務衛星數據 (必須包含 position_ecef_m)
-            neighbor_satellites: 鄰近衛星列表
-
-        Returns:
-            D2 事件列表
         """
         d2_events = []
 
-        # ✅ 關鍵修復: 使用星座特定的動態閾值
-        # 問題根源: 動態閾值更新到 self.config['starlink']['d2_threshold1_km']
-        #          但檢測器讀取的是 self.config['d2_threshold1_km'] (全局默認 2000km)
-        # 修復: 根據服務衛星的星座提取對應的動態閾值
-
-        # ✅ Fail-Fast: 確保 constellation 字段存在
         if 'constellation' not in serving_satellite:
             raise ValueError(
-                f"服務衛星 {serving_satellite.get('satellite_id', 'unknown')} 缺少 constellation 字段\n"
-                "D2 事件需要星座資訊以選擇正確的距離閾值\n"
-                "請確保 Stage 5 提供完整的星座元數據"
+                f"服務衛星 {serving_satellite.get('satellite_id', 'unknown')} 缺少 constellation 字段"
             )
 
         constellation = serving_satellite['constellation']
 
-        # ✅ Fail-Fast: 星座特定閾值必須存在（Stage 4 動態閾值已確保）
         if constellation in self.config and isinstance(self.config[constellation], dict):
-            # 星座特定配置存在，閾值必須完整
             if 'd2_threshold1_km' not in self.config[constellation]:
-                raise ValueError(
-                    f"星座 {constellation} 配置缺少 d2_threshold1_km\n"
-                    "Stage 4 動態閾值分析應該已設定此值\n"
-                    "請檢查 Stage 4 輸出的 metadata.dynamic_d2_thresholds"
-                )
+                raise ValueError(f"星座 {constellation} 配置缺少 d2_threshold1_km")
             if 'd2_threshold2_km' not in self.config[constellation]:
-                raise ValueError(
-                    f"星座 {constellation} 配置缺少 d2_threshold2_km\n"
-                    "Stage 4 動態閾值分析應該已設定此值\n"
-                    "請檢查 Stage 4 輸出的 metadata.dynamic_d2_thresholds"
-                )
-
+                raise ValueError(f"星座 {constellation} 配置缺少 d2_threshold2_km")
             threshold1_km = self.config[constellation]['d2_threshold1_km']
             threshold2_km = self.config[constellation]['d2_threshold2_km']
         else:
-            # 使用全局默認閾值（僅在沒有星座特定配置時）
-            # 注意: 這應該只在測試或降級模式下發生
             self.logger.warning(
-                f"星座 {constellation} 沒有特定配置，使用全局默認閾值\n"
-                f"  Threshold1: {self.config['d2_threshold1_km']} km\n"
-                f"  Threshold2: {self.config['d2_threshold2_km']} km"
+                f"星座 {constellation} 沒有特定配置，使用全局默認閾值"
             )
             threshold1_km = self.config['d2_threshold1_km']
             threshold2_km = self.config['d2_threshold2_km']
 
         hysteresis_km = self.config['hysteresis_km']
 
-        # 轉換為米 (Haversine 公式返回米)
         threshold1_m = threshold1_km * 1000.0
         threshold2_m = threshold2_km * 1000.0
         hysteresis_m = hysteresis_km * 1000.0
 
-        # NTPU 地面站座標
-        # SOURCE: GPS Survey 2025-10-02
+        # NTPU 地面站座標 (SOURCE: GPS Survey 2025-10-02)
         UE_LAT = 24.94388888
         UE_LON = 121.37083333
 
-        # ✅ Fail-Fast: 確保服務衛星有 ECEF 位置數據
         if 'position_ecef_m' not in serving_satellite['physical_parameters']:
             raise ValueError(
-                f"服務衛星 {serving_satellite['satellite_id']} 缺少 position_ecef_m\n"
-                f"D2 事件需要 ECEF 位置計算地面距離\n"
-                f"請確保 Stage 5 提供 physical_parameters['position_ecef_m']"
+                f"服務衛星 {serving_satellite['satellite_id']} 缺少 position_ecef_m"
             )
 
-        # 計算服務衛星的 2D 地面距離
         serving_ecef = serving_satellite['physical_parameters']['position_ecef_m']
         serving_lat, serving_lon, _ = ecef_to_geodetic(
             serving_ecef[0], serving_ecef[1], serving_ecef[2]
@@ -596,27 +427,17 @@ class GPPEventDetector:
             UE_LAT, UE_LON, serving_lat, serving_lon
         )
 
-        # 條件1 (D2-1): Ml1 - Hys > Thresh1 (服務衛星地面距離劣於門檻1)
         serving_condition = (serving_ground_distance_m - hysteresis_m) > threshold1_m
 
         if not serving_condition:
-            # 服務衛星地面距離尚可，無需檢查 D2 事件
             return d2_events
 
-        # 服務衛星地面距離已劣化，檢查鄰近衛星
         for neighbor in neighbor_satellites:
-            # ✅ Fail-Fast: 確保鄰居衛星有 ECEF 位置數據
-            # Grade A 標準: 所有參與檢測的衛星必須有完整數據
-            # 依據: ACADEMIC_STANDARDS.md Fail-Fast 原則
             if 'position_ecef_m' not in neighbor['physical_parameters']:
                 raise ValueError(
-                    f"鄰居衛星 {neighbor['satellite_id']} 缺少 position_ecef_m\n"
-                    "D2 事件需要 ECEF 位置計算地面距離\n"
-                    "Grade A 標準要求所有衛星數據完整，不允許跳過\n"
-                    "請確保 Stage 5 提供 physical_parameters['position_ecef_m']"
+                    f"鄰居衛星 {neighbor['satellite_id']} 缺少 position_ecef_m"
                 )
 
-            # 計算鄰居衛星的 2D 地面距離
             neighbor_ecef = neighbor['physical_parameters']['position_ecef_m']
             neighbor_lat, neighbor_lon, _ = ecef_to_geodetic(
                 neighbor_ecef[0], neighbor_ecef[1], neighbor_ecef[2]
@@ -625,25 +446,22 @@ class GPPEventDetector:
                 UE_LAT, UE_LON, neighbor_lat, neighbor_lon
             )
 
-            # 條件2 (D2-2): Ml2 + Hys < Thresh2 (鄰居衛星地面距離優於門檻2)
             neighbor_condition = (neighbor_ground_distance_m + hysteresis_m) < threshold2_m
 
             if neighbor_condition:
                 d2_event = {
                     'event_type': 'D2',
                     'event_id': f"D2_{neighbor['satellite_id']}_{int(time.time() * 1000)}",
-                    'timestamp': actual_timestamp or datetime.now(timezone.utc).isoformat(),  # FIXED: Use TLE epoch time
+                    'timestamp': actual_timestamp or datetime.now(timezone.utc).isoformat(),
                     'serving_satellite': serving_satellite['satellite_id'],
                     'neighbor_satellite': neighbor['satellite_id'],
                     'measurements': {
-                        # 2D 地面距離 (米 → 公里)
                         'serving_ground_distance_km': serving_ground_distance_m / 1000.0,
                         'neighbor_ground_distance_km': neighbor_ground_distance_m / 1000.0,
                         'threshold1_km': threshold1_km,
                         'threshold2_km': threshold2_km,
                         'hysteresis_km': hysteresis_km,
                         'ground_distance_improvement_km': (serving_ground_distance_m - neighbor_ground_distance_m) / 1000.0,
-                        # 地面投影點座標 (用於驗證)
                         'serving_ground_point': {'lat': serving_lat, 'lon': serving_lon},
                         'neighbor_ground_point': {'lat': neighbor_lat, 'lon': neighbor_lon}
                     },
@@ -667,560 +485,8 @@ class GPPEventDetector:
 
         return d2_events
 
-    def _collect_all_timestamps(self, signal_analysis: Dict[str, Any]) -> List[str]:
-        """從所有衛星的 time_series 收集所有唯一時間戳
-
-        ✅ Fail-Fast: 確保所有衛星都有 time_series 數據和時間戳
-
-        Args:
-            signal_analysis: Stage 5 輸出的信號分析數據
-
-        Returns:
-            排序後的唯一時間戳列表
-        """
-        all_timestamps = set()
-
-        for sat_id, sat_data in signal_analysis.items():
-            # ✅ Fail-Fast: 確保 time_series 字段存在
-            if 'time_series' not in sat_data:
-                raise ValueError(
-                    f"衛星 {sat_id} 缺少 time_series 字段\n"
-                    "3GPP 事件檢測需要完整的時間序列數據\n"
-                    "請確保 Stage 5 提供所有衛星的 time_series"
-                )
-
-            time_series = sat_data['time_series']
-
-            for point in time_series:
-                # ✅ Fail-Fast: 確保每個時間點都有 timestamp
-                if 'timestamp' not in point:
-                    raise ValueError(
-                        f"衛星 {sat_id} 的 time_series 中發現缺少 timestamp 的數據點\n"
-                        "Grade A 標準要求所有時間點必須有時間戳\n"
-                        f"問題數據點: {point}"
-                    )
-                all_timestamps.add(point['timestamp'])
-
-        return sorted(list(all_timestamps))
-
-    def _get_visible_satellites_at(
-        self,
-        signal_analysis: Dict[str, Any],
-        timestamp: str
-    ) -> List[Dict[str, Any]]:
-        """獲取特定時間點可見的衛星
-
-        ✅ Fail-Fast: 確保所有數據字段完整
-
-        Args:
-            signal_analysis: Stage 5 輸出的信號分析數據
-            timestamp: 目標時間戳
-
-        Returns:
-            該時間點可見的衛星列表，每個包含 satellite_id, signal_quality, physical_parameters
-        """
-        visible = []
-
-        for sat_id, sat_data in signal_analysis.items():
-            # ✅ Fail-Fast: 確保 time_series 字段存在
-            if 'time_series' not in sat_data:
-                raise ValueError(
-                    f"衛星 {sat_id} 缺少 time_series 字段\n"
-                    "3GPP 事件檢測需要完整的時間序列數據\n"
-                    "請確保 Stage 5 提供所有衛星的 time_series"
-                )
-
-            time_series = sat_data['time_series']
-
-            # 找到該時間點的數據
-            for point in time_series:
-                if point.get('timestamp') == timestamp:
-                    # 檢查是否可連接 (is_connectable = True 表示可見且可用)
-                    # 注意: is_connectable 默認 False 是合理的（如果沒有這個字段，默認為不可連接）
-                    if point.get('is_connectable', False):
-                        # ✅ Fail-Fast: 確保 constellation 字段存在
-                        if 'constellation' not in sat_data:
-                            raise ValueError(
-                                f"衛星 {sat_id} 缺少 constellation 字段\n"
-                                "D2 事件檢測需要星座資訊\n"
-                                "請確保 Stage 5 提供完整的星座元數據"
-                            )
-
-                        # ✅ Fail-Fast: 確保 signal_quality 字段存在
-                        if 'signal_quality' not in point:
-                            raise ValueError(
-                                f"衛星 {sat_id} 在時間點 {timestamp} 缺少 signal_quality\n"
-                                "A3/A4/A5 事件檢測需要信號品質數據\n"
-                                "請確保 Stage 5 提供完整的 signal_quality"
-                            )
-
-                        # ✅ Fail-Fast: 確保 physical_parameters 字段存在
-                        if 'physical_parameters' not in point:
-                            raise ValueError(
-                                f"衛星 {sat_id} 在時間點 {timestamp} 缺少 physical_parameters\n"
-                                "D2 事件檢測需要物理參數（ECEF 位置）\n"
-                                "請確保 Stage 5 提供完整的 physical_parameters"
-                            )
-
-                        # ✅ Fail-Fast: 確保 summary 字段存在
-                        if 'summary' not in sat_data:
-                            raise ValueError(
-                                f"衛星 {sat_id} 缺少 summary 字段\n"
-                                "事件檢測需要衛星摘要數據\n"
-                                "請確保 Stage 5 提供完整的 summary"
-                            )
-
-                        visible.append({
-                            'satellite_id': sat_id,
-                            'constellation': sat_data['constellation'],
-                            'timestamp': timestamp,
-                            'signal_quality': point['signal_quality'],
-                            'physical_parameters': point['physical_parameters'],
-                            'summary': sat_data['summary']
-                        })
-                    break
-
-        return visible
-
-    def _select_serving_satellite(
-        self,
-        visible_satellites: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """選擇服務衛星 (使用中位數 RSRP 策略)
-
-        ✅ Fail-Fast: 所有衛星必須有 RSRP 數據，無回退邏輯
-
-        Args:
-            visible_satellites: 可見衛星列表
-
-        Returns:
-            選中的服務衛星
-        """
-        if not visible_satellites:
-            raise ValueError("沒有可見衛星可供選擇")
-
-        if len(visible_satellites) == 1:
-            return visible_satellites[0]
-
-        # ✅ Fail-Fast: 按 RSRP 排序，所有衛星必須有 RSRP 數據
-        satellites_with_rsrp = []
-        for sat in visible_satellites:
-            # ✅ Fail-Fast: 確保 signal_quality 字段存在
-            if 'signal_quality' not in sat:
-                raise ValueError(
-                    f"衛星 {sat.get('satellite_id', 'unknown')} 缺少 signal_quality 字段\n"
-                    "服務衛星選擇需要信號品質數據\n"
-                    "請確保 _get_visible_satellites_at 提供完整的數據"
-                )
-
-            # ✅ Fail-Fast: 確保 rsrp_dbm 字段存在
-            if 'rsrp_dbm' not in sat['signal_quality']:
-                raise ValueError(
-                    f"衛星 {sat.get('satellite_id', 'unknown')} 的 signal_quality 缺少 rsrp_dbm\n"
-                    "服務衛星選擇需要 RSRP 數據\n"
-                    "請確保 Stage 5 提供完整的 RSRP 測量值"
-                )
-
-            rsrp = sat['signal_quality']['rsrp_dbm']
-            satellites_with_rsrp.append((sat, rsrp))
-
-        # 選擇中位數 RSRP
-        satellites_with_rsrp.sort(key=lambda x: x[1])
-        median_index = len(satellites_with_rsrp) // 2
-        return satellites_with_rsrp[median_index][0]
-
-    def _extract_serving_satellite(
-        self,
-        signal_analysis: Dict[str, Any],
-        serving_satellite_id: Optional[str]
-    ) -> Optional[Dict[str, Any]]:
-        """提取服務衛星數據
-
-        策略:
-        1. 如果指定 serving_satellite_id，使用該衛星
-        2. ✅ 修復: 選擇 RSRP 中位數的衛星作為服務衛星
-           - 舊邏輯: 選擇最高 RSRP 導致 A3 事件無法觸發
-           - A3 事件需要: Mn (neighbor) > Mp (serving) + offset
-           - 如果 Mp 是最大值，則沒有鄰居能滿足條件
-           - 新邏輯: 選擇中位數 RSRP，允許部分鄰居優於服務衛星
-
-        SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.4
-        A3 事件定義: "Neighbour becomes offset better than serving"
-        觸發條件: Mn + Ofn + Ocn - Hys > Mp + Ofp + Ocp + Off
-        """
-        if not signal_analysis:
-            return None
-
-        # 如果指定服務衛星
-        if serving_satellite_id and serving_satellite_id in signal_analysis:
-            sat_data = signal_analysis[serving_satellite_id]
-            return self._extract_satellite_snapshot(serving_satellite_id, sat_data)
-
-        # ✅ 修復: 選擇中位數 RSRP 衛星（而非最高 RSRP）
-        # 收集所有衛星的 RSRP 值並排序
-        satellite_rsrp = []
-
-        for sat_id, sat_data in signal_analysis.items():
-            # ✅ Fail-Fast: 確保 summary 字段存在
-            if 'summary' not in sat_data:
-                raise ValueError(
-                    f"衛星 {sat_id} 缺少 summary 字段\n"
-                    "服務衛星選擇需要 summary 數據\n"
-                    "請確保 Stage 5 提供完整的衛星摘要"
-                )
-
-            summary = sat_data['summary']
-
-            # ✅ Fail-Fast: 確保 average_rsrp_dbm 字段存在
-            if 'average_rsrp_dbm' not in summary:
-                raise ValueError(
-                    f"衛星 {sat_id} 的 summary 缺少 average_rsrp_dbm\n"
-                    "Grade A 標準要求所有數據字段必須存在\n"
-                    "請確保 Stage 5 提供完整的 RSRP 平均值"
-                )
-
-            rsrp = summary['average_rsrp_dbm']
-            satellite_rsrp.append((sat_id, rsrp))
-
-        # 按 RSRP 排序並選擇中位數
-        satellite_rsrp.sort(key=lambda x: x[1])
-        median_index = len(satellite_rsrp) // 2
-        median_satellite_id = satellite_rsrp[median_index][0]
-        median_rsrp = satellite_rsrp[median_index][1]
-
-        # 🔍 DEBUG: 記錄服務衛星選擇結果
-        max_satellite_id = satellite_rsrp[-1][0]
-        max_rsrp = satellite_rsrp[-1][1]
-        min_satellite_id = satellite_rsrp[0][0]
-        min_rsrp = satellite_rsrp[0][1]
-
-        self.logger.info(
-            f"📡 服務衛星選擇策略: 中位數 RSRP\n"
-            f"   總衛星數: {len(satellite_rsrp)}\n"
-            f"   最低 RSRP: {min_satellite_id} ({min_rsrp:.2f} dBm)\n"
-            f"   中位數: {median_satellite_id} ({median_rsrp:.2f} dBm) ✅ 選為服務衛星\n"
-            f"   最高 RSRP: {max_satellite_id} ({max_rsrp:.2f} dBm)\n"
-            f"   RSRP 範圍: {max_rsrp - min_rsrp:.2f} dB"
-        )
-
-        # 提取服務衛星的完整快照
-        sat_data = signal_analysis[median_satellite_id]
-        return self._extract_satellite_snapshot(median_satellite_id, sat_data)
-
-    def _extract_neighbor_satellites(
-        self,
-        signal_analysis: Dict[str, Any],
-        serving_satellite_id: str
-    ) -> List[Dict[str, Any]]:
-        """提取鄰近衛星列表 (排除服務衛星)"""
-        neighbor_satellites = []
-
-        for sat_id, sat_data in signal_analysis.items():
-            if sat_id != serving_satellite_id:
-                # 從 time_series 提取最新時間點數據
-                snapshot = self._extract_satellite_snapshot(sat_id, sat_data)
-                neighbor_satellites.append(snapshot)
-
-        return neighbor_satellites
-
-    def _extract_satellite_snapshot(self, sat_id: str, sat_data: Dict[str, Any]) -> Dict[str, Any]:
-        """從 time_series 提取最新時間點的衛星數據快照
-
-        ✅ Fail-Fast: 確保所有必需字段存在
-
-        Args:
-            sat_id: 衛星ID
-            sat_data: 包含 time_series 和 summary 的原始數據
-
-        Returns:
-            包含 signal_quality, physical_parameters 的快照
-        """
-        # ✅ Fail-Fast: 確保 time_series 字段存在
-        if 'time_series' not in sat_data:
-            raise ValueError(
-                f"衛星 {sat_id} 缺少 time_series 字段\n"
-                "事件檢測需要完整的時間序列數據\n"
-                "請確保 Stage 5 提供所有衛星的 time_series"
-            )
-
-        time_series = sat_data['time_series']
-
-        # ✅ Fail-Fast: 確保 time_series 不為空
-        if not time_series or len(time_series) == 0:
-            raise ValueError(
-                f"衛星 {sat_id} 的 time_series 為空\n"
-                "Grade A 標準禁止使用預設值\n"
-                "請確保 Stage 5 提供完整的 time_series 數據"
-            )
-
-        # ✅ Fail-Fast: 確保 summary 字段存在
-        if 'summary' not in sat_data:
-            raise ValueError(
-                f"衛星 {sat_id} 缺少 summary 字段\n"
-                "事件檢測需要衛星摘要數據\n"
-                "請確保 Stage 5 提供完整的 summary"
-            )
-
-        summary = sat_data['summary']
-
-        # 使用最新時間點（最後一個）
-        latest_point = time_series[-1]
-
-        # ✅ Fail-Fast: 確保 signal_quality 字段存在
-        if 'signal_quality' not in latest_point:
-            raise ValueError(
-                f"衛星 {sat_id} 的 time_series 最新點缺少 signal_quality\n"
-                "事件檢測需要信號品質數據\n"
-                "請確保 Stage 5 提供完整的 signal_quality"
-            )
-
-        signal_quality = latest_point['signal_quality']
-
-        # ✅ Fail-Fast: 確保 physical_parameters 字段存在
-        if 'physical_parameters' not in latest_point:
-            raise ValueError(
-                f"衛星 {sat_id} 的 time_series 最新點缺少 physical_parameters\n"
-                "D2 事件檢測需要物理參數\n"
-                "請確保 Stage 5 提供完整的 physical_parameters"
-            )
-
-        physical_parameters = latest_point['physical_parameters']
-
-        # ✅ Fail-Fast: 確保 constellation 字段存在
-        if 'constellation' not in sat_data:
-            raise ValueError(
-                f"衛星 {sat_id} 缺少 constellation 數據\n"
-                "Grade A 標準要求所有衛星必須標註星座歸屬\n"
-                "請確保 Stage 5 提供完整的衛星元數據"
-            )
-
-        return {
-            'satellite_id': sat_id,
-            'constellation': sat_data['constellation'],
-            'signal_quality': signal_quality,
-            'physical_parameters': physical_parameters,
-            'summary': summary
-        }
-
-    def _empty_event_result(self) -> Dict[str, Any]:
-        """返回空的事件檢測結果"""
-        return {
-            'a3_events': [],
-            'a4_events': [],
-            'a5_events': [],
-            'd2_events': [],
-            'total_events': 0,
-            'event_summary': {
-                'a3_count': 0,
-                'a4_count': 0,
-                'a5_count': 0,
-                'd2_count': 0,
-                'events_per_minute': 0.0
-            }
-        }
-
-    def _load_config(self, config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        """載入並合併配置參數
-
-        所有門檻值均基於 3GPP 標準和 LEO NTN 場景實測數據
-        """
-        default_config = {
-            # ============================================================
-            # A3 事件偏移 (Neighbour becomes offset better than SpCell)
-            # ============================================================
-            # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.4
-            # a3-Offset 範圍: -30 ~ +30 dB (0.5 dB 步進)
-            # ⚠️ LEO NTN 優化配置 ✨ (2025-10-10)
-            # 調整理由:
-            #   - 地面網絡: 3.0 dB (RSRP範圍60 dB，占5%)
-            #   - LEO NTN: 2.0 dB (RSRP範圍17 dB，占11.8%)
-            #   - 等比例調整: 3 × (17/60) = 0.85 dB → 平衡取2.0 dB
-            #   - 適應快速移動: LEO衛星7.5 km/s，需更靈敏觸發
-            # 學術依據:
-            #   - WebSearch確認: "Small offset for fast-moving UEs"
-            #   - 數據基礎: RSRP範圍-44.88 ~ -27.88 dBm (2,730樣本)
-            #   - 3GPP TS 36.331: 快速移動場景建議使用較小offset
-            'a3_offset_db': 2.0,
-
-            # ============================================================
-            # A4 事件門檻 (Neighbour becomes better than threshold)
-            # ============================================================
-            # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.5
-            # 依據: NTN LEO 場景典型 RSRP 範圍 (-120dBm ~ -80dBm)
-            # 參考: 3GPP TR 38.821 Table 6.1.1.1-1 (NTN Signal Level)
-            # -100dBm 對應「可接受」信號品質，適合觸發換手評估
-            'a4_threshold_dbm': -100.0,
-
-            # ============================================================
-            # A5 事件雙門檻 (Serving becomes worse than threshold1 AND
-            #                Neighbour becomes better than threshold2)
-            # ============================================================
-            # ⚠️ NTN 優化配置 ✨ (2025-10-10)
-            #
-            # **地面標準（不適用於 LEO NTN）**:
-            # - Threshold1: -110 dBm, Threshold2: -95 dBm
-            # - SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.6
-            # - 問題: 地面基站距離 1-10 km，LEO 衛星距離 550-2500 km
-            # - 結果: 實測 RSRP 範圍 -70~-25 dBm，永遠達不到 -110 dBm
-            #
-            # **NTN 優化閾值（基於實測數據）**:
-            # SOURCE: 實測 RSRP 分佈分析（2,730 樣本點）
-            # - 數據來源: NTPU 地面站，71 天 TLE 歷史數據（2025-07-27 ~ 2025-10-09）
-            # - RSRP 範圍: -44.88 ~ -27.88 dBm
-            # - 統計分析: 10th%-38.84, 25th%-35.17, 50th%-32.06, 75th%-29.04 dBm
-            #
-            # Threshold1 (服務衛星劣化門檻): 考慮 hysteresis 後的 10th percentile
-            # 計算邏輯:
-            #   - A5 條件1: Mp + Hys < Thresh1 (其中 Hys = 2.0 dB)
-            #   - 目標: 讓 10th percentile 附近的衛星能觸發
-            #   - 10th percentile RSRP ≈ -44.2 dBm
-            #   - 需要: Thresh1 > (-44.2 + 2.0) = -42.2 dBm
-            #   - 設定: -41.0 dBm（加 1.0 dB 餘量，確保觸發）
-            # 理由: 當服務衛星 RSRP < -43.0 dBm 時觸發（5-10% 範圍，基於實測數據）
-            # 學術依據: 3GPP TR 38.821 v18.0.0 Section 6.4.3
-            #          建議 NTN 場景根據實測數據調整閾值
-            'a5_threshold1_dbm': -41.0,
-
-            # Threshold2 (鄰居衛星良好門檻): 考慮 hysteresis 後的 70th percentile
-            # 計算邏輯:
-            #   - A5 條件2: Mn - Hys > Thresh2 (其中 Hys = 2.0 dB)
-            #   - 目標: 讓 70th percentile 以上的衛星能觸發
-            #   - 70th percentile RSRP ≈ -30.8 dBm
-            #   - 需要: Thresh2 < (-30.8 - 2.0) = -32.8 dBm
-            #   - 設定: -34.0 dBm（減 1.0 dB 餘量，確保質量）
-            # 理由: 鄰居衛星 RSRP > -32.0 dBm 時觸發（30% 最佳範圍，基於統計分析）
-            # 計算: -34.0 dBm = 70th percentile (-30.8 dBm) - hysteresis (2.0) - margin (1.2)
-            'a5_threshold2_dbm': -34.0,
-
-            # **觸發率預期**:
-            # - 地面標準: A5 事件 = 0 個（0% 觸發率，物理上不可達）
-            # - NTN 優化: A5 事件 ≈ 100-300 個（~10-15% 觸發率，符合預期）
-            # - 觸發條件: serving_rsrp < -43.0 dBm AND neighbor_rsrp > -32.0 dBm
-            #
-            # **參考文獻**:
-            # - 3GPP TS 38.331 v18.5.1 Section 5.5.4.6 (A5 Event Definition)
-            # - 3GPP TR 38.821 v18.0.0 Section 6.4.3 (NTN Threshold Adaptation)
-            # - ITU-R P.525-4 (Free Space Path Loss for LEO)
-            # - 詳細分析: /tmp/multi_day_a5_feasibility_analysis.md
-
-            # ============================================================
-            # D2 事件距離門檻 (Distance-based handover trigger)
-            # ============================================================
-            # SOURCE: 3GPP TS 38.331 v18.5.1 Section 5.5.4.15a
-            # 依據: LEO 衛星典型覆蓋範圍和最佳服務距離
-            # 參考: Starlink 運營數據 (軌道高度 550km)
-            #
-            # 3GPP 標準定義:
-            # D2-1: Ml1 - Hys > Thresh1 (Ml1 = 服務衛星距離)
-            # D2-2: Ml2 + Hys < Thresh2 (Ml2 = 鄰居衛星距離)
-
-            # Threshold1 (服務衛星距離門檻 Ml1 vs Thresh1): 2000km
-            # 理由: 當服務衛星距離超過 2000km 時，
-            #       仰角過低，信號品質嚴重劣化，應觸發換手
-            'd2_threshold1_km': 2000.0,
-
-            # Threshold2 (鄰居衛星距離門檻 Ml2 vs Thresh2): 1500km
-            # 理由: LEO 衛星最佳覆蓋半徑 1000-1500km範圍（基於LEO衛星覆蓋計算）
-            #       鄰居衛星距離小於此門檻，確保良好信號品質
-            'd2_threshold2_km': 1500.0,
-
-            # ============================================================
-            # 遲滯參數 (Hysteresis - 防止頻繁切換)
-            # ============================================================
-            # SOURCE: 3GPP TS 38.331 Section 5.5.3.1
-            # Hysteresis 範圍: 0-30 dB (0.5 dB 步進)
-            # ⚠️ LEO NTN 優化配置 ✨ (2025-10-10)
-            # 調整理由:
-            #   - 標準值: 2.0 dB (基於測量不確定性±2 dB)
-            #   - LEO場景: RSRP標準差5.89 dB (變化更平稳)
-            #   - 降低至1.5 dB平衡響應速度和穩定性
-            # 學術依據:
-            #   - 3GPP TS 38.133 Table 9.1.2.1-1: 測量不確定性
-            #   - 實測數據: RSRP標準差5.89 dB (2,730樣本)
-            #   - A3總門槛: 2.0 + 1.5 = 3.5 dB (占RSRP範圍17 dB的20.6%)
-            'hysteresis_db': 1.5,
-
-            # 距離遲滯: 50 km
-            # SOURCE: 基於 LEO 衛星移動速度 ~7.5 km/s
-            # 計算: 1秒移動距離 7.5km（基於LEO軌道速度計算），取 50km 避免測量抖動
-            # 依據: 衛星軌道動力學 (Vallado 2013, Chapter 6)
-            'hysteresis_km': 50.0,
-
-            # ============================================================
-            # 偏移參數 (Offset - 同頻場景)
-            # ============================================================
-            # SOURCE: 3GPP TS 38.331 Section 5.5.4
-            # 同頻換手場景: offsetFrequency = 0, cellIndividualOffset = 0
-            'offset_frequency': 0.0,
-            'offset_cell': 0.0,
-
-            # ============================================================
-            # 時間觸發延遲 (Time-to-Trigger)
-            # ============================================================
-            # SOURCE: 3GPP TS 38.331 Section 5.5.6.1
-            # TimeToTrigger 可選值: {0, 40, 64, 80, 100, 128, 160, 256,
-            #                        320, 480, 512, 640, 1024, ...} ms
-            # 選擇 640ms 的理由:
-            # - 平衡響應速度 (不能太慢) 和穩定性 (避免誤觸發)
-            # - 適合 LEO 快速移動場景 (相對地面 7.5 km/s)
-            # - 符合 3GPP RAN4 建議值 (TS 36.133 Table 8.1.2.4-1)
-            'time_to_trigger_ms': 640,
-
-            # ============================================================
-            # 觀測窗口時長 (用於計算事件頻率)
-            # ============================================================
-            # SOURCE: Stage 4-6 配置統一參數
-            # 依據: 與 Stage 4 可見性計算窗口一致 (2 小時)
-            'observation_window_minutes': 120.0
-        }
-
-        if config:
-            # Handle nested config structure from YAML (gpp_events.a4.rsrp_threshold_dbm)
-            if 'gpp_events' in config:
-                gpp_config = config['gpp_events']
-
-                # Extract A3 config
-                if 'a3' in gpp_config:
-                    a3_config = gpp_config['a3']
-                    if 'offset_db' in a3_config:
-                        default_config['a3_offset_db'] = a3_config['offset_db']
-                    if 'time_to_trigger_ms' in a3_config:
-                        default_config['time_to_trigger_ms'] = a3_config['time_to_trigger_ms']
-
-                # Extract A4 config (CRITICAL FIX)
-                if 'a4' in gpp_config:
-                    a4_config = gpp_config['a4']
-                    if 'rsrp_threshold_dbm' in a4_config:
-                        default_config['a4_threshold_dbm'] = a4_config['rsrp_threshold_dbm']
-                    if 'hysteresis_db' in a4_config:
-                        default_config['hysteresis_db'] = a4_config['hysteresis_db']
-                    if 'time_to_trigger_ms' in a4_config:
-                        default_config['time_to_trigger_ms'] = a4_config['time_to_trigger_ms']
-
-                # Extract A5 config
-                if 'a5' in gpp_config:
-                    a5_config = gpp_config['a5']
-                    if 'rsrp_threshold1_dbm' in a5_config:
-                        default_config['a5_threshold1_dbm'] = a5_config['rsrp_threshold1_dbm']
-                    if 'rsrp_threshold2_dbm' in a5_config:
-                        default_config['a5_threshold2_dbm'] = a5_config['rsrp_threshold2_dbm']
-
-                # Extract D2 config
-                if 'd2' in gpp_config:
-                    d2_config = gpp_config['d2']
-                    if 'distance_threshold1_km' in d2_config:
-                        default_config['d2_threshold1_km'] = d2_config['distance_threshold1_km']
-                    if 'distance_threshold2_km' in d2_config:
-                        default_config['d2_threshold2_km'] = d2_config['distance_threshold2_km']
-            else:
-                # Flat config structure (backward compatibility)
-                default_config.update(config)
-
-        return default_config
-
 
 if __name__ == "__main__":
-    # 測試 3GPP 事件檢測器
     detector = GPPEventDetector()
 
     print("🧪 3GPP 事件檢測器測試:")
